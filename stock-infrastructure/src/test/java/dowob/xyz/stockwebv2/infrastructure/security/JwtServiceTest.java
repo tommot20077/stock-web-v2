@@ -1,0 +1,142 @@
+package dowob.xyz.stockwebv2.infrastructure.security;
+
+import dowob.xyz.stockwebv2.common.model.Role;
+import org.junit.jupiter.api.Test;
+
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.spec.ECGenParameterSpec;
+import java.time.Duration;
+import java.util.Base64;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class JwtServiceTest {
+
+    @Test
+    void createsAndParsesAccessTokenWithGeneratedDevelopmentKey() {
+        JwtProperties properties = new JwtProperties("", Duration.ofMinutes(30), Duration.ofDays(14));
+        JwtService jwtService = new JwtService(properties);
+
+        String token = jwtService.createAccessToken(42L, Role.USER, 7);
+        JwtService.JwtClaims claims = jwtService.parse(token);
+
+        assertThat(claims.userId()).isEqualTo(42L);
+        assertThat(claims.role()).isEqualTo(Role.USER);
+        assertThat(claims.tokenVersion()).isEqualTo(7);
+    }
+
+    @Test
+    void createsAndParsesAccessTokenWithConfiguredP256PrivateKey() throws Exception {
+        JwtProperties properties = new JwtProperties(privateKeyPem("secp256r1"), Duration.ofMinutes(30), Duration.ofDays(14));
+        JwtService jwtService = new JwtService(properties);
+
+        String token = jwtService.createAccessToken(42L, Role.USER, 7);
+        JwtService.JwtClaims claims = jwtService.parse(token);
+
+        assertThat(claims.userId()).isEqualTo(42L);
+        assertThat(claims.role()).isEqualTo(Role.USER);
+        assertThat(claims.tokenVersion()).isEqualTo(7);
+    }
+
+    @Test
+    void rejectsNullAccessTokenTtl() {
+        assertThatThrownBy(() -> new JwtProperties("", null, Duration.ofDays(14)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("accessTokenTtl");
+    }
+
+    @Test
+    void rejectsZeroAccessTokenTtl() {
+        assertThatThrownBy(() -> new JwtProperties("", Duration.ZERO, Duration.ofDays(14)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("accessTokenTtl");
+    }
+
+    @Test
+    void rejectsNegativeAccessTokenTtl() {
+        assertThatThrownBy(() -> new JwtProperties("", Duration.ofSeconds(-1), Duration.ofDays(14)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("accessTokenTtl");
+    }
+
+    @Test
+    void rejectsNullRefreshTokenTtl() {
+        assertThatThrownBy(() -> new JwtProperties("", Duration.ofMinutes(30), null))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("refreshTokenTtl");
+    }
+
+    @Test
+    void rejectsZeroRefreshTokenTtl() {
+        assertThatThrownBy(() -> new JwtProperties("", Duration.ofMinutes(30), Duration.ZERO))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("refreshTokenTtl");
+    }
+
+    @Test
+    void rejectsNegativeRefreshTokenTtl() {
+        assertThatThrownBy(() -> new JwtProperties("", Duration.ofMinutes(30), Duration.ofSeconds(-1)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("refreshTokenTtl");
+    }
+
+    @Test
+    void rejectsPublicOnlyP256Key() throws Exception {
+        JwtProperties properties = new JwtProperties(publicKeyPem("secp256r1"), Duration.ofMinutes(30), Duration.ofDays(14));
+
+        assertThatThrownBy(() -> new JwtService(properties))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("private");
+    }
+
+    @Test
+    void rejectsNonP256PrivateKey() throws Exception {
+        JwtProperties properties = new JwtProperties(privateKeyPem("secp384r1"), Duration.ofMinutes(30), Duration.ofDays(14));
+
+        assertThatThrownBy(() -> new JwtService(properties))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("P-256");
+    }
+
+    @Test
+    void rejectsMismatchedPrivateAndPublicKeyBlocks() throws Exception {
+        String pem = privateKeyPem("secp256r1") + "\n" + publicKeyPem("secp256r1");
+        JwtProperties properties = new JwtProperties(pem, Duration.ofMinutes(30), Duration.ofDays(14));
+
+        assertThatThrownBy(() -> new JwtService(properties))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("match");
+    }
+
+    private static String privateKeyPem(String curveName) throws Exception {
+        return pem("PRIVATE KEY", keyPair(curveName).getPrivate());
+    }
+
+    private static String publicKeyPem(String curveName) throws Exception {
+        return pem("PUBLIC KEY", keyPair(curveName).getPublic());
+    }
+
+    private static KeyPair keyPair(String curveName) throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(new ECGenParameterSpec(curveName));
+        return generator.generateKeyPair();
+    }
+
+    private static String pem(String type, PrivateKey key) {
+        return pem(type, key.getEncoded());
+    }
+
+    private static String pem(String type, PublicKey key) {
+        return pem(type, key.getEncoded());
+    }
+
+    private static String pem(String type, byte[] encoded) {
+        return "-----BEGIN " + type + "-----\n"
+            + Base64.getMimeEncoder(64, "\n".getBytes()).encodeToString(encoded)
+            + "\n-----END " + type + "-----";
+    }
+}
