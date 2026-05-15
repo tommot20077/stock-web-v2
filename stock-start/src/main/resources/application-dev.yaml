@@ -1,0 +1,20 @@
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  datasource:
+    url: ${STOCK_DB_URL}
+    username: ${STOCK_DB_USERNAME}
+    password: ${STOCK_DB_PASSWORD}
+  data:
+    redis:
+      host: ${STOCK_REDIS_HOST}
+      port: ${STOCK_REDIS_PORT}
+      database: ${STOCK_REDIS_DATABASE:1}
+      password: ${STOCK_REDIS_PASSWORD:}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+logging:
+  level:
+    dowob.xyz.stockwebv2: DEBUG

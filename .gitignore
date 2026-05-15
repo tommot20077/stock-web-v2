@@ -34,3 +34,8 @@ build/
 
 # Local git worktrees
 .worktrees/
+
+# Local runtime environment
+.env
+.env.*
+!.env.example
