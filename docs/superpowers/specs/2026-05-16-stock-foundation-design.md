@@ -45,6 +45,92 @@
 
 本階段不做完整 portfolio、broker account、交易記帳、持倉計算、行情 WebSocket、alerts、backtest、AI/MCP access。
 
+## Environment Configuration
+
+所有 runtime 設定統一走環境變數。YAML 只能放 `${...}` placeholder 與合理的非敏感 default，不硬寫 DB/Redis host、port、database、username、password、JWT key、CORS origin 等環境差異設定。
+
+Foundation 階段固定三份 YAML：
+
+```text
+stock-start/src/main/resources/application.yaml
+stock-start/src/main/resources/application-dev.yaml
+stock-start/src/main/resources/application-demo.yaml
+```
+
+### application.yaml
+
+基礎共用設定，只放所有環境都一致的設定：
+
+- `spring.application.name`
+- active profile 載入規則。
+- Jackson/timezone/common web settings。
+- Actuator/OpenAPI 的共用開關。
+- log pattern、traceId MDC 等共用設定。
+
+不得放任何實際 DB/Redis endpoint 或 secret。
+
+### application-dev.yaml
+
+本地開發 profile。用途是讓 dev run script 載入 `.env` 後啟動 Spring Boot：
+
+- DB、Redis、JWT、CORS、management port 全部使用環境變數。
+- 可以保留非敏感 default，例如 `STOCK_REDIS_DATABASE:1`。
+- 對必填值不提供危險 default；缺少 DB URL、DB user/password 時應 fail fast。
+
+### application-demo.yaml
+
+Demo/reference profile。用途是說明所有可配置參數，並作為 demo 環境部署的 profile：
+
+- 列出 Foundation 階段支援的所有 `STOCK_*` / `SPRING_*` 參數。
+- 每個參數用 YAML comment 說明用途、是否必填、合理範例。
+- 仍使用環境變數 placeholder，不放真密碼。
+- demo 環境若要啟動，必須由部署環境提供實際 env 值。
+
+本機執行使用 repo root 的 `.env` 載入環境變數：
+
+- `.env`：本機實際值，不提交。
+- `.env.example`：提交範例 key，不放真密碼。
+- 執行 Spring Boot 前必須先載入 `.env`，例如透過 PowerShell run script 或 Maven wrapper script。實作階段需提供一致的本機啟動方式，避免開發者手動一個一個設定 `$env:`。
+
+目前可用的 dev infrastructure endpoint 以 `.env` 表示：
+
+```properties
+STOCK_DB_URL=jdbc:postgresql://10.0.0.214:30120/stock_v2_db
+STOCK_DB_USERNAME=
+STOCK_DB_PASSWORD=
+STOCK_REDIS_HOST=10.0.0.214
+STOCK_REDIS_PORT=30121
+STOCK_REDIS_DATABASE=1
+STOCK_REDIS_PASSWORD=
+```
+
+Redis 連線以 host/port/database 表達，不使用 `jdbc:redis://...`。如果未來 Redis 加密碼，只補 `STOCK_REDIS_PASSWORD`。
+
+`application-dev.yaml` / `application-demo.yaml` 設計方向：
+
+```yaml
+spring:
+  datasource:
+    url: ${STOCK_DB_URL}
+    username: ${STOCK_DB_USERNAME}
+    password: ${STOCK_DB_PASSWORD}
+  data:
+    redis:
+      host: ${STOCK_REDIS_HOST}
+      port: ${STOCK_REDIS_PORT}
+      database: ${STOCK_REDIS_DATABASE:1}
+      password: ${STOCK_REDIS_PASSWORD:}
+```
+
+其他應環境變數化的 foundation 設定：
+
+- `STOCK_JWT_PRIVATE_KEY`
+- `STOCK_JWT_ACCESS_TOKEN_TTL`
+- `STOCK_JWT_REFRESH_TOKEN_TTL`
+- `STOCK_CORS_ALLOWED_ORIGINS`
+- `STOCK_MANAGEMENT_PORT`
+- `SPRING_PROFILES_ACTIVE`
+
 ## Module Boundary
 
 Foundation-first 階段建立以下模組：
@@ -420,6 +506,8 @@ Foundation 階段不建立 DB audit table。先使用 SLF4J `AUDIT` logger，交
 - `GET /api/v1/me`
 - `GET /api/v1/assets`
 
+執行命令需透過已定義的本機 run script 載入 `.env` 後再啟動 Spring Boot；不得要求開發者手動複製 `.env` 值到 shell session。
+
 ## Out of Scope
 
 本 Foundation spec 不實作：
@@ -450,4 +538,5 @@ Foundation 階段不建立 DB audit table。先使用 SLF4J `AUDIT` logger，交
 - Redis token version fail-closed 行為可測。
 - Asset seed query 可用。
 - Actuator health 與 OpenAPI 可用。
+- `.env.example` 與本機 run script 約定清楚；`application.yaml`、`application-dev.yaml`、`application-demo.yaml` 分工清楚，並以環境變數 placeholder 為唯一 runtime config 來源。
 - 沒有交易、持倉、行情等非 Foundation scope 的半成品。
