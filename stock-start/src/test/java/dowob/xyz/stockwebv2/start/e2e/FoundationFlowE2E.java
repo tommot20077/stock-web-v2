@@ -52,6 +52,7 @@ class FoundationFlowE2E extends AbstractStockE2ETest {
 
         mockMvc.perform(post("/api/v1/auth/logout")
                 .contentType(MediaType.APPLICATION_JSON)
+                .with(bearerToken(session.accessToken()))
                 .content(objectMapper.writeValueAsString(java.util.Map.of(
                     "refreshToken", session.refreshToken()
                 ))))

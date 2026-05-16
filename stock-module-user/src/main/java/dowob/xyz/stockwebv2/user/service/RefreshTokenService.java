@@ -55,8 +55,15 @@ public class RefreshTokenService {
     }
 
     public void revoke(String token) {
+        revoke(token, null);
+    }
+
+    public void revoke(String token, Long expectedUserId) {
         String refreshKey = "user:refresh:" + token;
         Object userId = redisTemplate.opsForHash().get(refreshKey, "userId");
+        if (expectedUserId != null && userId != null && !String.valueOf(expectedUserId).equals(String.valueOf(userId))) {
+            throw new BusinessException(ErrorCode.AUTH_FORBIDDEN, ErrorCode.AUTH_FORBIDDEN.defaultMessage());
+        }
         redisTemplate.delete(refreshKey);
         if (userId != null) {
             redisTemplate.opsForSet().remove("user:refresh:index:" + userId, token);

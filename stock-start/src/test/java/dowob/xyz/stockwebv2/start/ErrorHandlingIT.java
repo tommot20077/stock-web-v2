@@ -1,6 +1,5 @@
 package dowob.xyz.stockwebv2.start;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -29,9 +28,6 @@ class ErrorHandlingIT {
 
     @MockitoBean
     StringRedisTemplate redisTemplate;
-
-    @MockitoBean
-    ObjectMapper objectMapper;
 
     @Test
     void businessExceptionReturnsApiResponseAndTraceId() throws Exception {

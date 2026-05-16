@@ -25,7 +25,7 @@ public class AssetController {
     }
 
     @GetMapping
-    ApiResponse<PageResponse<AssetDto>> search(
+    public ApiResponse<PageResponse<AssetDto>> search(
         @RequestParam(defaultValue = "") String query,
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "20") int size
@@ -36,6 +36,7 @@ public class AssetController {
     }
 
     private ApiMeta meta() {
-        return new ApiMeta(MDC.get(TraceIdFilter.TRACE_ID), OffsetDateTime.now());
+        String traceId = MDC.get(TraceIdFilter.TRACE_ID);
+        return new ApiMeta(traceId == null ? "missing-trace-id" : traceId, OffsetDateTime.now());
     }
 }

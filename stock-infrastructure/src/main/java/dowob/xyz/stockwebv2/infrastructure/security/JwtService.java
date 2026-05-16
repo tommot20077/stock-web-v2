@@ -8,7 +8,10 @@ import com.nimbusds.jose.proc.SecurityContext;
 import dowob.xyz.stockwebv2.common.model.Role;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
+import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -52,9 +55,9 @@ public class JwtService {
     private final JwtDecoder decoder;
     private final JwtProperties properties;
 
-    public JwtService(JwtProperties properties) {
+    public JwtService(JwtProperties properties, Environment environment) {
         this.properties = properties;
-        ECKey key = resolveKey(properties.privateKey());
+        ECKey key = resolveKey(properties.privateKey(), environment);
         ImmutableJWKSet<SecurityContext> jwkSource = new ImmutableJWKSet<>(new JWKSet(key));
         this.encoder = new NimbusJwtEncoder(jwkSource);
         this.decoder = NimbusJwtDecoder.withJwkSource(jwkSource)
@@ -79,9 +82,9 @@ public class JwtService {
     public JwtClaims parse(String token) {
         Jwt jwt = decoder.decode(token);
         return new JwtClaims(
-            Long.valueOf(jwt.getSubject()),
-            Role.valueOf(jwt.getClaimAsString("role")),
-            ((Number) jwt.getClaim("tokenVersion")).intValue()
+            parseSubject(jwt),
+            parseRole(jwt),
+            parseTokenVersion(jwt)
         );
     }
 
@@ -97,8 +100,43 @@ public class JwtService {
     public record JwtClaims(Long userId, Role role, int tokenVersion) {
     }
 
-    private ECKey resolveKey(String privateKeyPem) {
+    private Long parseSubject(Jwt jwt) {
+        String subject = jwt.getSubject();
+        if (subject == null || subject.isBlank()) {
+            throw new BadJwtException("JWT sub claim is required");
+        }
+        try {
+            return Long.valueOf(subject);
+        } catch (NumberFormatException exception) {
+            throw new BadJwtException("JWT sub claim must be numeric", exception);
+        }
+    }
+
+    private Role parseRole(Jwt jwt) {
+        String role = jwt.getClaimAsString("role");
+        if (role == null || role.isBlank()) {
+            throw new BadJwtException("JWT role claim is required");
+        }
+        try {
+            return Role.valueOf(role);
+        } catch (IllegalArgumentException exception) {
+            throw new BadJwtException("JWT role claim is invalid", exception);
+        }
+    }
+
+    private int parseTokenVersion(Jwt jwt) {
+        Object tokenVersion = jwt.getClaim("tokenVersion");
+        if (!(tokenVersion instanceof Number number)) {
+            throw new BadJwtException("JWT tokenVersion claim must be numeric");
+        }
+        return number.intValue();
+    }
+
+    private ECKey resolveKey(String privateKeyPem, Environment environment) {
         if (privateKeyPem == null || privateKeyPem.isBlank()) {
+            if (!environment.acceptsProfiles(Profiles.of("dev", "test", "e2e"))) {
+                throw new IllegalStateException("STOCK_JWT_PRIVATE_KEY must be configured outside dev/test/e2e profiles");
+            }
             log.warn("stock.jwt.private-key is blank; generating an ephemeral development JWT key");
             return generateKey();
         }

@@ -82,7 +82,7 @@ public class JdbcUserRepository implements UserRepository {
 
     private RuntimeException duplicateResourceException(DataIntegrityViolationException exception) {
         String message = exception.getMessage();
-        Throwable cause = exception;
+        Throwable cause = exception.getCause();
         while (cause != null) {
             if (cause.getMessage() != null) {
                 message = message == null ? cause.getMessage() : message + " " + cause.getMessage();

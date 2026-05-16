@@ -49,6 +49,7 @@ class AuthE2E extends AbstractStockE2ETest {
 
         mockMvc.perform(post("/api/v1/auth/logout")
                 .contentType(MediaType.APPLICATION_JSON)
+                .with(bearerToken(loggedIn.accessToken()))
                 .content(objectMapper.writeValueAsString(java.util.Map.of(
                     "refreshToken", loggedIn.refreshToken()
                 ))))
@@ -68,8 +69,11 @@ class AuthE2E extends AbstractStockE2ETest {
     @Test
     @DisplayName("Blank refresh token returns validation error envelope")
     void blankRefreshTokenReturnsValidationError() throws Exception {
+        var session = authHelper.register("blank-refresh-e2e@example.com", "blankrefreshe2e", "Password1");
+
         mockMvc.perform(post("/api/v1/auth/logout")
                 .contentType(MediaType.APPLICATION_JSON)
+                .with(bearerToken(session.accessToken()))
                 .content("{\"refreshToken\":\"\"}"))
             .andExpect(status().isBadRequest())
             .andExpect(apiError("VALIDATION_FAILED"));

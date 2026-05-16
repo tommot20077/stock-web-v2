@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.start.e2e.support;
 
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.context.annotation.Profile;
+import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +20,8 @@ public class DatabaseCleaner {
 
     public void cleanUserData() {
         jdbcTemplate.execute("DELETE FROM users");
-        redisConnectionFactory.getConnection().serverCommands().flushDb();
+        try (RedisConnection connection = redisConnectionFactory.getConnection()) {
+            connection.serverCommands().flushDb();
+        }
     }
 }

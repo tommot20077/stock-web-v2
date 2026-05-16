@@ -65,8 +65,9 @@ public class AuthController {
     }
 
     @PostMapping("/auth/logout")
-    public ApiResponse<EmptyResponse> logout(@Valid @RequestBody LogoutRequest request) {
-        refreshTokenService.revoke(request.refreshToken());
+    public ApiResponse<EmptyResponse> logout(@Valid @RequestBody LogoutRequest request, Authentication authentication) {
+        Long userId = authenticatedUserId(authentication);
+        refreshTokenService.revoke(request.refreshToken(), userId);
         return ApiResponse.empty(meta());
     }
 

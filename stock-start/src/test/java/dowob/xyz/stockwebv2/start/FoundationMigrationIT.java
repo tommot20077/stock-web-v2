@@ -17,7 +17,7 @@ class FoundationMigrationIT extends ContainerIT {
 
     @Test
     void flywayCreatesFoundationTablesAndSeedsAssets() {
-        Integer users = jdbcTemplate.queryForObject("select count(*) from information_schema.tables where table_name = 'users'", Integer.class);
+        Integer userTables = jdbcTemplate.queryForObject("select count(*) from information_schema.tables where table_name = 'users'", Integer.class);
         Integer assets = jdbcTemplate.queryForObject("select count(*) from assets", Integer.class);
         Integer prices = jdbcTemplate.queryForObject("select count(*) from asset_latest_prices", Integer.class);
         Integer fx = jdbcTemplate.queryForObject("select count(*) from fx_rates", Integer.class);
@@ -34,7 +34,7 @@ class FoundationMigrationIT extends ContainerIT {
             BigDecimal.class
         );
 
-        assertThat(users).isEqualTo(1);
+        assertThat(userTables).isEqualTo(1);
         assertThat(assets).isEqualTo(19);
         assertThat(prices).isEqualTo(19);
         assertThat(fx).isEqualTo(4);

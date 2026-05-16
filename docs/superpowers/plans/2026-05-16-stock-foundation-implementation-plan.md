@@ -685,7 +685,7 @@ Create `stock-start/src/main/resources/application-demo.yaml`:
 # Required: STOCK_REDIS_HOST, STOCK_REDIS_PORT.
 # Optional: STOCK_REDIS_DATABASE defaults to 1.
 # Optional: STOCK_REDIS_PASSWORD is empty for Redis instances without requirepass.
-# Optional: STOCK_JWT_PRIVATE_KEY. Empty means the application generates an ephemeral dev key.
+# Optional for dev/test/e2e only: STOCK_JWT_PRIVATE_KEY. Required outside dev/test/e2e.
 # Optional: STOCK_CORS_ALLOWED_ORIGINS. Comma-separated frontend origins.
 
 spring:

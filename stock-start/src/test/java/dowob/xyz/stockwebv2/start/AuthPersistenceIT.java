@@ -9,9 +9,13 @@ import dowob.xyz.stockwebv2.user.domain.User;
 import dowob.xyz.stockwebv2.user.repository.UserRepository;
 import dowob.xyz.stockwebv2.user.service.AuthService;
 import dowob.xyz.stockwebv2.user.service.RefreshTokenService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -33,6 +37,20 @@ class AuthPersistenceIT extends ContainerIT {
 
     @Autowired
     StringRedisTemplate redisTemplate;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    RedisConnectionFactory redisConnectionFactory;
+
+    @AfterEach
+    void cleanUserData() {
+        jdbcTemplate.execute("DELETE FROM users");
+        try (RedisConnection connection = redisConnectionFactory.getConnection()) {
+            connection.serverCommands().flushDb();
+        }
+    }
 
     @Test
     void registerPersistsUserAndRefreshTokenUsesRedis() {
