@@ -29,6 +29,7 @@ public class BacktestService {
     private static final String USD = "USD";
     private static final String BUY_HOLD = "buy_hold";
     private static final String CACHED = "cached";
+    private static final int MAX_PAGE = 10_000;
 
     private final BacktestRepository repository;
     private final BacktestEngine engine;
@@ -126,7 +127,7 @@ public class BacktestService {
     }
 
     public PageResponse<BacktestRunDto> listRuns(Long userId, String symbol, int page, int size) {
-        int safePage = Math.max(0, page);
+        int safePage = Math.min(Math.max(0, page), MAX_PAGE);
         int safeSize = Math.max(1, Math.min(100, size));
         String safeSymbol = symbol == null || symbol.isBlank() ? null : symbol.trim();
         PageResponse<BacktestRun> runs = repository.listRuns(userId, safeSymbol, safePage, safeSize);

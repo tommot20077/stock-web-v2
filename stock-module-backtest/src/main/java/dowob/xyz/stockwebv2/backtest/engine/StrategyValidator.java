@@ -28,8 +28,66 @@ public class StrategyValidator {
     private boolean hasBalancedDelimiters(String source) {
         int parentheses = 0;
         int braces = 0;
+        boolean inSingleQuote = false;
+        boolean inDoubleQuote = false;
+        boolean inTemplate = false;
+        boolean inLineComment = false;
+        boolean inBlockComment = false;
+        boolean escaped = false;
         for (int index = 0; index < source.length(); index++) {
             char current = source.charAt(index);
+            char next = index + 1 < source.length() ? source.charAt(index + 1) : '\0';
+            if (inLineComment) {
+                if (current == '\n' || current == '\r') {
+                    inLineComment = false;
+                }
+                continue;
+            }
+            if (inBlockComment) {
+                if (current == '*' && next == '/') {
+                    inBlockComment = false;
+                    index++;
+                }
+                continue;
+            }
+            if (inSingleQuote || inDoubleQuote || inTemplate) {
+                if (escaped) {
+                    escaped = false;
+                } else if (current == '\\') {
+                    escaped = true;
+                } else if (inSingleQuote && current == '\'') {
+                    inSingleQuote = false;
+                } else if (inDoubleQuote && current == '"') {
+                    inDoubleQuote = false;
+                } else if (inTemplate && current == '`') {
+                    inTemplate = false;
+                }
+                continue;
+            }
+
+            if (current == '/' && next == '/') {
+                inLineComment = true;
+                index++;
+                continue;
+            }
+            if (current == '/' && next == '*') {
+                inBlockComment = true;
+                index++;
+                continue;
+            }
+            if (current == '\'') {
+                inSingleQuote = true;
+                continue;
+            }
+            if (current == '"') {
+                inDoubleQuote = true;
+                continue;
+            }
+            if (current == '`') {
+                inTemplate = true;
+                continue;
+            }
+
             if (current == '(') {
                 parentheses++;
             } else if (current == ')') {
@@ -45,6 +103,11 @@ public class StrategyValidator {
             }
         }
 
-        return parentheses == 0 && braces == 0;
+        return parentheses == 0
+            && braces == 0
+            && !inSingleQuote
+            && !inDoubleQuote
+            && !inTemplate
+            && !inBlockComment;
     }
 }

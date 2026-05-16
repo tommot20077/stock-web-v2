@@ -249,6 +249,17 @@ class BacktestServiceTest {
     }
 
     @Test
+    void listRunsClampsLargePage() {
+        BacktestRun seeded = run(UUID.randomUUID(), 1L, "AAPL");
+        repository.runsByExternalId.put("bt_" + seeded.uuid(), seeded);
+
+        PageResponse<BacktestRunDto> page = service.listRuns(1L, "AAPL", 100_000, 20);
+
+        assertThat(repository.lastPage).isEqualTo(10_000);
+        assertThat(page.page()).isEqualTo(10_000);
+    }
+
+    @Test
     void listRunsTrimsSymbolFilter() {
         BacktestRun seeded = run(UUID.randomUUID(), 1L, "AAPL");
         repository.runsByExternalId.put("bt_" + seeded.uuid(), seeded);

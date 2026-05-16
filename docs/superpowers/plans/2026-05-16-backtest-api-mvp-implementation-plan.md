@@ -203,7 +203,7 @@ CREATE TABLE backtest_runs (
     strategy_id VARCHAR(32) NOT NULL,
     strategy_label VARCHAR(128) NOT NULL,
     strategy_code TEXT,
-    symbol VARCHAR(32) NOT NULL,
+    symbol VARCHAR(50) NOT NULL,
     period VARCHAR(8) NOT NULL,
     initial_capital NUMERIC(24, 6) NOT NULL,
     currency VARCHAR(8) NOT NULL,

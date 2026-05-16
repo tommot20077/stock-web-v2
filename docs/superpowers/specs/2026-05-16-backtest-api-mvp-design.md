@@ -253,7 +253,7 @@ Success response:
 }
 ```
 
-Validation failure uses HTTP 400 and `BACKTEST_STRATEGY_COMPILE_FAILED` with `field = strategyCode`。
+Validation failure uses HTTP 400 and `BACKTEST_STRATEGY_COMPILE_FAILED`。The MVP `fields` list is empty for this `BusinessException` path; field-level entries are only emitted by Bean Validation errors。
 
 ### Get Run
 
@@ -357,7 +357,7 @@ Columns:
 - `strategy_id VARCHAR(32) NOT NULL`
 - `strategy_label VARCHAR(128) NOT NULL`
 - `strategy_code TEXT NULL`
-- `symbol VARCHAR(32) NOT NULL`
+- `symbol VARCHAR(50) NOT NULL`
 - `period VARCHAR(8) NOT NULL`
 - `initial_capital NUMERIC(24, 6) NOT NULL`
 - `currency VARCHAR(8) NOT NULL`
@@ -491,8 +491,8 @@ The deterministic engine generates full FE display data:
 
 MVP size:
 
-- Equity points: fixed 12 points for all periods。
-- Drawdown points: fixed 12 points for all periods。
+- Equity points: fixed 12 points for all periods, sampled across the full requested period。
+- Drawdown points: fixed 12 points for all periods, sampled across the full requested period。
 - Monthly returns:
   - `1Y`: 12 months。
   - `3Y`: 36 months。

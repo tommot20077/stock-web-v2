@@ -41,7 +41,7 @@ public class DeterministicBacktestEngine implements BacktestEngine {
         List<EquityPoint> equityCurve = equityCurve(input.initialCapital(), monthlyReturns, random);
         List<DrawdownPoint> drawdownCurve = drawdownCurve(equityCurve);
         List<BacktestTrade> trades = trades(random);
-        BacktestKpis kpis = kpis(input.initialCapital(), equityCurve, drawdownCurve, trades);
+        BacktestKpis kpis = kpis(input.initialCapital(), monthlyReturns.size(), equityCurve, drawdownCurve, trades);
 
         return new BacktestResult(kpis, equityCurve, monthlyReturns, drawdownCurve, trades);
     }
@@ -74,12 +74,21 @@ public class DeterministicBacktestEngine implements BacktestEngine {
         List<EquityPoint> equityCurve = new ArrayList<>();
         BigDecimal strategy = money(initialCapital);
         BigDecimal benchmark = money(initialCapital);
-        for (int index = 0; index < CHART_POINT_COUNT; index++) {
-            BigDecimal strategyReturn = monthlyReturns.get(index).returnPct();
-            BigDecimal benchmarkReturn = percent(random, -2500, 3500);
-            strategy = applyReturn(strategy, strategyReturn);
-            benchmark = applyReturn(benchmark, benchmarkReturn);
-            equityCurve.add(new EquityPoint(index + 1, START_DATE.plusMonths(index), strategy, benchmark));
+        int monthsPerPoint = Math.max(1, monthlyReturns.size() / CHART_POINT_COUNT);
+        for (int pointIndex = 0; pointIndex < CHART_POINT_COUNT; pointIndex++) {
+            int start = pointIndex * monthsPerPoint;
+            int end = pointIndex == CHART_POINT_COUNT - 1
+                ? monthlyReturns.size()
+                : Math.min(monthlyReturns.size(), start + monthsPerPoint);
+            for (int monthIndex = start; monthIndex < end; monthIndex++) {
+                BigDecimal strategyReturn = monthlyReturns.get(monthIndex).returnPct();
+                BigDecimal benchmarkReturn = percent(random, -2500, 3500);
+                strategy = applyReturn(strategy, strategyReturn);
+                benchmark = applyReturn(benchmark, benchmarkReturn);
+            }
+            MonthlyReturn pointMonth = monthlyReturns.get(end - 1);
+            LocalDate pointDate = LocalDate.of(pointMonth.year(), pointMonth.month(), 1);
+            equityCurve.add(new EquityPoint(pointIndex + 1, pointDate, strategy, benchmark));
         }
         return equityCurve;
     }
@@ -115,6 +124,7 @@ public class DeterministicBacktestEngine implements BacktestEngine {
 
     private BacktestKpis kpis(
         BigDecimal initialCapital,
+        int horizonMonths,
         List<EquityPoint> equityCurve,
         List<DrawdownPoint> drawdownCurve,
         List<BacktestTrade> trades
@@ -142,7 +152,7 @@ public class DeterministicBacktestEngine implements BacktestEngine {
             scale(totalReturnPct.divide(new BigDecimal("10"), 6, RoundingMode.HALF_UP)),
             scale(totalReturnPct.divide(new BigDecimal("3"), 6, RoundingMode.HALF_UP)),
             scale(maxDrawdownPct),
-            CHART_POINT_COUNT * 30,
+            horizonMonths * 30,
             winRatePct,
             trades.size(),
             scale(new BigDecimal("1.500000")),

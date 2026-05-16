@@ -7,8 +7,10 @@ import dowob.xyz.stockwebv2.backtest.domain.BacktestStrategyId;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -35,6 +37,19 @@ class DeterministicBacktestEngineTest {
         assertThat(result.monthlyReturns()).hasSize(36);
         assertThat(result.trades()).hasSize(12);
         assertThat(result.kpis().tradeCount()).isEqualTo(12);
+    }
+
+    @Test
+    void equityAndKpisUseFullRequestedPeriod() {
+        BacktestResult result = engine.run(input(BacktestPeriod.THREE_YEARS));
+
+        assertThat(result.equityCurve()).last().satisfies(point -> {
+            assertThat(point.date()).isEqualTo(lastMonthlyReturnDate(result.monthlyReturns()));
+            assertThat(point.strategy()).isEqualByComparingTo(compound(new BigDecimal("100000.00"), result.monthlyReturns()));
+        });
+        assertThat(result.drawdownCurve()).last().satisfies(point ->
+            assertThat(point.date()).isEqualTo(lastMonthlyReturnDate(result.monthlyReturns())));
+        assertThat(result.kpis().drawdownDays()).isEqualTo(36 * 30);
     }
 
     @Test
@@ -85,6 +100,21 @@ class DeterministicBacktestEngineTest {
         assertThat(validation.valid()).isTrue();
         assertThat(validation.normalizedName()).isEqualTo("strategy");
         assertThat(validation.warnings()).isEqualTo(List.of());
+    }
+
+    @Test
+    void strategyValidatorIgnoresDelimitersInsideStringsAndComments() {
+        assertThatCode(() -> new StrategyValidator().validate("""
+            function strategy({ bars }) {
+              const text = "})";
+              const single = '{';
+              const template = `] } (`;
+              // comment with } )
+              /* block comment with { ( */
+              return text + single + template;
+            }
+            """))
+            .doesNotThrowAnyException();
     }
 
     @Test
@@ -160,5 +190,19 @@ class DeterministicBacktestEngineTest {
             initialCapital,
             "function strategy({ bars }) { return null; }"
         );
+    }
+
+    private BigDecimal compound(BigDecimal initialCapital, List<BacktestResult.MonthlyReturn> monthlyReturns) {
+        BigDecimal amount = initialCapital.setScale(6, RoundingMode.HALF_UP);
+        for (BacktestResult.MonthlyReturn monthlyReturn : monthlyReturns) {
+            BigDecimal multiplier = BigDecimal.ONE.add(monthlyReturn.returnPct().divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP));
+            amount = amount.multiply(multiplier).setScale(6, RoundingMode.HALF_UP);
+        }
+        return amount;
+    }
+
+    private java.time.LocalDate lastMonthlyReturnDate(List<BacktestResult.MonthlyReturn> monthlyReturns) {
+        BacktestResult.MonthlyReturn last = monthlyReturns.getLast();
+        return java.time.LocalDate.of(last.year(), last.month(), 1);
     }
 }
