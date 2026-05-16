@@ -89,10 +89,13 @@ public class JdbcBacktestRepository implements BacktestRepository {
 
     @Override
     public Optional<BacktestRun> findRunForUser(Long userId, String externalRunId) {
-        UUID uuid = parseExternalRunId(externalRunId);
+        Optional<UUID> uuid = parseExternalRunId(externalRunId);
+        if (uuid.isEmpty()) {
+            return Optional.empty();
+        }
         return jdbcClient.sql("select " + RUN_COLUMNS + " from backtest_runs where user_id = :userId and uuid = :uuid")
             .param("userId", userId)
-            .param("uuid", uuid)
+            .param("uuid", uuid.get())
             .query(this::mapRun)
             .optional();
     }
@@ -210,19 +213,15 @@ public class JdbcBacktestRepository implements BacktestRepository {
         return PageResponse.of(listSpec.query(this::mapRun).list(), page, size, total);
     }
 
-    private UUID parseExternalRunId(String externalRunId) {
+    private Optional<UUID> parseExternalRunId(String externalRunId) {
         if (externalRunId == null || !externalRunId.startsWith("bt_")) {
-            throw new IllegalArgumentException("Invalid backtest run id");
+            return Optional.empty();
         }
         try {
-            return UUID.fromString(externalRunId.substring(3));
+            return Optional.of(UUID.fromString(externalRunId.substring(3)));
         } catch (IllegalArgumentException exception) {
-            throw new IllegalArgumentException("Invalid backtest run id", exception);
+            return Optional.empty();
         }
-    }
-
-    private String externalRunId(UUID uuid) {
-        return "bt_" + uuid;
     }
 
     private void insertKpis(Long runId, BacktestResult.BacktestKpis kpis) {

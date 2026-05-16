@@ -85,6 +85,17 @@ class BacktestPersistenceIT extends ContainerIT {
         assertThat(repository.findResultForUser(userId, "bt_" + saved.uuid()).orElseThrow().trades()).hasSize(12);
     }
 
+    @Test
+    void malformedExternalBacktestIdsAreTreatedAsMissing() {
+        Long userId = createUser("backtest-bad-id@example.com", "backtest-bad-id");
+        JdbcBacktestRepository repository = new JdbcBacktestRepository(jdbcTemplate.getDataSource());
+
+        assertThat(repository.findRunForUser(userId, null)).isEmpty();
+        assertThat(repository.findRunForUser(userId, "bad")).isEmpty();
+        assertThat(repository.findRunForUser(userId, "bt_not-a-uuid")).isEmpty();
+        assertThat(repository.findResultForUser(userId, "bad")).isEmpty();
+    }
+
     private Long createUser(String email, String username) {
         return jdbcTemplate.queryForObject("""
             insert into users (email, username, password_hash, role, status, token_version)
