@@ -13,4 +13,26 @@ public record BacktestEngineInput(
     BigDecimal initialCapital,
     String strategyCode
 ) {
+    public BacktestEngineInput {
+        if (userId == null) {
+            throw new IllegalArgumentException("userId is required");
+        }
+        if (strategyId == null) {
+            throw new IllegalArgumentException("strategyId is required");
+        }
+        if (symbol == null || symbol.isBlank()) {
+            throw new IllegalArgumentException("symbol is required");
+        }
+        if (period == null) {
+            throw new IllegalArgumentException("period is required");
+        }
+        if (initialCapital == null) {
+            throw new IllegalArgumentException("initialCapital is required");
+        }
+        if (initialCapital.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("initialCapital must be positive");
+        }
+
+        symbol = symbol.trim();
+    }
 }

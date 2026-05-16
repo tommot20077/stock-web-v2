@@ -38,6 +38,31 @@ class DeterministicBacktestEngineTest {
     }
 
     @Test
+    void presetStrategyAllowsNullStrategyCode() {
+        BacktestResult result = engine.run(input(BacktestStrategyId.MA_CROSS, BacktestPeriod.ONE_YEAR, null));
+
+        assertThat(result.equityCurve()).hasSize(12);
+        assertThat(result.drawdownCurve()).hasSize(12);
+        assertThat(result.monthlyReturns()).hasSize(12);
+        assertThat(result.trades()).hasSize(12);
+        assertThat(result.kpis().tradeCount()).isEqualTo(12);
+    }
+
+    @Test
+    void customStrategyRejectsNullStrategyCode() {
+        assertThatThrownBy(() -> engine.run(input(BacktestStrategyId.CUSTOM, BacktestPeriod.ONE_YEAR, null)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("strategyCode is required");
+    }
+
+    @Test
+    void customStrategyRejectsBlankStrategyCode() {
+        assertThatThrownBy(() -> engine.run(input(BacktestStrategyId.CUSTOM, BacktestPeriod.ONE_YEAR, "  ")))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("strategyCode is required");
+    }
+
+    @Test
     void periodControlsMonthlyReturnCount() {
         assertThat(engine.run(input(BacktestPeriod.ONE_YEAR)).monthlyReturns()).hasSize(12);
         assertThat(engine.run(input(BacktestPeriod.THREE_YEARS)).monthlyReturns()).hasSize(36);
@@ -75,13 +100,56 @@ class DeterministicBacktestEngineTest {
             .hasMessage("strategyCode has unbalanced delimiters");
     }
 
+    @Test
+    void inputRejectsNullInitialCapital() {
+        assertThatThrownBy(() -> inputWithCapital(null))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("initialCapital is required");
+    }
+
+    @Test
+    void inputRejectsZeroInitialCapital() {
+        assertThatThrownBy(() -> inputWithCapital(BigDecimal.ZERO))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("initialCapital must be positive");
+    }
+
+    @Test
+    void inputRejectsBlankSymbol() {
+        assertThatThrownBy(() -> new BacktestEngineInput(
+            42L,
+            BacktestStrategyId.CUSTOM,
+            "  ",
+            BacktestPeriod.ONE_YEAR,
+            new BigDecimal("100000.00"),
+            "function strategy({ bars }) { return null; }"
+        ))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("symbol is required");
+    }
+
     private BacktestEngineInput input(BacktestPeriod period) {
+        return input(BacktestStrategyId.CUSTOM, period, "function strategy({ bars }) { return null; }");
+    }
+
+    private BacktestEngineInput input(BacktestStrategyId strategyId, BacktestPeriod period, String strategyCode) {
+        return new BacktestEngineInput(
+            42L,
+            strategyId,
+            "AAPL",
+            period,
+            new BigDecimal("100000.00"),
+            strategyCode
+        );
+    }
+
+    private BacktestEngineInput inputWithCapital(BigDecimal initialCapital) {
         return new BacktestEngineInput(
             42L,
             BacktestStrategyId.CUSTOM,
             "AAPL",
-            period,
-            new BigDecimal("100000.00"),
+            BacktestPeriod.ONE_YEAR,
+            initialCapital,
             "function strategy({ bars }) { return null; }"
         );
     }

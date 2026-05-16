@@ -6,6 +6,7 @@ import dowob.xyz.stockwebv2.backtest.domain.BacktestResult.BacktestTrade;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestResult.DrawdownPoint;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestResult.EquityPoint;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestResult.MonthlyReturn;
+import dowob.xyz.stockwebv2.backtest.domain.BacktestStrategyId;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -31,7 +32,9 @@ public class DeterministicBacktestEngine implements BacktestEngine {
 
     @Override
     public BacktestResult run(BacktestEngineInput input) {
-        strategyValidator.validate(input.strategyCode());
+        if (input.strategyId() == BacktestStrategyId.CUSTOM) {
+            strategyValidator.validate(input.strategyCode());
+        }
 
         Random random = new Random(seed(input));
         List<MonthlyReturn> monthlyReturns = monthlyReturns(input, random);
