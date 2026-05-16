@@ -192,9 +192,8 @@ public class JdbcBacktestRepository implements BacktestRepository {
     public PageResponse<BacktestRun> listRuns(Long userId, String symbol, int page, int size) {
         boolean filterSymbol = symbol != null && !symbol.isBlank();
         long offset = (long) page * size;
-        String where = filterSymbol ? "where user_id = :userId and symbol = :symbol" : "where user_id = :userId";
-        JdbcClient.StatementSpec listSpec = jdbcClient.sql("""
-                select """ + RUN_COLUMNS + """
+        String where = filterSymbol ? "where user_id = :userId and symbol = :symbol " : "where user_id = :userId ";
+        JdbcClient.StatementSpec listSpec = jdbcClient.sql("select " + RUN_COLUMNS + """
                 from backtest_runs
                 """ + where + """
                 order by created_at desc, id desc
