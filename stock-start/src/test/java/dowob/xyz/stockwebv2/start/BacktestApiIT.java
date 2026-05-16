@@ -70,6 +70,45 @@ class BacktestApiIT extends ContainerIT {
     }
 
     @Test
+    void authenticatedUserCanValidateStrategy() throws Exception {
+        AuthTokens tokens = register("backtest-validator@example.com", "backtestvalidator", "Password1");
+
+        mockMvc.perform(post("/api/v1/backtests/strategies/validate")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + tokens.accessToken())
+                .content("""
+                    {"strategyCode":"function strategy({ bars }) { return null; }"}
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success", equalTo(true)))
+            .andExpect(jsonPath("$.data.valid", equalTo(true)));
+    }
+
+    @Test
+    void createRunRejectsInvalidBodyWithValidationEnvelope() throws Exception {
+        AuthTokens tokens = register("backtest-invalid-body@example.com", "backtestinvalidbody", "Password1");
+
+        mockMvc.perform(post("/api/v1/backtests/runs")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + tokens.accessToken())
+                .content("""
+                    {"strategyId":"ma_cross","strategyCode":null,"symbol":"","period":"3Y","initialCapital":100000,"currency":"USD","benchmark":"buy_hold","dataMode":"cached"}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")));
+    }
+
+    @Test
+    void listRunsRejectsNonNumericPageWithValidationEnvelope() throws Exception {
+        AuthTokens tokens = register("backtest-bad-page@example.com", "backtestbadpage", "Password1");
+
+        mockMvc.perform(get("/api/v1/backtests/runs?page=abc&size=20")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")));
+    }
+
+    @Test
     void usersCannotReadOtherUsersRuns() throws Exception {
         AuthTokens owner = register("backtest-private-owner@example.com", "backtestprivateowner", "Password1");
         AuthTokens other = register("backtest-private-other@example.com", "backtestprivateother", "Password1");
@@ -90,10 +129,47 @@ class BacktestApiIT extends ContainerIT {
             .andExpect(jsonPath("$.error.code", equalTo("BACKTEST_RUN_NOT_FOUND")));
     }
 
+    @Test
+    void usersCannotReadOtherUsersResults() throws Exception {
+        AuthTokens owner = register("backtest-result-owner@example.com", "backtestresultowner", "Password1");
+        AuthTokens other = register("backtest-result-other@example.com", "backtestresultother", "Password1");
+
+        String runId = createRun(owner);
+
+        mockMvc.perform(get("/api/v1/backtests/runs/{runId}/result", runId)
+                .header("Authorization", "Bearer " + other.accessToken()))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code", equalTo("BACKTEST_RUN_NOT_FOUND")));
+    }
+
+    @Test
+    void usersCannotListOtherUsersRuns() throws Exception {
+        AuthTokens owner = register("backtest-list-owner@example.com", "backtestlistowner", "Password1");
+        AuthTokens other = register("backtest-list-other@example.com", "backtestlistother", "Password1");
+        createRun(owner);
+
+        mockMvc.perform(get("/api/v1/backtests/runs?page=0&size=20")
+                .header("Authorization", "Bearer " + other.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.items.length()", equalTo(0)));
+    }
+
     private String validRunBody() {
         return """
             {"strategyId":"ma_cross","strategyCode":null,"symbol":"AAPL","period":"3Y","initialCapital":100000,"currency":"USD","benchmark":"buy_hold","dataMode":"cached"}
             """;
+    }
+
+    private String createRun(AuthTokens tokens) throws Exception {
+        String createBody = mockMvc.perform(post("/api/v1/backtests/runs")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + tokens.accessToken())
+                .content(validRunBody()))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        return objectMapper.readTree(createBody).get("data").get("id").asText();
     }
 
     private AuthTokens register(String email, String username, String password) throws Exception {

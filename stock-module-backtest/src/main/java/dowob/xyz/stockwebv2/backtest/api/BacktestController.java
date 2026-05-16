@@ -58,12 +58,17 @@ public class BacktestController {
     @GetMapping("/runs")
     public ApiResponse<PageResponse<BacktestRunDto>> listRuns(
         @RequestParam(required = false) String symbol,
-        @RequestParam(defaultValue = "0") int page,
-        @RequestParam(defaultValue = "20") int size,
+        @RequestParam(defaultValue = "0") String page,
+        @RequestParam(defaultValue = "20") String size,
         Authentication authentication
     ) {
         Long userId = authenticatedUserId(authentication);
-        return ApiResponse.success(backtestService.listRuns(userId, symbol, page, size), meta());
+        return ApiResponse.success(backtestService.listRuns(
+            userId,
+            symbol,
+            parseQueryInt(page, "page"),
+            parseQueryInt(size, "size")
+        ), meta());
     }
 
     private Long authenticatedUserId(Authentication authentication) {
@@ -74,6 +79,14 @@ public class BacktestController {
             return Long.valueOf(authentication.getName());
         } catch (NumberFormatException exception) {
             throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
+        }
+    }
+
+    private int parseQueryInt(String value, String field) {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException exception) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, field + " must be a number");
         }
     }
 
