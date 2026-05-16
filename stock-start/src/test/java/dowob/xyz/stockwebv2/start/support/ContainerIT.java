@@ -5,15 +5,12 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.utility.DockerImageName;
 
 @SpringBootTest
-@Testcontainers
 public abstract class ContainerIT {
 
-    @Container
     static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
         DockerImageName.parse("postgres:16-alpine")
     )
@@ -21,9 +18,12 @@ public abstract class ContainerIT {
         .withUsername("stock")
         .withPassword("stock");
 
-    @Container
     static final GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7.4-alpine"))
         .withExposedPorts(6379);
+
+    static {
+        Startables.deepStart(postgres, redis).join();
+    }
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -35,5 +35,6 @@ public abstract class ContainerIT {
         registry.add("spring.data.redis.database", () -> 0);
         registry.add("spring.flyway.enabled", () -> true);
         registry.add("spring.flyway.locations", () -> "classpath:db/migration");
+        registry.add("management.server.port", () -> 11180);
     }
 }

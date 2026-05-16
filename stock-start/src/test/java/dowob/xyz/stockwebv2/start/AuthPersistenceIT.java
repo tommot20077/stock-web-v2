@@ -36,14 +36,14 @@ class AuthPersistenceIT extends ContainerIT {
 
     @Test
     void registerPersistsUserAndRefreshTokenUsesRedis() {
-        User user = authService.register(new RegisterRequest("yuan@example.com", "yuan", "Password1"));
+        User user = authService.register(new RegisterRequest("persistence@example.com", "persistence", "Password1"));
         String refreshToken = refreshTokenService.issue(user, LONG_DEVICE_INFO);
         String refreshKey = "user:refresh:" + refreshToken;
         String indexKey = "user:refresh:index:" + user.id();
 
         assertThat(user.id()).isNotNull();
         assertThat(user.status()).isEqualTo(UserStatus.ACTIVE);
-        assertThat(userRepository.findByUsername("yuan")).contains(user);
+        assertThat(userRepository.findByUsername("persistence")).contains(user);
         assertThat(redisTemplate.hasKey(refreshKey)).isTrue();
         assertThat(redisTemplate.getExpire(refreshKey)).isPositive().isLessThanOrEqualTo(jwtProperties.refreshTokenTtl().toSeconds());
         assertThat(redisTemplate.getExpire(indexKey)).isPositive().isLessThanOrEqualTo(jwtProperties.refreshTokenTtl().toSeconds());
