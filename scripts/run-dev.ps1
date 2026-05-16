@@ -28,9 +28,23 @@ if (-not $env:SPRING_PROFILES_ACTIVE) {
 
 Push-Location $repoRoot
 try {
-    & .\mvnw.cmd -pl $Module -am spring-boot:run
+    & .\mvnw.cmd -pl $Module -am package "-DskipTests"
     if ($LASTEXITCODE -ne 0) {
-        throw "spring-boot:run failed with exit code $LASTEXITCODE"
+        throw "package failed with exit code $LASTEXITCODE"
+    }
+
+    $targetDir = Join-Path (Join-Path $repoRoot $Module) "target"
+    $jar = Get-ChildItem -LiteralPath $targetDir -Filter "*.jar" |
+        Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+    if ($null -eq $jar) {
+        throw "No runnable jar found under $targetDir"
+    }
+
+    & java -jar $jar.FullName
+    if ($LASTEXITCODE -ne 0) {
+        throw "java -jar failed with exit code $LASTEXITCODE"
     }
 }
 finally {

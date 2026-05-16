@@ -20,8 +20,6 @@ spring:
     name: stock-web-v2
   jackson:
     time-zone: Asia/Taipei
-    serialization:
-      write-dates-as-timestamps: false
   datasource:
     url: ${STOCK_DB_URL}
     username: ${STOCK_DB_USERNAME}

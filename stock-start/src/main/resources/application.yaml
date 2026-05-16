@@ -5,8 +5,6 @@ spring:
     default: dev
   jackson:
     time-zone: Asia/Taipei
-    serialization:
-      write-dates-as-timestamps: false
 
 server:
   port: ${SERVER_PORT:11180}

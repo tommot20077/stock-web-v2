@@ -1,6 +1,5 @@
 package dowob.xyz.stockwebv2.start.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import dowob.xyz.stockwebv2.common.api.ApiError;
 import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
@@ -33,6 +32,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.filter.OncePerRequestFilter;
+import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.time.OffsetDateTime;
