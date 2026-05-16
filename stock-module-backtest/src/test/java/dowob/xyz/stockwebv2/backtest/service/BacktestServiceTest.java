@@ -63,6 +63,15 @@ class BacktestServiceTest {
     }
 
     @Test
+    void nullCapitalIsRejected() {
+        repository.activeSymbols.add("AAPL");
+
+        assertThatThrownBy(() -> service.createRun(1L, request("ma_cross", "AAPL", "3Y", null, null)))
+            .isInstanceOfSatisfying(BusinessException.class, exception ->
+                assertThat(exception.errorCode()).isEqualTo(ErrorCode.BACKTEST_INVALID_INITIAL_CAPITAL));
+    }
+
+    @Test
     void unsupportedSymbolIsRejected() {
         assertThatThrownBy(() -> service.createRun(1L, request("ma_cross", "NOPE", "3Y", new BigDecimal("100000"), null)))
             .isInstanceOfSatisfying(BusinessException.class, exception ->
