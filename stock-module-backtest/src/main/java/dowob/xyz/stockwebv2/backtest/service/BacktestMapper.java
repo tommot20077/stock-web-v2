@@ -4,7 +4,10 @@ import dowob.xyz.stockwebv2.backtest.api.BacktestResultDto;
 import dowob.xyz.stockwebv2.backtest.api.BacktestRunDto;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestResult;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestRun;
+import dowob.xyz.stockwebv2.common.api.ApiError;
 import org.springframework.stereotype.Component;
+
+import java.util.Map;
 
 @Component
 public class BacktestMapper {
@@ -23,7 +26,7 @@ public class BacktestMapper {
             run.createdAt(),
             run.startedAt(),
             run.completedAt(),
-            null
+            toError(run)
         );
     }
 
@@ -33,5 +36,16 @@ public class BacktestMapper {
 
     private String externalRunId(BacktestRun run) {
         return "bt_" + run.uuid();
+    }
+
+    private ApiError toError(BacktestRun run) {
+        if (hasText(run.errorCode()) || hasText(run.errorMessage())) {
+            return new ApiError(run.errorCode(), run.errorMessage(), Map.of());
+        }
+        return null;
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }

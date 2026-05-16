@@ -17,6 +17,7 @@ import dowob.xyz.stockwebv2.backtest.repository.BacktestRepository;
 import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -32,21 +33,30 @@ public class BacktestService {
     private final BacktestRepository repository;
     private final BacktestEngine engine;
     private final BacktestMapper mapper;
-    private final StrategyValidator strategyValidator = new StrategyValidator();
+    private final StrategyValidator strategyValidator;
 
     public BacktestService(BacktestRepository repository, BacktestEngine engine, BacktestMapper mapper) {
+        this(repository, engine, mapper, new StrategyValidator());
+    }
+
+    @Autowired
+    public BacktestService(BacktestRepository repository, BacktestEngine engine, BacktestMapper mapper, StrategyValidator strategyValidator) {
         this.repository = repository;
         this.engine = engine;
         this.mapper = mapper;
+        this.strategyValidator = strategyValidator;
     }
 
     public BacktestRunDto createRun(Long userId, CreateBacktestRunRequest request) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "request is required");
+        }
         BacktestStrategyId strategy = parseStrategy(request.strategyId());
         BacktestPeriod period = parsePeriod(request.period());
         validateCapital(request.initialCapital());
         validateRequestOptions(request);
 
-        String symbol = request.symbol().trim();
+        String symbol = normalizeRequiredSymbol(request.symbol());
         if (!repository.activeSymbolExists(symbol)) {
             throw new BusinessException(ErrorCode.BACKTEST_UNSUPPORTED_SYMBOL, ErrorCode.BACKTEST_UNSUPPORTED_SYMBOL.defaultMessage());
         }
@@ -55,14 +65,20 @@ public class BacktestService {
             validateStrategyCode(request.strategyCode());
         }
 
-        BacktestResult result = engine.run(new BacktestEngineInput(
+        BacktestEngineInput input = new BacktestEngineInput(
             userId,
             strategy,
             symbol,
             period,
             request.initialCapital(),
             request.strategyCode()
-        ));
+        );
+        BacktestResult result;
+        try {
+            result = engine.run(input);
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ErrorCode.BACKTEST_STRATEGY_COMPILE_FAILED, exception.getMessage());
+        }
         OffsetDateTime now = OffsetDateTime.now();
         BacktestRun run = new BacktestRun(
             null,
@@ -91,6 +107,9 @@ public class BacktestService {
     }
 
     public StrategyValidationDto validateStrategy(ValidateStrategyRequest request) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "request is required");
+        }
         return validateStrategyCode(request.strategyCode());
     }
 
@@ -108,7 +127,8 @@ public class BacktestService {
     public PageResponse<BacktestRunDto> listRuns(Long userId, String symbol, int page, int size) {
         int safePage = Math.max(0, page);
         int safeSize = Math.max(1, Math.min(100, size));
-        PageResponse<BacktestRun> runs = repository.listRuns(userId, symbol, safePage, safeSize);
+        String safeSymbol = symbol == null || symbol.isBlank() ? null : symbol.trim();
+        PageResponse<BacktestRun> runs = repository.listRuns(userId, safeSymbol, safePage, safeSize);
         return PageResponse.of(
             runs.items().stream().map(mapper::toRunDto).toList(),
             runs.page(),
@@ -136,6 +156,13 @@ public class BacktestService {
         } catch (IllegalArgumentException exception) {
             throw new BusinessException(ErrorCode.BACKTEST_UNSUPPORTED_PERIOD, ErrorCode.BACKTEST_UNSUPPORTED_PERIOD.defaultMessage());
         }
+    }
+
+    private String normalizeRequiredSymbol(String symbol) {
+        if (symbol == null || symbol.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "symbol is required");
+        }
+        return symbol.trim();
     }
 
     private void validateCapital(BigDecimal initialCapital) {

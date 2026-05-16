@@ -39,7 +39,8 @@ class BacktestServiceTest {
     private final BacktestService service = new BacktestService(
         repository,
         new DeterministicBacktestEngine(new StrategyValidator()),
-        new BacktestMapper()
+        new BacktestMapper(),
+        new StrategyValidator()
     );
 
     @Test
@@ -51,6 +52,33 @@ class BacktestServiceTest {
         assertThat(run.status()).isEqualTo("succeeded");
         assertThat(run.id()).startsWith("bt_");
         assertThat(repository.savedResults).hasSize(1);
+    }
+
+    @Test
+    void createRunRequiresRequest() {
+        assertThatThrownBy(() -> service.createRun(1L, null))
+            .isInstanceOfSatisfying(BusinessException.class, exception -> {
+                assertThat(exception.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                assertThat(exception).hasMessage("request is required");
+            });
+    }
+
+    @Test
+    void createRunRequiresNonBlankSymbol() {
+        assertThatThrownBy(() -> service.createRun(1L, request("ma_cross", "  ", "3Y", new BigDecimal("100000"), null)))
+            .isInstanceOfSatisfying(BusinessException.class, exception -> {
+                assertThat(exception.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                assertThat(exception).hasMessage("symbol is required");
+            });
+    }
+
+    @Test
+    void createRunRequiresNonNullSymbol() {
+        assertThatThrownBy(() -> service.createRun(1L, request("ma_cross", null, "3Y", new BigDecimal("100000"), null)))
+            .isInstanceOfSatisfying(BusinessException.class, exception -> {
+                assertThat(exception.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                assertThat(exception).hasMessage("symbol is required");
+            });
     }
 
     @Test
@@ -88,12 +116,40 @@ class BacktestServiceTest {
     }
 
     @Test
+    void engineStrategyValidationFailureMapsToCompileFailed() {
+        repository.activeSymbols.add("AAPL");
+        BacktestService failingService = new BacktestService(
+            repository,
+            input -> {
+                throw new IllegalArgumentException("engine validator failed");
+            },
+            new BacktestMapper(),
+            new StrategyValidator()
+        );
+
+        assertThatThrownBy(() -> failingService.createRun(1L, request("ma_cross", "AAPL", "3Y", new BigDecimal("100000"), null)))
+            .isInstanceOfSatisfying(BusinessException.class, exception -> {
+                assertThat(exception.errorCode()).isEqualTo(ErrorCode.BACKTEST_STRATEGY_COMPILE_FAILED);
+                assertThat(exception).hasMessage("engine validator failed");
+            });
+    }
+
+    @Test
     void validateStrategyReturnsValidForValidStrategyFunction() {
         StrategyValidationDto validation = service.validateStrategy(new ValidateStrategyRequest(VALID_STRATEGY_CODE));
 
         assertThat(validation.valid()).isTrue();
         assertThat(validation.normalizedName()).isEqualTo("strategy");
         assertThat(validation.warnings()).isEmpty();
+    }
+
+    @Test
+    void validateStrategyRequiresRequest() {
+        assertThatThrownBy(() -> service.validateStrategy(null))
+            .isInstanceOfSatisfying(BusinessException.class, exception -> {
+                assertThat(exception.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                assertThat(exception).hasMessage("request is required");
+            });
     }
 
     @Test
@@ -114,6 +170,19 @@ class BacktestServiceTest {
         assertThat(run.strategyId()).isEqualTo("ma_cross");
         assertThat(run.symbol()).isEqualTo("AAPL");
         assertThat(run.period()).isEqualTo("3Y");
+    }
+
+    @Test
+    void getRunMapsStoredErrorDetails() {
+        BacktestRun seeded = runWithError(UUID.randomUUID(), 1L, "AAPL", "BACKTEST_UNSUPPORTED_SYMBOL", "Unsupported symbol");
+        repository.runsByExternalId.put("bt_" + seeded.uuid(), seeded);
+
+        BacktestRunDto run = service.getRun(1L, "bt_" + seeded.uuid());
+
+        assertThat(run.error()).isNotNull();
+        assertThat(run.error().code()).isEqualTo("BACKTEST_UNSUPPORTED_SYMBOL");
+        assertThat(run.error().message()).isEqualTo("Unsupported symbol");
+        assertThat(run.error().fields()).isEmpty();
     }
 
     @Test
@@ -168,11 +237,30 @@ class BacktestServiceTest {
         assertThat(page.items()).extracting(BacktestRunDto::id).containsExactly("bt_" + seeded.uuid());
     }
 
+    @Test
+    void listRunsTrimsSymbolFilter() {
+        BacktestRun seeded = run(UUID.randomUUID(), 1L, "AAPL");
+        repository.runsByExternalId.put("bt_" + seeded.uuid(), seeded);
+
+        PageResponse<BacktestRunDto> page = service.listRuns(1L, " AAPL ", 0, 20);
+
+        assertThat(repository.lastSymbol).isEqualTo("AAPL");
+        assertThat(page.items()).extracting(BacktestRunDto::symbol).containsExactly("AAPL");
+    }
+
     private CreateBacktestRunRequest request(String strategyId, String symbol, String period, BigDecimal initialCapital, String strategyCode) {
         return new CreateBacktestRunRequest(strategyId, strategyCode, symbol, period, initialCapital, "USD", "buy_hold", "cached");
     }
 
     private BacktestRun run(UUID uuid, Long userId, String symbol) {
+        return run(uuid, userId, symbol, BacktestRunStatus.SUCCEEDED, null, null);
+    }
+
+    private BacktestRun runWithError(UUID uuid, Long userId, String symbol, String errorCode, String errorMessage) {
+        return run(uuid, userId, symbol, BacktestRunStatus.REJECTED, errorCode, errorMessage);
+    }
+
+    private BacktestRun run(UUID uuid, Long userId, String symbol, BacktestRunStatus status, String errorCode, String errorMessage) {
         OffsetDateTime now = OffsetDateTime.now();
         return new BacktestRun(
             99L,
@@ -188,10 +276,10 @@ class BacktestServiceTest {
             "USD",
             "buy_hold",
             "cached",
-            BacktestRunStatus.SUCCEEDED,
+            status,
             BigDecimal.ONE,
-            null,
-            null,
+            errorCode,
+            errorMessage,
             now,
             now,
             now
@@ -203,6 +291,7 @@ class BacktestServiceTest {
         private final List<BacktestResult> savedResults = new ArrayList<>();
         private final Map<String, BacktestRun> runsByExternalId = new HashMap<>();
         private final Map<String, BacktestResult> resultsByExternalId = new HashMap<>();
+        private String lastSymbol;
         private int lastPage = -1;
         private int lastSize = -1;
         private long nextId = 1L;
@@ -259,6 +348,7 @@ class BacktestServiceTest {
 
         @Override
         public PageResponse<BacktestRun> listRuns(Long userId, String symbol, int page, int size) {
+            lastSymbol = symbol;
             lastPage = page;
             lastSize = size;
             List<BacktestRun> items = runsByExternalId.values().stream()
