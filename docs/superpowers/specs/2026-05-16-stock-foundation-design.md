@@ -317,7 +317,7 @@ ApiResponse<EmptyResponse>
 | POST | `/api/v1/auth/register` | 註冊 |
 | POST | `/api/v1/auth/login` | 登入並回 access token + refresh token |
 | POST | `/api/v1/auth/refresh` | 用 refresh token 換新 access token |
-| POST | `/api/v1/auth/logout` | 撤銷當前 refresh token |
+| POST | `/api/v1/auth/logout` | 需 Bearer access token，且只能撤銷目前使用者自己的 refresh token |
 | GET | `/api/v1/me` | 取得目前登入使用者 |
 
 ### Token Model

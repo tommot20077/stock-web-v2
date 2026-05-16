@@ -1,0 +1,5 @@
+# E2E profile. External service connections are injected by DynamicPropertySource.
+stock:
+  jwt:
+    access-token-ttl: PT30M
+    refresh-token-ttl: P14D
