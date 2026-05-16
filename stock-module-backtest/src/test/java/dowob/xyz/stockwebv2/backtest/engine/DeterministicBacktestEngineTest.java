@@ -49,6 +49,14 @@ class DeterministicBacktestEngineTest {
     }
 
     @Test
+    void presetStrategyResultIgnoresSuppliedStrategyCode() {
+        BacktestResult withoutCode = engine.run(input(BacktestStrategyId.MA_CROSS, BacktestPeriod.ONE_YEAR, null));
+        BacktestResult withCode = engine.run(input(BacktestStrategyId.MA_CROSS, BacktestPeriod.ONE_YEAR, "function strategy() { return 'ignored'; }"));
+
+        assertThat(withCode).isEqualTo(withoutCode);
+    }
+
+    @Test
     void customStrategyRejectsNullStrategyCode() {
         assertThatThrownBy(() -> engine.run(input(BacktestStrategyId.CUSTOM, BacktestPeriod.ONE_YEAR, null)))
             .isInstanceOf(IllegalArgumentException.class)

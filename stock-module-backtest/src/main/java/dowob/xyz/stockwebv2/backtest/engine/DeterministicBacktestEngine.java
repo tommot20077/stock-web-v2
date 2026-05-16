@@ -48,7 +48,9 @@ public class DeterministicBacktestEngine implements BacktestEngine {
 
     private long seed(BacktestEngineInput input) {
         String capital = input.initialCapital().setScale(2, RoundingMode.HALF_UP).toPlainString();
-        int strategyCodeHash = input.strategyCode() == null ? 0 : input.strategyCode().hashCode();
+        int strategyCodeHash = input.strategyId() == BacktestStrategyId.CUSTOM && input.strategyCode() != null
+            ? input.strategyCode().hashCode()
+            : 0;
         return Objects.hash(
             input.userId(),
             input.strategyId().apiValue(),

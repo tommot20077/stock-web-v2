@@ -64,6 +64,7 @@ public class BacktestService {
         if (strategy == BacktestStrategyId.CUSTOM) {
             validateStrategyCode(request.strategyCode());
         }
+        String strategyCode = strategyCodeFor(strategy, request.strategyCode());
 
         BacktestEngineInput input = new BacktestEngineInput(
             userId,
@@ -71,7 +72,7 @@ public class BacktestService {
             symbol,
             period,
             request.initialCapital(),
-            request.strategyCode()
+            strategyCode
         );
         BacktestResult result;
         try {
@@ -87,7 +88,7 @@ public class BacktestService {
             null,
             strategy,
             strategy.label(),
-            request.strategyCode(),
+            strategyCode,
             symbol,
             period,
             request.initialCapital(),
@@ -189,5 +190,9 @@ public class BacktestService {
         } catch (IllegalArgumentException exception) {
             throw new BusinessException(ErrorCode.BACKTEST_STRATEGY_COMPILE_FAILED, exception.getMessage());
         }
+    }
+
+    private String strategyCodeFor(BacktestStrategyId strategy, String strategyCode) {
+        return strategy == BacktestStrategyId.CUSTOM ? strategyCode : null;
     }
 }

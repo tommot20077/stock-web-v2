@@ -55,6 +55,17 @@ class BacktestServiceTest {
     }
 
     @Test
+    void presetStrategyIgnoresSuppliedStrategyCode() {
+        repository.activeSymbols.add("AAPL");
+
+        service.createRun(1L, request("ma_cross", "AAPL", "3Y", new BigDecimal("100000"), null));
+        BacktestRunDto withCode = service.createRun(1L, request("ma_cross", "AAPL", "3Y", new BigDecimal("100000"), VALID_STRATEGY_CODE));
+
+        assertThat(repository.savedResults.get(1)).isEqualTo(repository.savedResults.getFirst());
+        assertThat(repository.runsByExternalId.get(withCode.id()).strategyCode()).isNull();
+    }
+
+    @Test
     void createRunRequiresRequest() {
         assertThatThrownBy(() -> service.createRun(1L, null))
             .isInstanceOfSatisfying(BusinessException.class, exception -> {

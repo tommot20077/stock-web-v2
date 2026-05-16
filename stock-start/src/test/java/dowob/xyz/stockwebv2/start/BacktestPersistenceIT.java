@@ -43,6 +43,14 @@ class BacktestPersistenceIT extends ContainerIT {
     }
 
     @Test
+    void backtestRunSymbolColumnMatchesAssetSymbolLength() {
+        Integer assetSymbolLength = symbolColumnLength("assets");
+        Integer backtestSymbolLength = symbolColumnLength("backtest_runs");
+
+        assertThat(backtestSymbolLength).isEqualTo(assetSymbolLength).isEqualTo(50);
+    }
+
+    @Test
     void persistsAndReadsBackNormalizedBacktestResult() {
         Long userId = createUser("backtest-reader@example.com", "backtest-reader");
         JdbcBacktestRepository repository = new JdbcBacktestRepository(jdbcTemplate.getDataSource());
@@ -102,5 +110,15 @@ class BacktestPersistenceIT extends ContainerIT {
             values (?, ?, 'hash', 'USER', 'ACTIVE', 1)
             returning id
             """, Long.class, email, username);
+    }
+
+    private Integer symbolColumnLength(String tableName) {
+        return jdbcTemplate.queryForObject("""
+            select character_maximum_length
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = ?
+              and column_name = 'symbol'
+            """, Integer.class, tableName);
     }
 }
