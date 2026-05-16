@@ -24,10 +24,21 @@ class BacktestContractTest {
     }
 
     @Test
+    void statusesParseApiValues() {
+        assertThat(BacktestRunStatus.fromApiValue("queued")).isEqualTo(BacktestRunStatus.QUEUED);
+        assertThat(BacktestRunStatus.fromApiValue("running")).isEqualTo(BacktestRunStatus.RUNNING);
+        assertThat(BacktestRunStatus.fromApiValue("succeeded")).isEqualTo(BacktestRunStatus.SUCCEEDED);
+        assertThat(BacktestRunStatus.fromApiValue("failed")).isEqualTo(BacktestRunStatus.FAILED);
+        assertThat(BacktestRunStatus.fromApiValue("rejected")).isEqualTo(BacktestRunStatus.REJECTED);
+    }
+
+    @Test
     void invalidValuesAreRejected() {
         assertThatThrownBy(() -> BacktestStrategyId.fromApiValue("other"))
             .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> BacktestPeriod.fromApiValue("10Y"))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> BacktestRunStatus.fromApiValue("done"))
             .isInstanceOf(IllegalArgumentException.class);
     }
 }

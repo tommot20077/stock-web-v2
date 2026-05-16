@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.backtest.domain;
 
+import java.util.Arrays;
+
 public enum BacktestRunStatus {
     QUEUED("queued"),
     RUNNING("running"),
@@ -15,5 +17,12 @@ public enum BacktestRunStatus {
 
     public String apiValue() {
         return apiValue;
+    }
+
+    public static BacktestRunStatus fromApiValue(String value) {
+        return Arrays.stream(values())
+            .filter(status -> status.apiValue.equals(value))
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("Unsupported status: " + value));
     }
 }

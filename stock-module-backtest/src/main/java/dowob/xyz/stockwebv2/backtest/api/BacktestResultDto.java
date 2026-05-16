@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.backtest.api;
 
 import dowob.xyz.stockwebv2.backtest.domain.BacktestResult;
+import dowob.xyz.stockwebv2.backtest.domain.BacktestRunStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -32,6 +33,10 @@ public record BacktestResultDto(
             result.drawdownCurve().stream().map(DrawdownPointDto::fromDomain).toList(),
             result.trades().stream().map(BacktestTradeDto::fromDomain).toList()
         );
+    }
+
+    public static BacktestResultDto fromDomain(String runId, BacktestRunStatus status, BacktestResult result) {
+        return fromDomain(runId, status.apiValue(), result);
     }
 
     public record BacktestKpisDto(
