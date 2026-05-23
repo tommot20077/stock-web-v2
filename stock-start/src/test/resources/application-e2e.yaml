@@ -3,3 +3,12 @@ stock:
   jwt:
     access-token-ttl: PT30M
     refresh-token-ttl: P14D
+
+# market-data 設定：E2E 環境停用背景排程與 mock 自動惰性，避免干擾測試
+market-data:
+  scheduling:
+    enabled: false
+  ingestor:
+    enabled: false
+  mock:
+    enabled: true
