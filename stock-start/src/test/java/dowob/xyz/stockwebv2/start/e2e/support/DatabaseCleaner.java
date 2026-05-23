@@ -19,6 +19,7 @@ public class DatabaseCleaner {
     }
 
     public void cleanUserData() {
+        jdbcTemplate.execute("DELETE FROM backtest_runs");
         jdbcTemplate.execute("DELETE FROM users");
         try (RedisConnection connection = redisConnectionFactory.getConnection()) {
             connection.serverCommands().flushDb();

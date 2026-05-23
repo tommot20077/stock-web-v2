@@ -23,6 +23,16 @@ public enum ErrorCode {
     WS_RATE_LIMIT_EXCEEDED(429, "WebSocket rate limit exceeded"),
     PROVIDER_FETCH_FAILED(502, "Market data provider fetch failed"),
 
+    // Backtest module error codes
+    BACKTEST_INVALID_INITIAL_CAPITAL(400, "Initial capital must be greater than 0"),
+    BACKTEST_UNSUPPORTED_SYMBOL(400, "Unsupported symbol"),
+    BACKTEST_UNSUPPORTED_PERIOD(400, "Unsupported backtest period"),
+    BACKTEST_UNSUPPORTED_STRATEGY(400, "Unsupported backtest strategy"),
+    BACKTEST_UNSUPPORTED_DATA_MODE(400, "Unsupported backtest data mode"),
+    BACKTEST_STRATEGY_COMPILE_FAILED(400, "Strategy compile failed"),
+    BACKTEST_RUN_NOT_FOUND(404, "Backtest run not found"),
+    BACKTEST_RESULT_NOT_READY(409, "Backtest result is not ready"),
+
     INTERNAL_ERROR(500, "Internal server error");
 
     private final int httpStatus;
