@@ -33,7 +33,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <ul>
  *   <li>4400 — 連續格式錯誤超過上限（Bad message）</li>
  *   <li>4429 — 速率限制超過（Rate limit exceeded）</li>
+ *   <li>4500 — 廣播傳送失敗（Send failure，由 WsBroadcastConsumer 觸發）</li>
  * </ul>
+ *
+ * <p>Sessions 登錄：持有 {@code sessions} map，讓 {@link dowob.xyz.stockwebv2.marketdata.consumer.WsBroadcastConsumer}
+ * 能透過 {@link #findSession(String)} 查找實際 {@link WebSocketSession} 實例進行廣播。
  *
  * @author Yuan
  * @version 1.0.0
@@ -64,6 +68,15 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
     private final ConcurrentMap<String, SessionContext> contexts = new ConcurrentHashMap<>();
 
     /**
+     * 活躍 WebSocket session 登錄：sessionId → WebSocketSession。
+     *
+     * <p>供 {@link dowob.xyz.stockwebv2.marketdata.consumer.WsBroadcastConsumer} 透過
+     * {@link #findSession(String)} 查找 session 實例進行廣播。
+     * 生命週期由 {@link #afterConnectionEstablished} / {@link #afterConnectionClosed} 管理。
+     */
+    private final ConcurrentMap<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
+
+    /**
      * 建構子注入所有依賴。
      *
      * @param parser              訊息解析器，不可為 null
@@ -83,13 +96,14 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
 
     /**
      * WebSocket 連線建立後的回呼：
-     * 建立 session context、傳送 WELCOME 訊息、向 heartbeat 註冊。
+     * 登錄 session、建立 session context、傳送 WELCOME 訊息、向 heartbeat 註冊。
      *
      * @param session 已建立的 WebSocket session
      * @throws Exception 若傳送 WELCOME 訊息失敗
      */
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        sessions.put(session.getId(), session);
         contexts.put(session.getId(), new SessionContext());
         sendWelcome(session);
         heartbeat.register(session);
@@ -159,7 +173,7 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
     }
 
     /**
-     * 連線關閉回呼：清理 session context、通知 SubscriptionManager 與 WsHeartbeat。
+     * 連線關閉回呼：從 sessions 登錄移除、清理 session context、通知 SubscriptionManager 與 WsHeartbeat。
      *
      * @param session WebSocket session
      * @param status  關閉狀態
@@ -167,9 +181,23 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
      */
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
+        sessions.remove(session.getId());
         contexts.remove(session.getId());
         subscriptionManager.removeSession(session.getId());
         heartbeat.unregister(session.getId());
+    }
+
+    /**
+     * 依 sessionId 查找對應的 {@link WebSocketSession}。
+     *
+     * <p>供 {@link dowob.xyz.stockwebv2.marketdata.consumer.WsBroadcastConsumer} 廣播訊息時使用。
+     * 若 session 已關閉或不存在（例如非預期斷線），回傳 {@link java.util.Optional#empty()}。
+     *
+     * @param sessionId WebSocket session ID
+     * @return 包含 session 實例的 Optional，若不存在則為 empty
+     */
+    public java.util.Optional<WebSocketSession> findSession(String sessionId) {
+        return java.util.Optional.ofNullable(sessions.get(sessionId));
     }
 
     /**

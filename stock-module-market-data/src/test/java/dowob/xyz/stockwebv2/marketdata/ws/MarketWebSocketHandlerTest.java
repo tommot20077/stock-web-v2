@@ -192,4 +192,34 @@ class MarketWebSocketHandlerTest {
         verify(subscriptionManager).removeSession("s1");
         verify(heartbeat).unregister("s1");
     }
+
+    /** afterConnectionEstablished → session 登錄至 sessions map，findSession 可查到 */
+    @Test
+    @DisplayName("afterConnectionEstablished → findSession 可查到已登錄的 session")
+    void afterConnectionEstablished_registersSessionForLookup() throws Exception {
+        WebSocketSession session = mockSession("s1");
+
+        handler.afterConnectionEstablished(session);
+
+        assertThat(handler.findSession("s1")).isPresent().contains(session);
+    }
+
+    /** afterConnectionClosed → session 從 sessions map 移除，findSession 回傳 empty */
+    @Test
+    @DisplayName("afterConnectionClosed → findSession 回傳 empty")
+    void afterConnectionClosed_removesSessionFromRegistry() throws Exception {
+        WebSocketSession session = mockSession("s1");
+        handler.afterConnectionEstablished(session);
+
+        handler.afterConnectionClosed(session, CloseStatus.NORMAL);
+
+        assertThat(handler.findSession("s1")).isEmpty();
+    }
+
+    /** findSession → 不存在的 sessionId 回傳 empty */
+    @Test
+    @DisplayName("findSession → 不存在的 sessionId → 回傳 empty")
+    void findSession_unknownSessionId_returnsEmpty() {
+        assertThat(handler.findSession("does-not-exist")).isEmpty();
+    }
 }
