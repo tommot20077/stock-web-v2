@@ -99,4 +99,57 @@ class MarketDataMigrationIT {
             assertThat(rs.getInt(1)).isEqualTo(5);
         }
     }
+
+    @Test
+    @DisplayName("V5 遷移後，Spring Batch metadata 表應全數存在")
+    void springBatchMetadataTables_areCreated() throws Exception {
+        String[] expectedTables = {
+            "batch_job_instance",
+            "batch_job_execution",
+            "batch_job_execution_params",
+            "batch_job_execution_context",
+            "batch_step_execution",
+            "batch_step_execution_context"
+        };
+        try (Connection conn = DriverManager.getConnection(
+                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
+            for (String table : expectedTables) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT count(*) FROM information_schema.tables WHERE table_name = ?")) {
+                    ps.setString(1, table);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        assertThat(rs.next()).isTrue();
+                        assertThat(rs.getInt(1))
+                            .as("table '%s' should exist", table)
+                            .isEqualTo(1);
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("V5 遷移後，Spring Batch sequences 應全數存在")
+    void springBatchSequences_areCreated() throws Exception {
+        String[] expectedSequences = {
+            "batch_job_instance_seq",
+            "batch_job_execution_seq",
+            "batch_step_execution_seq"
+        };
+        try (Connection conn = DriverManager.getConnection(
+                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
+            for (String sequence : expectedSequences) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT count(*) FROM information_schema.sequences WHERE sequence_name = ?")) {
+                    ps.setString(1, sequence);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        assertThat(rs.next()).isTrue();
+                        assertThat(rs.getInt(1))
+                            .as("sequence '%s' should exist", sequence)
+                            .isEqualTo(1);
+                    }
+                }
+            }
+        }
+    }
 }
