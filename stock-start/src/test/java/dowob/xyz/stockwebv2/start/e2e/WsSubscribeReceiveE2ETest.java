@@ -19,9 +19,9 @@ import org.springframework.web.socket.handler.AbstractWebSocketHandler;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -78,7 +78,8 @@ class WsSubscribeReceiveE2ETest extends AbstractWsE2ETest {
             "ws-subscribe-e2e@example.com", "wssubscribee2e", "Password1");
         String ticket = requestWsTicket(session.accessToken());
 
-        List<String> received = new ArrayList<>();
+        // WS client callback thread 與 test thread 共享, 必須 thread-safe
+        List<String> received = new CopyOnWriteArrayList<>();
         WebSocketSession wsSession = connectAndSubscribe(ticket, "tick.AAPL", received);
 
         // 注入一個 AAPL tick 至 Kafka（市場即時 topic）

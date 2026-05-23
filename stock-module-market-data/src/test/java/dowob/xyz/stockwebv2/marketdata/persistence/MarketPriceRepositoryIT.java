@@ -41,7 +41,7 @@ class MarketPriceRepositoryIT {
 
     @Container
     static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
-            DockerImageName.parse("timescale/timescaledb:latest-pg16")
+            DockerImageName.parse("timescale/timescaledb:2.17.2-pg16")
                     .asCompatibleSubstituteFor("postgres"))
             .withDatabaseName("market_data_test")
             .withUsername("test")

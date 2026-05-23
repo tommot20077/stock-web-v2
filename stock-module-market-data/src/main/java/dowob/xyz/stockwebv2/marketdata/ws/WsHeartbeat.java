@@ -1,5 +1,6 @@
 package dowob.xyz.stockwebv2.marketdata.ws;
 
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -95,6 +96,34 @@ public class WsHeartbeat {
         if (sh != null) {
             sh.cancel();
         }
+    }
+
+    /**
+     * Spring context 關閉時被呼叫,清掉所有 session 心跳任務並 shutdown scheduler。
+     * 避免 @SpringBootTest 連續啟動或 production 熱重載時 daemon thread 堆積。
+     */
+    @PreDestroy
+    public void shutdown() {
+        sessions.values().forEach(SessionHeartbeat::cancel);
+        sessions.clear();
+        scheduler.shutdownNow();
+        try {
+            if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                log.warn("WsHeartbeat scheduler 5s 內未完全終止,放棄等待");
+            }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** 暴露給測試用:目前還在 register 中的 session 數。 */
+    int trackedSessions() {
+        return sessions.size();
+    }
+
+    /** 暴露給測試用:scheduler 是否已 shutdown。 */
+    boolean isSchedulerShutdown() {
+        return scheduler.isShutdown();
     }
 
     /**

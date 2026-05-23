@@ -108,25 +108,34 @@ public class WsTicketController {
      * <p>此 Redis key 由 {@code JwtAuthenticationFilter} 在認證時已驗證，
      * 因此此處讀取的值與 JWT 攜帶的 tokenVersion 一致。
      *
+     * <p>若 Redis 讀不到對應 key 或 tokenVersion 欄位,代表認證狀態不一致
+     * (例如 Redis 已被清空或 user 已 logout 但 JWT 還沒過期),直接拒絕
+     * 簽發 ticket;否則 handshake 端會以 tokenVersion 為 null 必拒,導致
+     * client 拿到一張永遠用不了的 ticket。
+     *
      * @param userId 目標 user id
-     * @return tokenVersion，若 Redis 無對應 key 則回傳 0（退化安全值）
+     * @return tokenVersion
+     * @throws BusinessException 若 Redis 認證狀態缺失或不可讀
      */
     private Integer resolveTokenVersion(Long userId) {
         Map<Object, Object> entries = redisTemplate.opsForHash().entries(AUTH_KEY_PREFIX + userId);
         if (entries == null || entries.isEmpty()) {
-            log.warn("resolveTokenVersion: Redis auth state missing for userId={}, defaulting tokenVersion=0", userId);
-            return 0;
+            log.warn("resolveTokenVersion: Redis auth state missing for userId={}", userId);
+            throw new BusinessException(ErrorCode.AUTH_REDIS_UNAVAILABLE,
+                ErrorCode.AUTH_REDIS_UNAVAILABLE.defaultMessage());
         }
         Object tv = entries.get("tokenVersion");
         if (tv == null) {
-            log.warn("resolveTokenVersion: tokenVersion field absent for userId={}, defaulting to 0", userId);
-            return 0;
+            log.warn("resolveTokenVersion: tokenVersion field absent for userId={}", userId);
+            throw new BusinessException(ErrorCode.AUTH_REDIS_UNAVAILABLE,
+                ErrorCode.AUTH_REDIS_UNAVAILABLE.defaultMessage());
         }
         try {
             return Integer.parseInt(tv.toString());
         } catch (NumberFormatException e) {
-            log.warn("resolveTokenVersion: unparseable tokenVersion='{}' for userId={}, defaulting to 0", tv, userId);
-            return 0;
+            log.warn("resolveTokenVersion: unparseable tokenVersion='{}' for userId={}", tv, userId);
+            throw new BusinessException(ErrorCode.AUTH_REDIS_UNAVAILABLE,
+                ErrorCode.AUTH_REDIS_UNAVAILABLE.defaultMessage());
         }
     }
 

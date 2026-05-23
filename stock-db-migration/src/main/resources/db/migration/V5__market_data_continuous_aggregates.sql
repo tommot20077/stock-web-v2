@@ -14,8 +14,10 @@ FROM market_prices
 GROUP BY bucket, asset_id
 WITH NO DATA;
 
+-- start_offset 必須涵蓋 backfill horizon (BackfillController 上限 90 day),否則歷史回填
+-- 寫入後此 view 不會 materialize,/klines 查不到。設 120 day 留 buffer。
 SELECT add_continuous_aggregate_policy('kline_1m',
-    start_offset      => INTERVAL '3 hours',
+    start_offset      => INTERVAL '120 days',
     end_offset        => INTERVAL '30 seconds',
     schedule_interval => INTERVAL '30 seconds'
 );
@@ -35,7 +37,7 @@ GROUP BY bucket, asset_id
 WITH NO DATA;
 
 SELECT add_continuous_aggregate_policy('kline_5m',
-    start_offset      => INTERVAL '1 day',
+    start_offset      => INTERVAL '120 days',
     end_offset        => INTERVAL '1 minute',
     schedule_interval => INTERVAL '1 minute'
 );
@@ -55,7 +57,7 @@ GROUP BY bucket, asset_id
 WITH NO DATA;
 
 SELECT add_continuous_aggregate_policy('kline_15m',
-    start_offset      => INTERVAL '1 week',
+    start_offset      => INTERVAL '120 days',
     end_offset        => INTERVAL '5 minutes',
     schedule_interval => INTERVAL '5 minutes'
 );
@@ -75,7 +77,7 @@ GROUP BY bucket, asset_id
 WITH NO DATA;
 
 SELECT add_continuous_aggregate_policy('kline_1h',
-    start_offset      => INTERVAL '1 month',
+    start_offset      => INTERVAL '120 days',
     end_offset        => INTERVAL '15 minutes',
     schedule_interval => INTERVAL '15 minutes'
 );

@@ -59,9 +59,9 @@ public class WsTicketService {
      * @param ttl           ticket 在 Redis 中的存活時間，不可 null
      */
     WsTicketService(StringRedisTemplate redisTemplate, ObjectMapper objectMapper, Duration ttl) {
-        this.redisTemplate = redisTemplate;
-        this.objectMapper = objectMapper;
-        this.ttl = ttl;
+        this.redisTemplate = Objects.requireNonNull(redisTemplate, "redisTemplate must not be null");
+        this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
+        this.ttl = Objects.requireNonNull(ttl, "ttl must not be null");
     }
 
     /**

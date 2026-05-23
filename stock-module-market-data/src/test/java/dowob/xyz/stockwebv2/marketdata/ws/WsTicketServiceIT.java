@@ -101,12 +101,16 @@ class WsTicketServiceIT {
     // ── TTL ───────────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("issue：TTL 過期後 consume → 回 empty")
-    void issue_expiresAfterTtl() throws InterruptedException {
-        // 使用短 TTL 讓測試快速完成
+    @DisplayName("issue:TTL 過期後 consume → 回 empty (deterministic 等待)")
+    void issue_expiresAfterTtl() {
+        // 短 TTL 讓測試快速完成,Awaitility 取代 Thread.sleep 避免 CI flaky
         var svc = new WsTicketService(template, om, Duration.ofMillis(500));
         String ticket = svc.issue(42L, 1);
-        Thread.sleep(800);
+        org.awaitility.Awaitility.await()
+            .atMost(Duration.ofSeconds(3))
+            .pollInterval(Duration.ofMillis(100))
+            .until(() -> svc.consume(ticket).isEmpty());
+        // 額外 sanity: 已 consume 一次後再 consume 也是 empty
         assertThat(svc.consume(ticket)).isEmpty();
     }
 

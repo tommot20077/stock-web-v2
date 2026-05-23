@@ -87,23 +87,22 @@ class WsTokenRevocationE2ETest extends AbstractWsE2ETest {
         // 將 Redis tokenVersion 修改為與 ticket 內容不一致的值
         redisTemplate.opsForHash().put("user:auth:" + userId, "tokenVersion", "99");
 
-        // Step 4: 以舊 ticket 嘗試 WS 連線 → 應被拒絕（TOKEN_VERSION_MISMATCH）
-        boolean connectionRejected = false;
-        WebSocketSession wsSession = null;
-        try {
-            wsSession = connectWebSocket(ticket).get(10, TimeUnit.SECONDS);
-        } catch (Exception ex) {
-            // 預期：HandshakeInterceptor 以 HTTP 401 拒絕，WebSocket client 拋例外
-            connectionRejected = true;
-        }
-
-        assertThat(connectionRejected)
-            .as("WS connection with mismatched tokenVersion ticket should be rejected")
-            .isTrue();
-
-        if (wsSession != null && wsSession.isOpen()) {
-            wsSession.close();
-        }
+        // Step 4: 以舊 ticket 嘗試 WS 連線 → 應被 HandshakeInterceptor 以 HTTP 401 拒絕
+        // 用 assertThatThrownBy 精準 assert ExecutionException 且 cause 訊息含 401/Unauthorized/Handshake,
+        // 避免吞掉 timeout / connection refused / 其他無關錯誤 (那些代表 server/network 問題而非 auth 拒絕)。
+        java.util.concurrent.CompletableFuture<WebSocketSession> connectFuture = connectWebSocket(ticket);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> connectFuture.get(10, TimeUnit.SECONDS))
+            .as("WS connection with mismatched tokenVersion ticket should be rejected by handshake")
+            .isInstanceOf(java.util.concurrent.ExecutionException.class)
+            .satisfies(thrown -> {
+                Throwable cause = thrown.getCause();
+                assertThat(cause).as("ExecutionException cause should not be null").isNotNull();
+                String description = (cause.getMessage() == null ? "" : cause.getMessage())
+                    + " " + cause.getClass().getName();
+                assertThat(description.toLowerCase())
+                    .as("Cause must signal handshake/auth failure (got: %s)", description)
+                    .containsAnyOf("401", "unauthorized", "handshake", "upgrade");
+            });
     }
 
     /**

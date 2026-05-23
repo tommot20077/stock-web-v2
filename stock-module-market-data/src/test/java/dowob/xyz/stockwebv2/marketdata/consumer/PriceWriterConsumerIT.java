@@ -44,7 +44,7 @@ class PriceWriterConsumerIT {
 
     @Container
     static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
-            DockerImageName.parse("timescale/timescaledb:latest-pg16")
+            DockerImageName.parse("timescale/timescaledb:2.17.2-pg16")
                     .asCompatibleSubstituteFor("postgres"))
             .withDatabaseName("price_writer_test")
             .withUsername("test")

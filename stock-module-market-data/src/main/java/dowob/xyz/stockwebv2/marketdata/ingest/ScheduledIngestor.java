@@ -76,8 +76,15 @@ public class ScheduledIngestor {
     /**
      * 每秒對快取的 asset 清單執行一輪 tick 拉取並推入 Kafka。
      *
-     * <p>{@code fixedDelay} 確保上一輪完成後才排下一輪，避免因外部 provider 延遲導致輪次重疊。
-     * 個別 asset 拉取或發布失敗時，會 catch、log warn、計數，然後繼續處理下一個 asset。
+     * <p>{@code fixedDelay} 確保上一輪完成後才排下一輪,避免因外部 provider 延遲導致輪次重疊。
+     *
+     * <p>計數語義:
+     * <ul>
+     *   <li>provider fetch 拋例外或 publishTick 同步階段拋例外 → 立即 {@code failureCount++}</li>
+     *   <li>publishTick 回傳 future,在 ack callback 內依結果遞增 {@code successCount} 或
+     *       {@code failureCount} — 此 callback 由 Kafka producer thread 觸發,
+     *       {@link AtomicLong} 已 thread-safe,直接呼叫即可</li>
+     * </ul>
      */
     @Scheduled(fixedDelayString = "${market-data.ingestor.fixed-delay-ms:1000}")
     public void tickAll() {
@@ -87,8 +94,15 @@ public class ScheduledIngestor {
                 PriceTick tick = provider.fetchLatest(asset.symbol());
                 PriceTickEvent event = PriceTickEvent.of(
                         asset.id(), tick.symbol(), tick.price(), tick.volume(), provider.name());
-                ingestService.publishTick(event);
-                successCount.incrementAndGet();
+                ingestService.publishTick(event).whenComplete((result, throwable) -> {
+                    if (throwable != null) {
+                        failureCount.incrementAndGet();
+                        log.warn("Kafka send failed for asset id={} symbol={}: {}",
+                                asset.id(), asset.symbol(), throwable.toString());
+                    } else {
+                        successCount.incrementAndGet();
+                    }
+                });
             } catch (Exception ex) {
                 failureCount.incrementAndGet();
                 log.warn("Failed to fetch/publish tick for asset id={} symbol={}: {}",

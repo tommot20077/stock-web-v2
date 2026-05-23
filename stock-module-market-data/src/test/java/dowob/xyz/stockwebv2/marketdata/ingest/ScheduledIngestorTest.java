@@ -112,4 +112,17 @@ class ScheduledIngestorTest {
         verify(ingest, times(9)).publishTick(any());
         assertThat(ingestor.successCount()).isEqualTo(9);
     }
+
+    @Test
+    void tickAll_kafkaSendAckFails_countsAsFailureNotSuccess() {
+        // publishTick 同步階段不丟; future 完成時帶例外 → 應計 failureCount 而非 successCount
+        CompletableFuture<org.springframework.kafka.support.SendResult<String, Object>> failingFuture = new CompletableFuture<>();
+        failingFuture.completeExceptionally(new RuntimeException("kafka broker down"));
+        when(ingest.publishTick(any())).thenReturn(failingFuture);
+
+        ingestor.tickAll();
+
+        assertThat(ingestor.successCount()).isZero();
+        assertThat(ingestor.failureCount()).isEqualTo(3);
+    }
 }
