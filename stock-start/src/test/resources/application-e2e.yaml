@@ -3,3 +3,15 @@ stock:
   jwt:
     access-token-ttl: PT30M
     refresh-token-ttl: P14D
+
+# market-data 設定:
+# - scheduling/ingestor 停用,避免背景每秒推 tick 干擾 WS E2E 計數
+# - mock provider 保留啟用,E2E 需要它供 ProviderRegistry 與 MockDataProviderTest 直接呼叫
+#   來產生確定性的 tick (例如 WsSubscribeReceiveE2ETest 手動 publish 一筆給訂閱者)
+market-data:
+  scheduling:
+    enabled: false
+  ingestor:
+    enabled: false
+  mock:
+    enabled: true

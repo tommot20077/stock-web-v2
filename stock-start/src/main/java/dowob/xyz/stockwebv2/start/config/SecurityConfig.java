@@ -69,6 +69,8 @@ public class SecurityConfig {
                     "/v3/api-docs/**",
                     "/swagger-ui/**"
                 ).permitAll()
+                // WebSocket handshake 路徑：HTTP Filter 層放行，由 MarketHandshakeInterceptor 以 ticket 驗證
+                .requestMatchers("/ws/v1/market/**").permitAll()
                 .anyRequest().authenticated()
             )
             .exceptionHandling(exception -> exception

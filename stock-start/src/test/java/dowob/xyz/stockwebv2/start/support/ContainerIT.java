@@ -5,6 +5,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.kafka.ConfluentKafkaContainer;
 import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.utility.DockerImageName;
 
@@ -12,7 +13,8 @@ import org.testcontainers.utility.DockerImageName;
 public abstract class ContainerIT {
 
     static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
-        DockerImageName.parse("postgres:16-alpine")
+        DockerImageName.parse("timescale/timescaledb:2.17.2-pg16")
+                       .asCompatibleSubstituteFor("postgres")
     )
         .withDatabaseName("stock_v2_test")
         .withUsername("stock")
@@ -21,8 +23,11 @@ public abstract class ContainerIT {
     static final GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7.4-alpine"))
         .withExposedPorts(6379);
 
+    static final ConfluentKafkaContainer kafka = new ConfluentKafkaContainer(
+        DockerImageName.parse("confluentinc/cp-kafka:7.6.0"));
+
     static {
-        Startables.deepStart(postgres, redis).join();
+        Startables.deepStart(postgres, redis, kafka).join();
     }
 
     @DynamicPropertySource
@@ -35,6 +40,8 @@ public abstract class ContainerIT {
         registry.add("spring.data.redis.database", () -> 0);
         registry.add("spring.flyway.enabled", () -> true);
         registry.add("spring.flyway.locations", () -> "classpath:db/migration");
+        registry.add("spring.flyway.mixed", () -> true);
         registry.add("management.server.port", () -> 11180);
+        registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
     }
 }
