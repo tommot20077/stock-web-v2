@@ -12,7 +12,8 @@ import org.testcontainers.utility.DockerImageName;
 public abstract class ContainerIT {
 
     static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
-        DockerImageName.parse("postgres:16-alpine")
+        DockerImageName.parse("timescale/timescaledb:latest-pg16-oss")
+                       .asCompatibleSubstituteFor("postgres")
     )
         .withDatabaseName("stock_v2_test")
         .withUsername("stock")
