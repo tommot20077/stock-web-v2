@@ -4,6 +4,7 @@ import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.common.model.KlineInterval;
 import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
 import org.slf4j.MDC;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,21 +13,23 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * Market data REST controller — 提供 latest tick 查詢。
+ * Market data REST controller — 提供 latest tick 與 K 線查詢。
  *
  * <p>路徑說明：
  * <ul>
  *   <li>{@code GET /api/v1/market/{symbol}/latest} — 單一資產最新 tick</li>
  *   <li>{@code GET /api/v1/market/latest?symbols=...} — 批次查詢（最多 50）</li>
+ *   <li>{@code GET /api/v1/market/{symbol}/klines?interval=&from=&to=&limit=} — K 線查詢</li>
  * </ul>
  *
  * <p>無路徑衝突：{@link WsTicketController} 使用 {@code /api/v1/market/ws/ticket}，
- * 本 controller 使用 {@code /{symbol}/latest} 與 {@code /latest}，不重疊。
+ * 本 controller 使用 {@code /{symbol}/latest}、{@code /latest} 與 {@code /{symbol}/klines}，不重疊。
  *
  * @author Yuan
  * @version 1.0.0
@@ -36,14 +39,18 @@ import java.util.Optional;
 public class MarketController {
 
     private final MarketLatestService latestService;
+    private final KlineQueryService klineQueryService;
 
     /**
-     * 建構子注入 {@link MarketLatestService}。
+     * 建構子注入 {@link MarketLatestService} 與 {@link KlineQueryService}。
      *
-     * @param latestService 最新 tick 查詢服務
+     * @param latestService    最新 tick 查詢服務
+     * @param klineQueryService K 線查詢服務
      */
-    public MarketController(MarketLatestService latestService) {
+    public MarketController(MarketLatestService latestService,
+                            KlineQueryService klineQueryService) {
         this.latestService = latestService;
+        this.klineQueryService = klineQueryService;
     }
 
     /**
@@ -73,6 +80,38 @@ public class MarketController {
     @GetMapping("/latest")
     public ApiResponse<List<LatestPriceDto>> latestBatch(@RequestParam("symbols") List<String> symbols) {
         return ApiResponse.success(latestService.findLatestBatch(symbols), meta());
+    }
+
+    /**
+     * 查詢指定 symbol 的 K 線資料（continuous aggregate views）。
+     *
+     * <p>依 {@code interval} 參數路由至對應的 view（1m / 5m / 15m / 1h / 1d）。
+     * {@code to} 未指定時預設為當前時間；{@code limit} 未指定時預設 500，最大 5000。
+     *
+     * @param symbol       資產代號，大小寫敏感
+     * @param intervalCode K 線間隔 wire 字串（1m / 5m / 15m / 1h / 1d）
+     * @param from         查詢起始時間（含），必填
+     * @param to           查詢結束時間（不含），選填
+     * @param limit        最大回傳筆數，選填（預設 500，最大 5000）
+     * @return 包含 {@link KlineDto} list 的 {@link ApiResponse}
+     * @throws BusinessException {@link ErrorCode#KLINE_INTERVAL_INVALID} 若 interval 無效
+     */
+    @GetMapping("/{symbol}/klines")
+    public ApiResponse<List<KlineDto>> klines(
+        @PathVariable("symbol") String symbol,
+        @RequestParam("interval") String intervalCode,
+        @RequestParam("from") Instant from,
+        @RequestParam(value = "to", required = false) Instant to,
+        @RequestParam(value = "limit", required = false) Integer limit
+    ) {
+        KlineInterval interval;
+        try {
+            interval = KlineInterval.fromCode(intervalCode);
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.KLINE_INTERVAL_INVALID,
+                "Invalid interval: " + intervalCode + " (valid: 1m/5m/15m/1h/1d)");
+        }
+        return ApiResponse.success(klineQueryService.findKlines(symbol, interval, from, to, limit), meta());
     }
 
     /**

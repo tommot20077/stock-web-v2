@@ -56,6 +56,9 @@ class MarketControllerTest {
     @MockitoBean
     MarketLatestService latestService;
 
+    @MockitoBean
+    KlineQueryService klineQueryService;
+
     static final Instant FIXED_TIME = Instant.parse("2026-01-01T00:00:00Z");
 
     static LatestPriceDto aaplDto() {
