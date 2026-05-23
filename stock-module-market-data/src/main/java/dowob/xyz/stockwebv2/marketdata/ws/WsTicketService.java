@@ -1,5 +1,6 @@
 package dowob.xyz.stockwebv2.marketdata.ws;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.JacksonException;
@@ -45,6 +46,7 @@ public class WsTicketService {
      * @param redisTemplate Spring Data Redis template，不可 null
      * @param objectMapper  Jackson 3.x ObjectMapper（內建 Java Time 支援），不可 null
      */
+    @Autowired
     public WsTicketService(StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
         this(redisTemplate, objectMapper, DEFAULT_TTL);
     }
