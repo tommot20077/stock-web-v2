@@ -12,7 +12,7 @@ import org.testcontainers.utility.DockerImageName;
 public abstract class ContainerIT {
 
     static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
-        DockerImageName.parse("timescale/timescaledb:latest-pg16-oss")
+        DockerImageName.parse("timescale/timescaledb:latest-pg16")
                        .asCompatibleSubstituteFor("postgres")
     )
         .withDatabaseName("stock_v2_test")
@@ -36,6 +36,7 @@ public abstract class ContainerIT {
         registry.add("spring.data.redis.database", () -> 0);
         registry.add("spring.flyway.enabled", () -> true);
         registry.add("spring.flyway.locations", () -> "classpath:db/migration");
+        registry.add("spring.flyway.mixed", () -> true);
         registry.add("management.server.port", () -> 11180);
     }
 }
