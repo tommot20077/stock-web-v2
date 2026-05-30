@@ -4,6 +4,11 @@ stock:
     access-token-ttl: PT30M
     refresh-token-ttl: P14D
 
+spring:
+  batch:
+    job:
+      enabled: false
+
 # market-data 設定:
 # - scheduling/ingestor 停用,避免背景每秒推 tick 干擾 WS E2E 計數
 # - mock provider 保留啟用,E2E 需要它供 ProviderRegistry 與 MockDataProviderTest 直接呼叫
