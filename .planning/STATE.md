@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-05-30T16:09:34.000Z"
-last_activity: 2026-05-30
+last_updated: "2026-05-30T16:24:07.000Z"
+last_activity: 2026-05-31
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 10
-  completed_plans: 7
-  percent: 70
+  completed_plans: 8
+  percent: 80
 ---
 
 # Project State
@@ -26,30 +26,30 @@ See: .planning/PROJECT.md (updated 2026-05-30)
 ## Current Position
 
 Phase: 02 (Frontend Session & API Client Foundation) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
-Last activity: 2026-05-30
+Last activity: 2026-05-31
 
-Progress: [███████░░░] 70%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 7
-- Average duration: 20min
-- Total execution time: 0.7 hours
+- Total plans completed: 8
+- Average duration: 21min
+- Total execution time: 1.2 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 02 | 2 | 39min | 20min |
+| 02 | 3 | 69min | 23min |
 
 **Recent Trend:**
 
-- Last 5 plans: Phase 01 plans 03-05 and Phase 02 plans 01-02 completed
-- Trend: Phase 02 plan 02 completed with focused frontend CSRF/refresh Vitest gate passing
+- Last 5 plans: Phase 01 plans 04-05 and Phase 02 plans 01-03 completed
+- Trend: Phase 02 plan 03 completed with focused frontend auth API/session Vitest gate and frontend build passing
 
 *Updated after each plan completion*
 
@@ -66,6 +66,9 @@ Recent decisions affecting current work:
 - [Phase 2 Plan 01]: meta.traceId is preferred over legacy requestId for ApiClientError request ids.
 - [Phase 2 Plan 02]: CSRF bootstrap and unsafe request headers now live in the shared apiClient transport boundary.
 - [Phase 2 Plan 02]: 401 recovery uses one single-flight refresh and one replay max, with safe session failure callbacks.
+- [Phase 2 Plan 03]: /api/v1/me restore stores user metadata with null expiry timestamps because the backend /me contract does not return session expiry metadata.
+- [Phase 2 Plan 03]: Auth adapter response mapping whitelists allowed user/session fields so unexpected token fields are discarded before session state.
+- [Phase 2 Plan 03]: authSession registers apiClient refresh callbacks directly while apiClient keeps transport retry logic.
 - [Phase 4]: Trading scope is manual executed trade creation only; broker/order lifecycle remains out of scope.
 - [Phase 5]: Cross-repo browser verification is required because backend and frontend green tests alone do not prove cookie/CORS/CSRF integration.
 
@@ -90,6 +93,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-30T16:09:34.000Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-05-30T16:24:07.000Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None
