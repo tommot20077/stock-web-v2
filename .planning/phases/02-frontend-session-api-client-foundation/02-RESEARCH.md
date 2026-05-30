@@ -42,7 +42,7 @@
 - **D-19:** CI, integration, and production-like API-mode verification must require an explicit valid mode. Backend-integrated runs must not pass by accidentally using mock data.
 
 ### Shared Client Boundary
-- **D-20:** `../vue/stock-v2/vue-app/src/services/apiClient.ts` is the single HTTP transport boundary for API mode credentials, CSRF, refresh/replay, envelope parsing, request/trace id handling, and malformed-response errors.
+- **D-20:** `../../vue/stock-v2/vue-app/src/services/apiClient.ts` is the single HTTP transport boundary for API mode credentials, CSRF, refresh/replay, envelope parsing, request/trace id handling, and malformed-response errors.
 - **D-21:** Domain services such as backtest, ops, AI access, future portfolio, and future trading adapters should only build typed paths/payloads and call the shared client.
 - **D-22:** The planner should preserve existing mock adapters and tests while tightening API-mode behavior.
 
@@ -305,19 +305,17 @@ Wave 5 should add red tests for runtime mode guard and app wiring: unset mode de
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | `App.vue` shell integration will be sufficient for auth UI without adding route guards. [ASSUMED] | Recommended Implementation Shape | Planner may need a small route-level auth surface if shell-only UX becomes awkward. |
+| A1 | `App.vue` shell integration will be sufficient for auth UI without adding route guards. [RESOLVED] | Recommended Implementation Shape | Resolved by UI-SPEC: anonymous/error primary anchor is shell auth/session panel; authenticated anchor is header session indicator plus existing page content. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should auth UI be a modal, shell panel, or route entry?** [ASSUMED]
+1. **Should auth UI be a modal, shell panel, or route entry?** [RESOLVED]
    - What we know: It must fit the existing app shell and cover register/login/logout/session restore. [VERIFIED: .planning/phases/02-frontend-session-api-client-foundation/02-CONTEXT.md]
-   - What's unclear: Exact placement was intentionally left to planner discretion. [VERIFIED: .planning/phases/02-frontend-session-api-client-foundation/02-CONTEXT.md]
-   - Recommendation: Use a shell-mounted focused auth panel first; add route naming only if tests show navigation needs it. [ASSUMED]
+   - Resolution: Use a shell-mounted focused auth/session panel as the API-mode anonymous/error primary visual anchor. Use the header session indicator plus existing page content as the authenticated primary visual anchor. Add route naming only if implementation tests prove it is necessary. [VERIFIED: .planning/phases/02-frontend-session-api-client-foundation/02-UI-SPEC.md]
 
-2. **Should runtime mode validation depend on an extra env such as integration/prod flag?** [ASSUMED]
+2. **Should runtime mode validation depend on an extra env such as integration/prod flag?** [RESOLVED]
    - What we know: Unset may remain mock for local development, but explicit invalid mode must fail fast. [VERIFIED: .planning/phases/02-frontend-session-api-client-foundation/02-CONTEXT.md]
-   - What's unclear: The frontend currently has no `engines`, `.nvmrc`, or documented environment classifier in `package.json`. [VERIFIED: /mnt/d/end/workspace/vue/stock-v2/vue-app/package.json]
-   - Recommendation: Make `normalizeRuntimeDataMode` throw for any non-empty value other than `mock` or `api`; keep only `undefined`/empty as local mock default. [VERIFIED: .planning/phases/02-frontend-session-api-client-foundation/02-CONTEXT.md]
+   - Resolution: Do not introduce an extra environment classifier in Phase 2. Make `normalizeRuntimeDataMode` throw for any non-empty value other than `mock` or `api`; keep only `undefined`/empty as local mock default. [VERIFIED: .planning/phases/02-frontend-session-api-client-foundation/02-CONTEXT.md]
 
 ## Sources
 
@@ -353,6 +351,6 @@ Wave 5 should add red tests for runtime mode guard and app wiring: unset mode de
 - UI placement: MEDIUM - exact auth UI placement is intentionally discretionary. [VERIFIED: .planning/phases/02-frontend-session-api-client-foundation/02-CONTEXT.md]
 
 **Research date:** 2026-05-30 [VERIFIED: current_date]  
-**Valid until:** 2026-06-29, or earlier if frontend runtime/client files change. [ASSUMED]
+**Valid until:** 2026-06-29, or earlier if frontend runtime/client files change.
 
 ## RESEARCH COMPLETE

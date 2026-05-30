@@ -47,7 +47,7 @@ This phase does not wire portfolio read models, manual trade creation, broker/or
 - **D-19:** CI, integration, and production-like API-mode verification must require an explicit valid mode. Backend-integrated runs must not pass by accidentally using mock data.
 
 ### Shared Client Boundary
-- **D-20:** `../vue/stock-v2/vue-app/src/services/apiClient.ts` is the single HTTP transport boundary for API mode credentials, CSRF, refresh/replay, envelope parsing, request/trace id handling, and malformed-response errors.
+- **D-20:** `../../vue/stock-v2/vue-app/src/services/apiClient.ts` is the single HTTP transport boundary for API mode credentials, CSRF, refresh/replay, envelope parsing, request/trace id handling, and malformed-response errors.
 - **D-21:** Domain services such as backtest, ops, AI access, future portfolio, and future trading adapters should only build typed paths/payloads and call the shared client.
 - **D-22:** The planner should preserve existing mock adapters and tests while tightening API-mode behavior.
 
@@ -81,16 +81,16 @@ This phase does not wire portfolio read models, manual trade creation, broker/or
 - `.planning/codebase/ARCHITECTURE.md` — Existing frontend API adapter path and backend auth request path.
 
 ### Frontend Source Areas
-- `../vue/stock-v2/vue-app/src/services/apiClient.ts` — Current shared fetch/envelope boundary to extend for credentials, CSRF, refresh/replay, and session-aware errors.
-- `../vue/stock-v2/vue-app/src/services/runtimeDataMode.ts` — Current runtime mode normalization that silently falls back to mock.
-- `../vue/stock-v2/vue-app/src/services/pageApiClients.ts` — Current runtime service-client registry.
-- `../vue/stock-v2/vue-app/src/services/apiTypes.ts` — API envelope and runtime-mode TypeScript contracts.
-- `../vue/stock-v2/vue-app/src/services/apiClient.test.ts` — Existing shared client tests to extend.
-- `../vue/stock-v2/vue-app/src/services/runtimeDataMode.test.ts` — Existing runtime mode tests to extend.
-- `../vue/stock-v2/vue-app/src/api-adapter-wiring.test.ts` — Existing API/mock wiring tests that should remain green and gain auth/session assertions where appropriate.
-- `../vue/stock-v2/vue-app/src/App.vue` — Current app shell and global overlay placement.
-- `../vue/stock-v2/vue-app/src/router.ts` — Current hash route registry and route-transition context.
-- `../vue/stock-v2/vue-app/src/store.ts` — Existing mock portfolio/trading store; Phase 2 must not treat it as API session state.
+- `../../vue/stock-v2/vue-app/src/services/apiClient.ts` — Current shared fetch/envelope boundary to extend for credentials, CSRF, refresh/replay, and session-aware errors.
+- `../../vue/stock-v2/vue-app/src/services/runtimeDataMode.ts` — Current runtime mode normalization that silently falls back to mock.
+- `../../vue/stock-v2/vue-app/src/services/pageApiClients.ts` — Current runtime service-client registry.
+- `../../vue/stock-v2/vue-app/src/services/apiTypes.ts` — API envelope and runtime-mode TypeScript contracts.
+- `../../vue/stock-v2/vue-app/src/services/apiClient.test.ts` — Existing shared client tests to extend.
+- `../../vue/stock-v2/vue-app/src/services/runtimeDataMode.test.ts` — Existing runtime mode tests to extend.
+- `../../vue/stock-v2/vue-app/src/api-adapter-wiring.test.ts` — Existing API/mock wiring tests that should remain green and gain auth/session assertions where appropriate.
+- `../../vue/stock-v2/vue-app/src/App.vue` — Current app shell and global overlay placement.
+- `../../vue/stock-v2/vue-app/src/router.ts` — Current hash route registry and route-transition context.
+- `../../vue/stock-v2/vue-app/src/store.ts` — Existing mock portfolio/trading store; Phase 2 must not treat it as API session state.
 
 </canonical_refs>
 
