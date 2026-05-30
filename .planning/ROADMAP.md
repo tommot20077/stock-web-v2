@@ -47,7 +47,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Unsafe API mode requests 會自動帶 CSRF header，遇到 CSRF 403 時呈現可辨識錯誤而不是 generic failure。
   4. API client 遇到 401 時最多 refresh/replay 一次，失敗後停止 retry 並更新 session state，避免無限 refresh loop。
   5. Mock/API runtime mode 保留；API mode 後端不可用或 integration/prod invalid mode 時顯示錯誤/失敗狀態，不靜默退回 mock data。
-**Plans**: TBD
+**Plans**: 5 plans
+  - **Wave 1:** `02-01-PLAN.md` — Shared transport cleanup, credentials default, trace id parsing, and paginated helper migration
+  - **Wave 2 *(blocked on Wave 1 completion)*:** `02-02-PLAN.md` — CSRF bootstrap, unsafe headers, single-flight refresh, and one replay max
+  - **Wave 3 *(blocked on Wave 2 completion)*:** `02-03-PLAN.md` — Browser auth API adapter and explicit non-token session state
+  - **Wave 4 *(blocked on Wave 3 completion)*:** `02-04-PLAN.md` — App shell auth panel, session banner, header indicator, and i18n UI integration
+  - **Wave 5 *(blocked on Wave 4 completion)*:** `02-05-PLAN.md` — Runtime mode hardening, API outage behavior, and final frontend verification
 **UI hint**: yes
 
 ### Phase 3: Portfolio Read API Mode
