@@ -10,7 +10,7 @@
 - [ ] **AUTH-01**: 使用者可以用 email/password 註冊帳號，瀏覽器流程不需要讀取 refresh token。
 - [ ] **AUTH-02**: 使用者可以用 email/password 登入，後端會設定 browser-safe session cookies。
 - [ ] **AUTH-03**: 使用者重新整理 Vue app 後，可以透過 `/api/v1/me` 還原登入狀態。
-- [ ] **AUTH-04**: 使用者 session 過期時，Vue app 可以透過 `/api/v1/auth/refresh` 嘗試一次 session refresh。
+- [x] **AUTH-04**: 使用者 session 過期時，Vue app 可以透過 `/api/v1/auth/refresh` 嘗試一次 session refresh。
 - [ ] **AUTH-05**: 使用者可以從 app 登出，後端會 revoke refresh/session state 並清除 auth cookies。
 - [ ] **AUTH-06**: 未登入請求會得到一致的 401 `ApiResponse` envelope，已登入但權限不足會得到一致的 403 envelope。
 - [ ] **AUTH-07**: 非瀏覽器 API client 仍可使用明確定義的 bearer-token path，不與 browser cookie path 混淆。
@@ -27,9 +27,9 @@
 
 - [x] **FAPI-01**: Vue API mode 的所有 HTTP request 都經過 shared `apiClient.ts` transport boundary。
 - [x] **FAPI-02**: Shared API client 在 API mode 預設送出 `credentials: "include"`。
-- [ ] **FAPI-03**: Shared API client 對 unsafe methods 加上 CSRF header，並可處理 CSRF 403 錯誤。
+- [x] **FAPI-03**: Shared API client 對 unsafe methods 加上 CSRF header，並可處理 CSRF 403 錯誤。
 - [x] **FAPI-04**: Shared API client 統一解析 backend `ApiResponse<T>` envelope、錯誤 code、message、request/trace id。
-- [ ] **FAPI-05**: Shared API client 遇到 401 時最多嘗試一次 refresh/replay，避免無限 refresh loop。
+- [x] **FAPI-05**: Shared API client 遇到 401 時最多嘗試一次 refresh/replay，避免無限 refresh loop。
 - [ ] **FAPI-06**: Vue auth store 不保存 access token 或 refresh token，只保存必要的 user/session UI state。
 - [ ] **FAPI-07**: API mode 錯誤或後端不可用時顯示錯誤/重試狀態，不靜默退回 mock data。
 - [ ] **FAPI-08**: Mock/API runtime mode 保留，但 integration/prod 類型環境不得因 invalid mode 靜默 fallback 到 mock。
@@ -98,7 +98,7 @@ Roadmap creation will map each v1 requirement to exactly one phase.
 | AUTH-01 | Phase 1 | Pending |
 | AUTH-02 | Phase 1 | Pending |
 | AUTH-03 | Phase 2 | Pending |
-| AUTH-04 | Phase 2 | Pending |
+| AUTH-04 | Phase 2 | Complete |
 | AUTH-05 | Phase 1 | Pending |
 | AUTH-06 | Phase 1 | Pending |
 | AUTH-07 | Phase 1 | Pending |
@@ -109,9 +109,9 @@ Roadmap creation will map each v1 requirement to exactly one phase.
 | SEC-05 | Phase 1 | Pending |
 | FAPI-01 | Phase 2 | Complete |
 | FAPI-02 | Phase 2 | Complete |
-| FAPI-03 | Phase 2 | Pending |
+| FAPI-03 | Phase 2 | Complete |
 | FAPI-04 | Phase 2 | Complete |
-| FAPI-05 | Phase 2 | Pending |
+| FAPI-05 | Phase 2 | Complete |
 | FAPI-06 | Phase 2 | Pending |
 | FAPI-07 | Phase 2 | Pending |
 | FAPI-08 | Phase 2 | Pending |
