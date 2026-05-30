@@ -11,8 +11,10 @@ import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
 import dowob.xyz.stockwebv2.user.domain.User;
 import dowob.xyz.stockwebv2.user.repository.UserRepository;
 import dowob.xyz.stockwebv2.user.service.AuthService;
+import dowob.xyz.stockwebv2.user.service.BrowserAuthCookieService;
 import dowob.xyz.stockwebv2.user.service.RefreshTokenService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.slf4j.MDC;
 import org.springframework.security.core.Authentication;
@@ -31,29 +33,60 @@ public class AuthController {
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
     private final UserRepository userRepository;
+    private final BrowserAuthCookieService cookieService;
 
     public AuthController(
         AuthService authService,
         JwtService jwtService,
         RefreshTokenService refreshTokenService,
-        UserRepository userRepository
+        UserRepository userRepository,
+        BrowserAuthCookieService cookieService
     ) {
         this.authService = authService;
         this.jwtService = jwtService;
         this.refreshTokenService = refreshTokenService;
         this.userRepository = userRepository;
+        this.cookieService = cookieService;
     }
 
     @PostMapping("/auth/register")
-    public ApiResponse<AuthResponse> register(@Valid @RequestBody RegisterRequest request, HttpServletRequest servletRequest) {
+    public ApiResponse<BrowserSessionResponse> register(
+        @Valid @RequestBody RegisterRequest request,
+        HttpServletRequest servletRequest,
+        HttpServletResponse servletResponse
+    ) {
         User user = authService.register(request);
-        return ApiResponse.success(authResponse(user, servletRequest), meta());
+        return ApiResponse.success(browserSession(user, servletRequest, servletResponse), meta());
     }
 
     @PostMapping("/auth/login")
-    public ApiResponse<AuthResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest servletRequest) {
+    public ApiResponse<BrowserSessionResponse> login(
+        @Valid @RequestBody LoginRequest request,
+        HttpServletRequest servletRequest,
+        HttpServletResponse servletResponse
+    ) {
         User user = authService.verifyCredentials(request.email(), request.password());
-        return ApiResponse.success(authResponse(user, servletRequest), meta());
+        return ApiResponse.success(browserSession(user, servletRequest, servletResponse), meta());
+    }
+
+    @PostMapping("/auth/token")
+    public ApiResponse<TokenResponse> token(@Valid @RequestBody LoginRequest request, HttpServletRequest servletRequest) {
+        User user = authService.verifyCredentials(request.email(), request.password());
+        return ApiResponse.success(tokenResponse(user, servletRequest), meta());
+    }
+
+    @PostMapping("/auth/refresh")
+    public ApiResponse<BrowserSessionResponse> refresh(HttpServletRequest servletRequest, HttpServletResponse servletResponse) {
+        String refreshToken = cookieService.readRefreshCookie(servletRequest);
+        try {
+            RefreshTokenService.RefreshSession session = refreshTokenService.consumeForRotation(refreshToken);
+            User user = userRepository.findById(session.userId())
+                .orElseThrow(() -> new ResourceNotFoundException("user"));
+            return ApiResponse.success(browserSession(user, servletRequest, servletResponse), meta());
+        } catch (BusinessException exception) {
+            cookieService.clearAuthCookies(servletResponse);
+            throw exception;
+        }
     }
 
     @GetMapping("/me")
@@ -65,16 +98,44 @@ public class AuthController {
     }
 
     @PostMapping("/auth/logout")
-    public ApiResponse<EmptyResponse> logout(@Valid @RequestBody LogoutRequest request, Authentication authentication) {
+    public ApiResponse<EmptyResponse> logout(
+        @RequestBody(required = false) LogoutRequest request,
+        Authentication authentication,
+        HttpServletRequest servletRequest,
+        HttpServletResponse servletResponse
+    ) {
+        String browserRefreshToken = cookieService.readRefreshCookie(servletRequest);
+        if (browserRefreshToken != null) {
+            refreshTokenService.revoke(browserRefreshToken);
+            cookieService.clearAuthCookies(servletResponse);
+            return ApiResponse.empty(meta());
+        }
+
         Long userId = authenticatedUserId(authentication);
-        refreshTokenService.revoke(request.refreshToken(), userId);
+        String refreshToken = request == null ? null : request.refreshToken();
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage());
+        }
+        refreshTokenService.revoke(refreshToken, userId);
         return ApiResponse.empty(meta());
     }
 
-    private AuthResponse authResponse(User user, HttpServletRequest servletRequest) {
+    private BrowserSessionResponse browserSession(User user, HttpServletRequest servletRequest, HttpServletResponse servletResponse) {
         String accessToken = jwtService.createAccessToken(user.id(), user.role(), user.tokenVersion());
         String refreshToken = refreshTokenService.issue(user, servletRequest.getHeader("User-Agent"));
-        return new AuthResponse(accessToken, refreshToken, user.toMeResponse());
+        cookieService.addAuthCookies(servletResponse, accessToken, refreshToken);
+        OffsetDateTime now = OffsetDateTime.now();
+        return new BrowserSessionResponse(
+            user.toMeResponse(),
+            now.plus(cookieService.accessTokenTtl()),
+            now.plus(cookieService.refreshTokenTtl())
+        );
+    }
+
+    private TokenResponse tokenResponse(User user, HttpServletRequest servletRequest) {
+        String accessToken = jwtService.createAccessToken(user.id(), user.role(), user.tokenVersion());
+        String refreshToken = refreshTokenService.issue(user, servletRequest.getHeader("User-Agent"));
+        return new TokenResponse(accessToken, refreshToken, user.toMeResponse());
     }
 
     private Long authenticatedUserId(Authentication authentication) {

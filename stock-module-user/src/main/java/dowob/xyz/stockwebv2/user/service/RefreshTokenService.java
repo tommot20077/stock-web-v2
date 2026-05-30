@@ -58,6 +58,38 @@ public class RefreshTokenService {
         revoke(token, null);
     }
 
+    public RefreshSession consumeForRotation(String token) {
+        if (token == null || token.isBlank()) {
+            throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID, ErrorCode.AUTH_REFRESH_TOKEN_INVALID.defaultMessage());
+        }
+
+        String refreshKey = "user:refresh:" + token;
+        Map<Object, Object> refreshEntries = redisTemplate.opsForHash().entries(refreshKey);
+        if (refreshEntries == null || refreshEntries.isEmpty()) {
+            throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID, ErrorCode.AUTH_REFRESH_TOKEN_INVALID.defaultMessage());
+        }
+
+        String userIdText = String.valueOf(refreshEntries.get("userId"));
+        String tokenVersion = String.valueOf(refreshEntries.get("tokenVersion"));
+        Long userId = parseUserId(userIdText);
+        Map<Object, Object> authEntries = redisTemplate.opsForHash().entries("user:auth:" + userId);
+        if (authEntries == null || authEntries.isEmpty()) {
+            revoke(token);
+            throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID, ErrorCode.AUTH_REFRESH_TOKEN_INVALID.defaultMessage());
+        }
+        if (!tokenVersion.equals(String.valueOf(authEntries.get("tokenVersion")))) {
+            revoke(token);
+            throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID, ErrorCode.AUTH_REFRESH_TOKEN_INVALID.defaultMessage());
+        }
+        if (!"ACTIVE".equals(String.valueOf(authEntries.get("status")))) {
+            revoke(token);
+            throw new BusinessException(ErrorCode.AUTH_FORBIDDEN, ErrorCode.AUTH_FORBIDDEN.defaultMessage());
+        }
+
+        revoke(token, userId);
+        return new RefreshSession(userId);
+    }
+
     public void revoke(String token, Long expectedUserId) {
         String refreshKey = "user:refresh:" + token;
         Object userId = redisTemplate.opsForHash().get(refreshKey, "userId");
@@ -80,5 +112,16 @@ public class RefreshTokenService {
             return normalized;
         }
         return normalized.substring(0, MAX_DEVICE_INFO_LENGTH);
+    }
+
+    private Long parseUserId(String userId) {
+        try {
+            return Long.valueOf(userId);
+        } catch (NumberFormatException exception) {
+            throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID, ErrorCode.AUTH_REFRESH_TOKEN_INVALID.defaultMessage());
+        }
+    }
+
+    public record RefreshSession(Long userId) {
     }
 }

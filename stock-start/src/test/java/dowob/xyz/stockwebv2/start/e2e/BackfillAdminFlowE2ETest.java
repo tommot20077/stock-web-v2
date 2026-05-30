@@ -190,7 +190,7 @@ class BackfillAdminFlowE2ETest extends AbstractStockE2ETest {
     }
 
     /**
-     * 透過 MockMvc 呼叫 register API 並取出 access token（USER role）。
+     * 透過 MockMvc 呼叫 register API 建帳，再透過 token endpoint 取出 access token（USER role）。
      *
      * @param email    使用者 email
      * @param username 使用者名稱
@@ -199,10 +199,18 @@ class BackfillAdminFlowE2ETest extends AbstractStockE2ETest {
      * @throws Exception 若請求失敗
      */
     private String registerUserAndGetToken(String email, String username, String password) throws Exception {
-        String response = mockMvc.perform(post("/api/v1/auth/register")
+        mockMvc.perform(post("/api/v1/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(Map.of(
                     "email", email, "username", username, "password", password
+                ))))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        String response = mockMvc.perform(post("/api/v1/auth/token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of(
+                    "email", email, "password", password
                 ))))
             .andExpect(status().isOk())
             .andReturn()
@@ -212,7 +220,7 @@ class BackfillAdminFlowE2ETest extends AbstractStockE2ETest {
     }
 
     /**
-     * 透過 MockMvc 呼叫 login API 並取出 access token。
+     * 透過 MockMvc 呼叫 token endpoint 並取出 access token。
      *
      * @param email    使用者 email
      * @param password 密碼
@@ -220,7 +228,7 @@ class BackfillAdminFlowE2ETest extends AbstractStockE2ETest {
      * @throws Exception 若請求失敗
      */
     private String loginAndGetToken(String email, String password) throws Exception {
-        String response = mockMvc.perform(post("/api/v1/auth/login")
+        String response = mockMvc.perform(post("/api/v1/auth/token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(Map.of(
                     "email", email, "password", password

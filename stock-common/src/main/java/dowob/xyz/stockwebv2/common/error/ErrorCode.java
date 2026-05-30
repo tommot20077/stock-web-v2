@@ -7,6 +7,7 @@ public enum ErrorCode {
     AUTH_TOKEN_EXPIRED(401, "Access token expired"),
     AUTH_REFRESH_TOKEN_INVALID(401, "Refresh token invalid"),
     AUTH_FORBIDDEN(403, "Forbidden"),
+    AUTH_CSRF_TOKEN_INVALID(403, "CSRF token invalid"),
     AUTH_REDIS_UNAVAILABLE(503, "Authentication state unavailable"),
     DUPLICATE_RESOURCE(409, "Duplicate resource"),
 
