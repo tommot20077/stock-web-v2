@@ -95,46 +95,46 @@ Roadmap creation will map each v1 requirement to exactly one phase.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUTH-01 | TBD | Pending |
-| AUTH-02 | TBD | Pending |
-| AUTH-03 | TBD | Pending |
-| AUTH-04 | TBD | Pending |
-| AUTH-05 | TBD | Pending |
-| AUTH-06 | TBD | Pending |
-| AUTH-07 | TBD | Pending |
-| SEC-01 | TBD | Pending |
-| SEC-02 | TBD | Pending |
-| SEC-03 | TBD | Pending |
-| SEC-04 | TBD | Pending |
-| SEC-05 | TBD | Pending |
-| FAPI-01 | TBD | Pending |
-| FAPI-02 | TBD | Pending |
-| FAPI-03 | TBD | Pending |
-| FAPI-04 | TBD | Pending |
-| FAPI-05 | TBD | Pending |
-| FAPI-06 | TBD | Pending |
-| FAPI-07 | TBD | Pending |
-| FAPI-08 | TBD | Pending |
-| PORT-01 | TBD | Pending |
-| PORT-02 | TBD | Pending |
-| PORT-03 | TBD | Pending |
-| PORT-04 | TBD | Pending |
-| PORT-05 | TBD | Pending |
-| TRAD-01 | TBD | Pending |
-| TRAD-02 | TBD | Pending |
-| TRAD-03 | TBD | Pending |
-| TRAD-04 | TBD | Pending |
-| TRAD-05 | TBD | Pending |
-| TRAD-06 | TBD | Pending |
-| VER-01 | TBD | Pending |
-| VER-02 | TBD | Pending |
-| VER-03 | TBD | Pending |
-| VER-04 | TBD | Pending |
+| AUTH-01 | Phase 1 | Pending |
+| AUTH-02 | Phase 1 | Pending |
+| AUTH-03 | Phase 2 | Pending |
+| AUTH-04 | Phase 2 | Pending |
+| AUTH-05 | Phase 1 | Pending |
+| AUTH-06 | Phase 1 | Pending |
+| AUTH-07 | Phase 1 | Pending |
+| SEC-01 | Phase 1 | Pending |
+| SEC-02 | Phase 1 | Pending |
+| SEC-03 | Phase 1 | Pending |
+| SEC-04 | Phase 1 | Pending |
+| SEC-05 | Phase 1 | Pending |
+| FAPI-01 | Phase 2 | Pending |
+| FAPI-02 | Phase 2 | Pending |
+| FAPI-03 | Phase 2 | Pending |
+| FAPI-04 | Phase 2 | Pending |
+| FAPI-05 | Phase 2 | Pending |
+| FAPI-06 | Phase 2 | Pending |
+| FAPI-07 | Phase 2 | Pending |
+| FAPI-08 | Phase 2 | Pending |
+| PORT-01 | Phase 3 | Pending |
+| PORT-02 | Phase 3 | Pending |
+| PORT-03 | Phase 3 | Pending |
+| PORT-04 | Phase 3 | Pending |
+| PORT-05 | Phase 3 | Pending |
+| TRAD-01 | Phase 4 | Pending |
+| TRAD-02 | Phase 4 | Pending |
+| TRAD-03 | Phase 4 | Pending |
+| TRAD-04 | Phase 4 | Pending |
+| TRAD-05 | Phase 4 | Pending |
+| TRAD-06 | Phase 4 | Pending |
+| VER-01 | Phase 5 | Pending |
+| VER-02 | Phase 5 | Pending |
+| VER-03 | Phase 5 | Pending |
+| VER-04 | Phase 1 | Pending |
 
 **Coverage:**
 - v1 requirements: 35 total
-- Mapped to phases: 0
-- Unmapped: 35 (pending roadmap)
+- Mapped to phases: 35
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-30*  
