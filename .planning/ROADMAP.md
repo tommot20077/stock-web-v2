@@ -12,7 +12,7 @@
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Browser Auth Contract & Backend Security Foundation** - 後端提供完整 cookie auth、CSRF、refresh/logout、401/403、bearer compatibility 與契約文件。
+- [x] **Phase 1: Browser Auth Contract & Backend Security Foundation** - 後端提供完整 cookie auth、CSRF、refresh/logout、401/403、bearer compatibility 與契約文件。
 - [ ] **Phase 2: Frontend Session & API Client Foundation** - Vue API mode 透過唯一 shared client 處理 credentials、CSRF、envelope、refresh retry、session restore 與 runtime mode。
 - [ ] **Phase 3: Portfolio Read API Mode** - Vue API mode 可以讀取 portfolio summary、holdings/positions、trade history 並呈現 loading/empty/error/retry 狀態。
 - [ ] **Phase 4: Manual Trade Creation, Idempotency & Post-Trade Refetch** - API mode order ticket 建立 manual executed trade，後端防重，成功後重新讀取 portfolio 狀態。
@@ -96,7 +96,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Browser Auth Contract & Backend Security Foundation | 0/5 | Ready to execute | - |
+| 1. Browser Auth Contract & Backend Security Foundation | 5/5 | Completed | 2026-05-30 |
 | 2. Frontend Session & API Client Foundation | 0/TBD | Not started | - |
 | 3. Portfolio Read API Mode | 0/TBD | Not started | - |
 | 4. Manual Trade Creation, Idempotency & Post-Trade Refetch | 0/TBD | Not started | - |

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Phase 1 planned
-last_updated: "2026-05-30T09:57:48.425Z"
-last_activity: 2026-05-30 -- Phase 01 planning complete
+status: planning
+stopped_at: Phase 1 completed
+last_updated: "2026-05-30T10:54:35Z"
+last_activity: 2026-05-30 -- Phase 01 execution complete
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 5
-  completed_plans: 0
-  percent: 0
+  completed_plans: 5
+  percent: 20
 ---
 
 # Project State
@@ -21,22 +21,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can safely sign in, inspect portfolio state, and record trades through one coherent frontend/backend flow.
-**Current focus:** Phase 1: Browser Auth Contract & Backend Security Foundation
+**Current focus:** Phase 2: Frontend Session & API Client Foundation
 
 ## Current Position
 
-Phase: 1 of 5 (Browser Auth Contract & Backend Security Foundation)
+Phase: 2 of 5 (Frontend Session & API Client Foundation)
 Plan: TBD in current phase
-Status: Ready to execute
-Last activity: 2026-05-30 -- Phase 01 planning complete
+Status: Ready to plan
+Last activity: 2026-05-30 -- Phase 01 execution complete
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 20%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 0
+- Total plans completed: 5
 - Average duration: N/A
 - Total execution time: 0.0 hours
 
@@ -48,8 +48,8 @@ Progress: [░░░░░░░░░░] 0%
 
 **Recent Trend:**
 
-- Last 5 plans: none
-- Trend: N/A
+- Last 5 plans: Phase 01 plans 01-05 completed
+- Trend: Phase 01 completed in one execution pass
 
 *Updated after each plan completion*
 
@@ -67,11 +67,10 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-None yet.
+- Phase 2 planning should consume `ai-docs/browser-auth-contract.md` and avoid frontend token storage.
 
 ### Blockers/Concerns
 
-- Confirm deployment same-site/cross-site cookie attributes during Phase 1 planning.
 - Confirm exact frontend package scripts in sibling repo during Phase 5 planning.
 
 ## Deferred Items
@@ -87,6 +86,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-30T09:57:48.297Z
-Stopped at: Phase 1 planned
-Resume file: .planning/phases/01-browser-auth-contract-backend-security-foundation/01-PLAN.md
+Last session: 2026-05-30T10:54:35Z
+Stopped at: Phase 1 completed
+Resume file: .planning/ROADMAP.md
