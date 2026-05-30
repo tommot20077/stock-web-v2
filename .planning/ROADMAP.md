@@ -30,7 +30,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. 使用者登出後，後端 revoke refresh/session state 並清除 auth cookies，後續 cookie request 會得到一致的 401 envelope。
   4. 指定 Vue origin 可以用 credentials 呼叫後端，未允許 origin 被拒絕，non-browser bearer-token path 仍有明確且隔離的支援。
   5. 契約文件描述 auth cookies、CSRF token/header、refresh/logout、401/403、portfolio/trading DTO 與 backend/frontend 驗證責任。
-**Plans**: TBD
+**Plans**:
+  - **Wave 1:** `01-PLAN.md` — Security Contract, Error Codes, and Test Harness
+  - **Wave 2 *(blocked on Wave 1 completion)*:** `02-PLAN.md` — Browser Cookie Login/Register and Cookie Authentication
+  - **Wave 3 *(blocked on Wave 2 completion)*:** `03-PLAN.md` — CSRF Bootstrap and Cookie Unsafe Request Enforcement
+  - **Wave 4 *(blocked on Wave 3 completion)*:** `04-PLAN.md` — Refresh Rotation and Logout Current-Session Revocation
+  - **Wave 5 *(blocked on Wave 4 completion)*:** `05-PLAN.md` — Bearer Compatibility, Documentation Closeout, and Final Verification
 
 ### Phase 2: Frontend Session & API Client Foundation
 **Goal**: Vue API mode 具備一致的 session state 與 shared HTTP transport，後續 domain adapters 不再自行處理 auth/security 細節。
@@ -91,9 +96,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Browser Auth Contract & Backend Security Foundation | 0/TBD | Not started | - |
+| 1. Browser Auth Contract & Backend Security Foundation | 0/5 | Ready to execute | - |
 | 2. Frontend Session & API Client Foundation | 0/TBD | Not started | - |
 | 3. Portfolio Read API Mode | 0/TBD | Not started | - |
 | 4. Manual Trade Creation, Idempotency & Post-Trade Refetch | 0/TBD | Not started | - |
 | 5. Cross-Repo Browser Flow Verification & Contract Hardening | 0/TBD | Not started | - |
-
