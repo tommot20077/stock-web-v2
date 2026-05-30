@@ -34,6 +34,13 @@ public enum ErrorCode {
     BACKTEST_RUN_NOT_FOUND(404, "Backtest run not found"),
     BACKTEST_RESULT_NOT_READY(409, "Backtest result is not ready"),
 
+    // Trading module error codes
+    TRADE_UNSUPPORTED_TYPE(400, "Unsupported trade type"),
+    TRADE_INVALID_QUANTITY(400, "Trade quantity must be greater than 0"),
+    TRADE_INVALID_PRICE(400, "Trade price must be greater than 0"),
+    TRADE_INSUFFICIENT_HOLDING(409, "Insufficient holding quantity"),
+    TRADE_CONFLICT(409, "Holding changed during trade execution"),
+
     INTERNAL_ERROR(500, "Internal server error");
 
     private final int httpStatus;

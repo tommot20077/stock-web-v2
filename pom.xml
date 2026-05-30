@@ -25,6 +25,7 @@
         <module>stock-module-asset</module>
         <module>stock-module-backtest</module>
         <module>stock-module-market-data</module>
+        <module>stock-module-trading</module>
         <module>stock-start</module>
     </modules>
 
