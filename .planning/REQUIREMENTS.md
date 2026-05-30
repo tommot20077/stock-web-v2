@@ -25,10 +25,10 @@
 
 ### Frontend API Foundation
 
-- [ ] **FAPI-01**: Vue API mode 的所有 HTTP request 都經過 shared `apiClient.ts` transport boundary。
-- [ ] **FAPI-02**: Shared API client 在 API mode 預設送出 `credentials: "include"`。
+- [x] **FAPI-01**: Vue API mode 的所有 HTTP request 都經過 shared `apiClient.ts` transport boundary。
+- [x] **FAPI-02**: Shared API client 在 API mode 預設送出 `credentials: "include"`。
 - [ ] **FAPI-03**: Shared API client 對 unsafe methods 加上 CSRF header，並可處理 CSRF 403 錯誤。
-- [ ] **FAPI-04**: Shared API client 統一解析 backend `ApiResponse<T>` envelope、錯誤 code、message、request/trace id。
+- [x] **FAPI-04**: Shared API client 統一解析 backend `ApiResponse<T>` envelope、錯誤 code、message、request/trace id。
 - [ ] **FAPI-05**: Shared API client 遇到 401 時最多嘗試一次 refresh/replay，避免無限 refresh loop。
 - [ ] **FAPI-06**: Vue auth store 不保存 access token 或 refresh token，只保存必要的 user/session UI state。
 - [ ] **FAPI-07**: API mode 錯誤或後端不可用時顯示錯誤/重試狀態，不靜默退回 mock data。
@@ -107,10 +107,10 @@ Roadmap creation will map each v1 requirement to exactly one phase.
 | SEC-03 | Phase 1 | Pending |
 | SEC-04 | Phase 1 | Pending |
 | SEC-05 | Phase 1 | Pending |
-| FAPI-01 | Phase 2 | Pending |
-| FAPI-02 | Phase 2 | Pending |
+| FAPI-01 | Phase 2 | Complete |
+| FAPI-02 | Phase 2 | Complete |
 | FAPI-03 | Phase 2 | Pending |
-| FAPI-04 | Phase 2 | Pending |
+| FAPI-04 | Phase 2 | Complete |
 | FAPI-05 | Phase 2 | Pending |
 | FAPI-06 | Phase 2 | Pending |
 | FAPI-07 | Phase 2 | Pending |
