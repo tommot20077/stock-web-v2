@@ -31,7 +31,7 @@
 - [x] **FAPI-04**: Shared API client 統一解析 backend `ApiResponse<T>` envelope、錯誤 code、message、request/trace id。
 - [x] **FAPI-05**: Shared API client 遇到 401 時最多嘗試一次 refresh/replay，避免無限 refresh loop。
 - [x] **FAPI-06**: Vue auth store 不保存 access token 或 refresh token，只保存必要的 user/session UI state。
-- [ ] **FAPI-07**: API mode 錯誤或後端不可用時顯示錯誤/重試狀態，不靜默退回 mock data。
+- [x] **FAPI-07**: API mode 錯誤或後端不可用時顯示錯誤/重試狀態，不靜默退回 mock data。
 - [ ] **FAPI-08**: Mock/API runtime mode 保留，但 integration/prod 類型環境不得因 invalid mode 靜默 fallback 到 mock。
 
 ### Portfolio Read
@@ -113,7 +113,7 @@ Roadmap creation will map each v1 requirement to exactly one phase.
 | FAPI-04 | Phase 2 | Complete |
 | FAPI-05 | Phase 2 | Complete |
 | FAPI-06 | Phase 2 | Complete |
-| FAPI-07 | Phase 2 | Pending |
+| FAPI-07 | Phase 2 | Complete |
 | FAPI-08 | Phase 2 | Pending |
 | PORT-01 | Phase 3 | Pending |
 | PORT-02 | Phase 3 | Pending |

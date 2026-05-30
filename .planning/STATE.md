@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-05-30T16:24:07.000Z"
+stopped_at: Completed 02-04-PLAN.md
+last_updated: "2026-05-30T16:44:23.000Z"
 last_activity: 2026-05-31
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 10
-  completed_plans: 8
-  percent: 80
+  completed_plans: 9
+  percent: 90
 ---
 
 # Project State
@@ -26,30 +26,30 @@ See: .planning/PROJECT.md (updated 2026-05-30)
 ## Current Position
 
 Phase: 02 (Frontend Session & API Client Foundation) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-05-31
 
-Progress: [████████░░] 80%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 8
-- Average duration: 21min
-- Total execution time: 1.2 hours
+- Total plans completed: 9
+- Average duration: 20min
+- Total execution time: 1.4 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 02 | 3 | 69min | 23min |
+| 02 | 4 | 85min | 21min |
 
 **Recent Trend:**
 
-- Last 5 plans: Phase 01 plans 04-05 and Phase 02 plans 01-03 completed
-- Trend: Phase 02 plan 03 completed with focused frontend auth API/session Vitest gate and frontend build passing
+- Last 5 plans: Phase 01 plan 05 and Phase 02 plans 01-04 completed
+- Trend: Phase 02 plan 04 completed with focused app/header/auth/session component Vitest gate passing
 
 *Updated after each plan completion*
 
@@ -69,6 +69,8 @@ Recent decisions affecting current work:
 - [Phase 2 Plan 03]: /api/v1/me restore stores user metadata with null expiry timestamps because the backend /me contract does not return session expiry metadata.
 - [Phase 2 Plan 03]: Auth adapter response mapping whitelists allowed user/session fields so unexpected token fields are discarded before session state.
 - [Phase 2 Plan 03]: authSession registers apiClient refresh callbacks directly while apiClient keeps transport retry logic.
+- [Phase 2 Plan 04]: API-mode auth/session UI is mounted inside the existing app shell rather than replacing current product pages.
+- [Phase 2 Plan 04]: Session diagnostics render only safe code/status/requestId fields, not raw backend messages.
 - [Phase 4]: Trading scope is manual executed trade creation only; broker/order lifecycle remains out of scope.
 - [Phase 5]: Cross-repo browser verification is required because backend and frontend green tests alone do not prove cookie/CORS/CSRF integration.
 
@@ -93,6 +95,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-30T16:24:07.000Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-05-30T16:44:23.000Z
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None

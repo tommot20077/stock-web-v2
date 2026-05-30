@@ -102,7 +102,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Browser Auth Contract & Backend Security Foundation | 5/5 | Completed | 2026-05-30 |
-| 2. Frontend Session & API Client Foundation | 3/5 | In Progress | - |
+| 2. Frontend Session & API Client Foundation | 4/5 | In Progress | - |
 | 3. Portfolio Read API Mode | 0/TBD | Not started | - |
 | 4. Manual Trade Creation, Idempotency & Post-Trade Refetch | 0/TBD | Not started | - |
 | 5. Cross-Repo Browser Flow Verification & Contract Hardening | 0/TBD | Not started | - |
