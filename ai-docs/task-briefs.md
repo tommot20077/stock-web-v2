@@ -6,8 +6,9 @@
 ## 本專案固定驗證命令(填進驗收條件用)
 
 - Backend 全量:`./mvnw test`(focused:`./mvnw -pl <module> -am test`;IT:`./mvnw -pl stock-start -am verify`)
-- Frontend:`cd ../vue/stock-v2/vue-app && npm test && npm run build`
+- Frontend:`cd ../../vue/stock-v2/vue-app && npm test && npm run build`
 - Frontend API mode:上述命令前加 `VITE_DATA_MODE=api`
+- ⚠ 以上為 Git Bash 語法;Windows PowerShell 5.1 不支援 `&&` 與 `VAR=` 前綴——PS 下改用 `mvnw.cmd`、分步執行、`$env:VITE_DATA_MODE='api'`
 
 ---
 
@@ -63,7 +64,7 @@
 必查清單(本專案特有):
 - SQL 是否有字串拼接(禁止;LIKE 要 LikeEscapeUtil.escape)。
 - @ExceptionHandler 是否回 ResponseEntity(直接回 ApiResponse = 永遠 200)。
-- ownership 檢查在 Service 層且失敗丟 ResourceNotFoundException(不是 403)。
+- ownership 檢查在 Service 層且失敗丟 ResourceNotFoundException(不是 403)。註:`SecurityUtils`/`LikeEscapeUtil` 是規範類別,先 grep 確認存在;不存在時檢查項改為「有沒有等價檢查」。
 - 瀏覽器 auth:token 不落 JS 可讀處;unsafe 方法帶 CSRF。
 - 信封:ApiResponse<T> 為權威(見 ai-docs/judgment.md §4)。
 - 交易寫入是否 server-side 冪等。

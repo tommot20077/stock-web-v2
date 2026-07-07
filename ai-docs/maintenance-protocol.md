@@ -37,9 +37,11 @@
 | Redis | `ai-docs/redis-convention.md` |
 | Git | `ai-docs/git-convention.md` |
 | 模型調度/交辦 | `ai-docs/model-dispatch.md`、`ai-docs/task-briefs.md` |
-| 前端(Vue repo) | `../vue/stock-v2/AGENTS.md` 或其 `docs/`(前端 repo 的教訓記在 `../vue/stock-v2/docs/LEARNINGS.md`)|
+| 前端(Vue repo) | `../../vue/stock-v2/AGENTS.md` 或其 `docs/`(前端 repo 的教訓記在 `../../vue/stock-v2/docs/LEARNINGS.md`)|
 
 ## 4. 檔案所有權:誰可以改什麼
+
+> 本表**僅適用本(後端)repo**。前端 repo 的 AGENTS.md/CLAUDE.md 是手寫、git tracked 的薄路由(不是 GSD 生成),規則見該檔表頭,不受本表「AGENTS.md 禁手改」約束。
 
 | 檔案 | 所有權 | 規則 |
 |------|--------|------|

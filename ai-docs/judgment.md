@@ -44,6 +44,8 @@
 **正例**:發現 paginated adapter 期待 `{data, page, requestId}` 與後端不合 → 停下,回報差異與兩邊 file:line,提對齊方案。
 **反例**:為了讓測試過,在 adapter 裡偷偷做兩種 shape 的兼容解析,不告訴任何人。
 
+(此裁決係由 PROJECT.md Constraints 推斷,Yuan 尚未逐字確認;若出現「前端信封才是新方向」的訊號,先問再裁——見 letter-to-future-sessions.md 信心最低 #3。)
+
 ## 5. 交易寫入必須 server-side 冪等
 
 **規則**(來源:PITFALLS.md 風險 6):duplicate submission 防護在後端(`user_id + idempotency key` 唯一約束,duplicate 回既有交易、不重複更新 holdings)。前端 debounce/disabled button 只是 UX,不是防護。
@@ -53,7 +55,7 @@
 
 ## 6. Ownership 失敗回 404,不是 403
 
-**規則**(來源:security.md §4):Service 層用 `SecurityUtils.assertOwnerOrAdmin(...)`;失敗丟 `ResourceNotFoundException`(訊息只含資源類型名,絕不含 ID/路徑),避免洩漏資源存在性。`AccessDeniedException` 必須 re-throw 讓 Spring Security 回 403。Controller 層不做 ownership 檢查。
+**規則**(來源:security.md §4):Service 層用 `SecurityUtils.assertOwnerOrAdmin(...)`(規範類別,程式碼中可能尚未實作——先 grep 確認,不存在就在 `stock-common` 建立,勿另造重複品);失敗丟 `ResourceNotFoundException`(訊息只含資源類型名,絕不含 ID/路徑),避免洩漏資源存在性。`AccessDeniedException` 必須 re-throw 讓 Spring Security 回 403。Controller 層不做 ownership 檢查。
 
 **正例**:查別人的 portfolio → 404 "Portfolio"。
 **反例**:回 403「你無權存取 portfolio #123」——同時洩漏了存在性與 ID。
@@ -68,9 +70,9 @@
 ## 8. 何時算「真完成」
 
 一項工作宣稱完成前,必須全部成立:
-1. 對應層級測試綠(unit / `*ControllerTest` / `*IT`,依 testing-standards.md 三層)。
-2. 跨 repo 變更時,兩邊驗證都跑過:backend `./mvnw test`(或 focused `-pl` 模組);frontend `cd ../vue/stock-v2/vue-app && npm test && npm run build`,涉 API mode 加 `VITE_DATA_MODE=api`。
-3. read-back:改過的檔案重新讀過,確認內容是你以為的樣子。
+1. 對應層級測試綠——層級要求與豁免以 testing-standards.md 為準(unit/web/IT 皆必要;E2E 豁免只有 Yuan 能給)。
+2. 跨 repo 變更時,兩邊驗證都跑過:backend `./mvnw test`(或 focused `-pl` 模組);frontend `cd ../../vue/stock-v2/vue-app && npm test && npm run build`(Git Bash 語法),涉 API mode 加 `VITE_DATA_MODE=api`。
+3. read-back:程式碼改動自己重讀即可;制度/文件類產出派 fresh-context subagent 讀(分工見 model-dispatch.md §5)。
 4. 宣稱行為有證據(測試輸出/log/檔案內容),不是「應該可以」。
 
 **反例**:「編譯過了」「畫面正常」「理論上沒問題」都不是完成。
@@ -82,7 +84,7 @@
 - 要刪除或覆寫非自己產生的檔案/資料。
 - 工作觸及 PROJECT.md 的 Out of Scope(broker 整合、委託單生命週期、AI 交易策略等)。
 - 兩份權威文件矛盾且本檔沒有裁決規則。
-- 要動 GSD 生成檔(AGENTS.md、`.planning/codebase/*`)以外的機器管理檔,或要改 `.git/info/exclude`、CI 設定。
+- GSD 生成檔(AGENTS.md、`.planning/codebase/*`)一律**禁止手改**(走 maintenance-protocol 同步流程,這不用問);其餘機器/設定檔(`.git/info/exclude`、CI、`.claude/hooks`)動前先問。
 
 ## 10. 方向錯了的訊號(換路,別重試)
 
