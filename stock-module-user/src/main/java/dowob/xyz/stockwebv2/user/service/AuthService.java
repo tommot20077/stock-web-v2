@@ -18,11 +18,18 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final RefreshTokenService refreshTokenService;
+    private final LoginAttemptService loginAttemptService;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, RefreshTokenService refreshTokenService) {
+    public AuthService(
+        UserRepository userRepository,
+        PasswordEncoder passwordEncoder,
+        RefreshTokenService refreshTokenService,
+        LoginAttemptService loginAttemptService
+    ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.refreshTokenService = refreshTokenService;
+        this.loginAttemptService = loginAttemptService;
     }
 
     /**
@@ -55,9 +62,15 @@ public class AuthService {
     public User verifyCredentials(String email, String password) {
         User user = userRepository.findByEmail(normalizeEmail(email))
             .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage()));
-        if (user.status() != UserStatus.ACTIVE || !passwordEncoder.matches(password, user.passwordHash())) {
+        loginAttemptService.assertNotLocked(user.id());
+        if (!passwordEncoder.matches(password, user.passwordHash())) {
+            loginAttemptService.recordFailure(user.id());
             throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
         }
+        if (user.status() != UserStatus.ACTIVE) {
+            throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
+        }
+        loginAttemptService.reset(user.id());
         return user;
     }
 

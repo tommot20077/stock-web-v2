@@ -12,7 +12,7 @@ import org.testcontainers.utility.DockerImageName;
 @SpringBootTest
 public abstract class ContainerIT {
 
-    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
+    public static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
         DockerImageName.parse("timescale/timescaledb:2.17.2-pg16")
                        .asCompatibleSubstituteFor("postgres")
     )
@@ -20,10 +20,10 @@ public abstract class ContainerIT {
         .withUsername("stock")
         .withPassword("stock");
 
-    static final GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7.4-alpine"))
+    public static final GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7.4-alpine"))
         .withExposedPorts(6379);
 
-    static final ConfluentKafkaContainer kafka = new ConfluentKafkaContainer(
+    public static final ConfluentKafkaContainer kafka = new ConfluentKafkaContainer(
         DockerImageName.parse("confluentinc/cp-kafka:7.6.0"));
 
     static {
@@ -43,5 +43,6 @@ public abstract class ContainerIT {
         registry.add("spring.flyway.mixed", () -> true);
         registry.add("management.server.port", () -> 11180);
         registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+        registry.add("stock.security.rate-limit.enabled", () -> false);
     }
 }

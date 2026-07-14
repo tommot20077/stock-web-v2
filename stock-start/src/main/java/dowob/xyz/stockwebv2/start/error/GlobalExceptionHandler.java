@@ -5,6 +5,7 @@ import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.common.error.RateLimitExceededException;
 import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +24,15 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleRateLimited(RateLimitExceededException exception) {
+        ErrorCode code = exception.errorCode();
+        ApiError error = ApiError.of(code, exception.getMessage());
+        return ResponseEntity.status(code.httpStatus())
+            .header("Retry-After", String.valueOf(exception.retryAfterSeconds()))
+            .body(ApiResponse.failure(error, meta()));
+    }
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException exception) {

@@ -53,6 +53,14 @@ public class JdbcUserRepository implements UserRepository {
     }
 
     @Override
+    public Optional<User> findByUuid(UUID uuid) {
+        return jdbcClient.sql("select " + USER_COLUMNS + " from users where uuid = :uuid")
+            .param("uuid", uuid)
+            .query(this::map)
+            .optional();
+    }
+
+    @Override
     public User save(User user) {
         if (user.id() != null) {
             throw new IllegalArgumentException("User updates are not part of foundation save()");
