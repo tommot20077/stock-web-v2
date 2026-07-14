@@ -17,10 +17,25 @@ import java.util.Locale;
 public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final RefreshTokenService refreshTokenService;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, RefreshTokenService refreshTokenService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.refreshTokenService = refreshTokenService;
+    }
+
+    /**
+     * 執行即時登出：遞增 DB token version（權威來源）並同步至 Redis，使該使用者所有既有
+     * access token 立即失效（security.md §5）。Redis 同步失敗時整筆交易回滾，維持 DB 與
+     * Redis 版本一致。
+     *
+     * @param userId 登出的使用者 id
+     */
+    @Transactional
+    public void logout(Long userId) {
+        int newVersion = userRepository.incrementTokenVersion(userId);
+        refreshTokenService.updateAuthTokenVersion(userId, newVersion);
     }
 
     @Transactional

@@ -106,7 +106,11 @@ public class AuthController {
     ) {
         String browserRefreshToken = cookieService.readRefreshCookie(servletRequest);
         if (browserRefreshToken != null) {
+            Long owner = refreshTokenService.findOwner(browserRefreshToken);
             refreshTokenService.revoke(browserRefreshToken);
+            if (owner != null) {
+                authService.logout(owner);
+            }
             cookieService.clearAuthCookies(servletResponse);
             return ApiResponse.empty(meta());
         }
@@ -117,6 +121,7 @@ public class AuthController {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage());
         }
         refreshTokenService.revoke(refreshToken, userId);
+        authService.logout(userId);
         return ApiResponse.empty(meta());
     }
 

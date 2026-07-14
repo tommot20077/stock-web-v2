@@ -80,6 +80,19 @@ public class JdbcUserRepository implements UserRepository {
         }
     }
 
+    @Override
+    public int incrementTokenVersion(Long id) {
+        return jdbcClient.sql("""
+                update users
+                set token_version = token_version + 1, updated_at = now()
+                where id = :id
+                returning token_version
+                """)
+            .param("id", id)
+            .query(Integer.class)
+            .single();
+    }
+
     private RuntimeException duplicateResourceException(DataIntegrityViolationException exception) {
         String message = exception.getMessage();
         Throwable cause = exception.getCause();

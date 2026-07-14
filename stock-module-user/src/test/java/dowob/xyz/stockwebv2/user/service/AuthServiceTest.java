@@ -8,6 +8,7 @@ import dowob.xyz.stockwebv2.common.model.UserStatus;
 import dowob.xyz.stockwebv2.user.api.RegisterRequest;
 import dowob.xyz.stockwebv2.user.domain.User;
 import dowob.xyz.stockwebv2.user.repository.UserRepository;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
@@ -17,13 +18,15 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 class AuthServiceTest {
 
     @Test
     void registerCreatesActiveUserWithHashedPassword() {
         InMemoryUserRepository repository = new InMemoryUserRepository();
-        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10));
+        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10), mock(RefreshTokenService.class));
 
         User user = service.register(new RegisterRequest("yuan@example.com", "yuan", "Password1"));
 
@@ -38,7 +41,7 @@ class AuthServiceTest {
     @Test
     void registerRejectsDuplicateEmail() {
         InMemoryUserRepository repository = new InMemoryUserRepository();
-        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10));
+        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10), mock(RefreshTokenService.class));
         service.register(new RegisterRequest("yuan@example.com", "yuan", "Password1"));
 
         assertThatThrownBy(() -> service.register(new RegisterRequest("yuan@example.com", "yuan2", "Password1")))
@@ -48,7 +51,7 @@ class AuthServiceTest {
     @Test
     void registerRejectsDuplicateEmailWithCaseAndWhitespaceVariants() {
         InMemoryUserRepository repository = new InMemoryUserRepository();
-        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10));
+        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10), mock(RefreshTokenService.class));
         service.register(new RegisterRequest(" yuan@example.com ", "yuan", "Password1"));
 
         assertThatThrownBy(() -> service.register(new RegisterRequest("YUAN@example.com", "yuan2", "Password1")))
@@ -58,7 +61,7 @@ class AuthServiceTest {
     @Test
     void registerRejectsDuplicateUsername() {
         InMemoryUserRepository repository = new InMemoryUserRepository();
-        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10));
+        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10), mock(RefreshTokenService.class));
         service.register(new RegisterRequest("yuan@example.com", " yuan ", "Password1"));
 
         assertThatThrownBy(() -> service.register(new RegisterRequest("yuan2@example.com", "yuan", "Password1")))
@@ -68,7 +71,7 @@ class AuthServiceTest {
     @Test
     void registerStoresNormalizedEmailAndTrimmedUsername() {
         InMemoryUserRepository repository = new InMemoryUserRepository();
-        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10));
+        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10), mock(RefreshTokenService.class));
 
         User user = service.register(new RegisterRequest(" Yuan@Example.COM ", " yuan ", "Password1"));
 
@@ -79,7 +82,7 @@ class AuthServiceTest {
     @Test
     void verifyCredentialsNormalizesEmailForLookup() {
         InMemoryUserRepository repository = new InMemoryUserRepository();
-        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10));
+        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10), mock(RefreshTokenService.class));
         service.register(new RegisterRequest("yuan@example.com", "yuan", "Password1"));
 
         User user = service.verifyCredentials(" YUAN@example.com ", "Password1");
@@ -90,7 +93,7 @@ class AuthServiceTest {
     @Test
     void verifyCredentialsRejectsWrongPassword() {
         InMemoryUserRepository repository = new InMemoryUserRepository();
-        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10));
+        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10), mock(RefreshTokenService.class));
         service.register(new RegisterRequest("yuan@example.com", "yuan", "Password1"));
 
         assertThatThrownBy(() -> service.verifyCredentials("yuan@example.com", "bad"))
@@ -102,7 +105,7 @@ class AuthServiceTest {
     @Test
     void verifyCredentialsRejectsSuspendedUserWithCorrectPassword() {
         InMemoryUserRepository repository = new InMemoryUserRepository();
-        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10));
+        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10), mock(RefreshTokenService.class));
         User user = service.register(new RegisterRequest("yuan@example.com", "yuan", "Password1"));
         repository.save(userWithStatus(user, UserStatus.SUSPENDED));
 
@@ -115,7 +118,7 @@ class AuthServiceTest {
     @Test
     void verifyCredentialsRejectsDeletedUserWithCorrectPassword() {
         InMemoryUserRepository repository = new InMemoryUserRepository();
-        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10));
+        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10), mock(RefreshTokenService.class));
         User user = service.register(new RegisterRequest("yuan@example.com", "yuan", "Password1"));
         repository.save(userWithStatus(user, UserStatus.DELETED));
 
@@ -123,6 +126,20 @@ class AuthServiceTest {
             .isInstanceOf(BusinessException.class)
             .extracting("errorCode")
             .isEqualTo(ErrorCode.AUTH_INVALID_CREDENTIALS);
+    }
+
+    @Test
+    @DisplayName("登出遞增 token version 並同步至 Redis")
+    void logoutIncrementsTokenVersionAndSyncsRedis() {
+        InMemoryUserRepository repository = new InMemoryUserRepository();
+        RefreshTokenService refreshTokenService = mock(RefreshTokenService.class);
+        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10), refreshTokenService);
+        User user = service.register(new RegisterRequest("yuan@example.com", "yuan", "Password1"));
+
+        service.logout(user.id());
+
+        assertThat(repository.findById(user.id()).orElseThrow().tokenVersion()).isEqualTo(2);
+        verify(refreshTokenService).updateAuthTokenVersion(user.id(), 2);
     }
 
     private static User userWithStatus(User user, UserStatus status) {
@@ -165,6 +182,25 @@ class AuthServiceTest {
             User saved = user.withId(id);
             byId.put(id, saved);
             return saved;
+        }
+
+        @Override
+        public int incrementTokenVersion(Long id) {
+            User current = byId.get(id);
+            User updated = new User(
+                current.id(),
+                current.uuid(),
+                current.email(),
+                current.username(),
+                current.passwordHash(),
+                current.role(),
+                current.status(),
+                current.tokenVersion() + 1,
+                current.createdAt(),
+                current.updatedAt()
+            );
+            byId.put(id, updated);
+            return updated.tokenVersion();
         }
     }
 }
