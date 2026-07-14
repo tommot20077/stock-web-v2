@@ -48,13 +48,16 @@ class MarketWebSocketHandlerTest {
         parser = mock(WsMessageParser.class);
         subscriptionManager = mock(SubscriptionManager.class);
         heartbeat = mock(WsHeartbeat.class);
-        handler = new MarketWebSocketHandler(parser, subscriptionManager, heartbeat, objectMapper);
+        WebSocketConnectionManager connectionManager = new WebSocketConnectionManager(
+            new dowob.xyz.stockwebv2.marketdata.config.WebSocketLimitProperties(null, null, null));
+        handler = new MarketWebSocketHandler(parser, subscriptionManager, heartbeat, objectMapper, connectionManager);
     }
 
     private WebSocketSession mockSession(String id) {
         WebSocketSession session = mock(WebSocketSession.class);
         when(session.getId()).thenReturn(id);
         when(session.isOpen()).thenReturn(true);
+        when(session.getAttributes()).thenReturn(new java.util.HashMap<>());
         return session;
     }
 

@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.marketdata.config;
 
 import dowob.xyz.stockwebv2.marketdata.ws.MarketHandshakeInterceptor;
 import dowob.xyz.stockwebv2.marketdata.ws.MarketWebSocketHandler;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
@@ -25,6 +26,7 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
  */
 @Configuration
 @EnableWebSocket
+@EnableConfigurationProperties(WebSocketLimitProperties.class)
 public class WsConfig implements WebSocketConfigurer {
 
     /** WebSocket endpoint 路徑。 */
