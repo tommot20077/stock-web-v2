@@ -34,15 +34,6 @@ public class JdbcBacktestRepository implements BacktestRepository {
     }
 
     @Override
-    public boolean activeSymbolExists(String symbol) {
-        Long count = jdbcClient.sql("select count(*) from assets where active = true and symbol = :symbol")
-            .param("symbol", symbol)
-            .query(Long.class)
-            .single();
-        return count != null && count > 0;
-    }
-
-    @Override
     @Transactional
     public BacktestRun createSucceededRun(BacktestRun run, BacktestResult result) {
         BacktestRun saved = jdbcClient.sql("""

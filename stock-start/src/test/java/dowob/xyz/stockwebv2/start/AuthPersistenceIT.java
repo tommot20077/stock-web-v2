@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.start;
 
 import dowob.xyz.stockwebv2.common.error.DuplicateResourceException;
+import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.model.UserStatus;
 import dowob.xyz.stockwebv2.infrastructure.security.JwtProperties;
 import dowob.xyz.stockwebv2.start.support.ContainerIT;
@@ -73,6 +74,23 @@ class AuthPersistenceIT extends ContainerIT {
         assertThat(redisTemplate.hasKey(refreshKey)).isFalse();
         assertThat(redisTemplate.opsForSet().members(indexKey)).doesNotContain(refreshToken);
         refreshTokenService.revoke(refreshToken);
+    }
+
+    @Test
+    void consumeForRotationDeletesOldRefreshTokenAndReturnsSession() {
+        User user = authService.register(new RegisterRequest("rotate-persistence@example.com", "rotatepersistence", "Password1"));
+        String refreshToken = refreshTokenService.issue(user, "JUnit");
+        String refreshKey = "user:refresh:" + refreshToken;
+        String indexKey = "user:refresh:index:" + user.id();
+
+        RefreshTokenService.RefreshSession session = refreshTokenService.consumeForRotation(refreshToken);
+
+        assertThat(session.userId()).isEqualTo(user.id());
+        assertThat(redisTemplate.hasKey(refreshKey)).isFalse();
+        assertThat(redisTemplate.opsForSet().members(indexKey)).doesNotContain(refreshToken);
+        assertThatThrownBy(() -> refreshTokenService.consumeForRotation(refreshToken))
+            .isInstanceOf(BusinessException.class)
+            .hasMessageContaining("Refresh token invalid");
     }
 
     @Test

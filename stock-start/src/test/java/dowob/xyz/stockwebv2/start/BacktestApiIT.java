@@ -173,11 +173,20 @@ class BacktestApiIT extends ContainerIT {
     }
 
     private AuthTokens register(String email, String username, String password) throws Exception {
-        String body = mockMvc.perform(post("/api/v1/auth/register")
+        mockMvc.perform(post("/api/v1/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"email":"%s","username":"%s","password":"%s"}
                     """.formatted(email, username, password)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.accessToken").doesNotExist())
+            .andExpect(jsonPath("$.data.refreshToken").doesNotExist());
+
+        String body = mockMvc.perform(post("/api/v1/auth/token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"email":"%s","password":"%s"}
+                    """.formatted(email, password)))
             .andExpect(status().isOk())
             .andReturn()
             .getResponse()

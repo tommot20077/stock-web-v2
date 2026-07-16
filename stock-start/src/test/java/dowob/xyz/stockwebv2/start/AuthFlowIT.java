@@ -18,6 +18,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @AutoConfigureMockMvc
 class AuthFlowIT extends ContainerIT {
+    private static final String ACCESS_COOKIE = "stock_access";
+    private static final String REFRESH_COOKIE = "stock_refresh";
 
     @Autowired
     MockMvc mockMvc;
@@ -34,10 +36,11 @@ class AuthFlowIT extends ContainerIT {
                     """))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success", equalTo(true)))
-            .andExpect(jsonPath("$.data.accessToken", notNullValue()))
-            .andExpect(jsonPath("$.data.refreshToken", notNullValue()));
+            .andExpect(jsonPath("$.data.user.email", equalTo("yuan@example.com")))
+            .andExpect(jsonPath("$.data.accessToken").doesNotExist())
+            .andExpect(jsonPath("$.data.refreshToken").doesNotExist());
 
-        AuthTokens tokens = login("yuan@example.com", "Password1");
+        AuthTokens tokens = token("yuan@example.com", "Password1");
 
         mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + tokens.accessToken()))
             .andExpect(status().isOk())
@@ -54,6 +57,35 @@ class AuthFlowIT extends ContainerIT {
     @Test
     void meRejectsMalformedBearerTokenWithApiResponse() throws Exception {
         mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer not-a-jwt"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.success", equalTo(false)))
+            .andExpect(jsonPath("$.error.code", equalTo("AUTH_INVALID_CREDENTIALS")));
+    }
+
+    @Test
+    void tokenEndpointReturnsBearerTokensAndDoesNotSetBrowserCookies() throws Exception {
+        browserRegister("token-endpoint@example.com", "tokenendpoint", "Password1");
+
+        mockMvc.perform(post("/api/v1/auth/token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"email":"token-endpoint@example.com","password":"Password1"}
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.accessToken", notNullValue()))
+            .andExpect(jsonPath("$.data.refreshToken", notNullValue()))
+            .andExpect(jsonPath("$.data.user.email", equalTo("token-endpoint@example.com")))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie().doesNotExist(ACCESS_COOKIE))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie().doesNotExist(REFRESH_COOKIE));
+    }
+
+    @Test
+    void tokenEndpointRejectsInvalidCredentialsWithApiResponse() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"email":"missing-token-user@example.com","password":"Password1"}
+                    """))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.success", equalTo(false)))
             .andExpect(jsonPath("$.error.code", equalTo("AUTH_INVALID_CREDENTIALS")));
@@ -98,21 +130,38 @@ class AuthFlowIT extends ContainerIT {
             .andExpect(jsonPath("$.error.code", equalTo("AUTH_FORBIDDEN")));
     }
 
-    private AuthTokens register(String email, String username, String password) throws Exception {
-        String body = mockMvc.perform(post("/api/v1/auth/register")
+    private void browserRegister(String email, String username, String password) throws Exception {
+        mockMvc.perform(post("/api/v1/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"email":"%s","username":"%s","password":"%s"}
                     """.formatted(email, username, password)))
             .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.accessToken").doesNotExist())
+            .andExpect(jsonPath("$.data.refreshToken").doesNotExist());
+    }
+
+    private AuthTokens register(String email, String username, String password) throws Exception {
+        browserRegister(email, username, password);
+        return token(email, password);
+    }
+
+    private AuthTokens token(String email, String password) throws Exception {
+        String body = mockMvc.perform(post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"email":"%s","password":"%s"}
+                    """.formatted(email, password)))
+            .andExpect(status().isOk())
             .andReturn()
             .getResponse()
             .getContentAsString();
-        return readTokens(body);
-    }
+        JsonNode data = objectMapper.readTree(body).get("data");
+        if (data.get("accessToken") != null) {
+            throw new AssertionError("Browser login must not return accessToken");
+        }
 
-    private AuthTokens login(String email, String password) throws Exception {
-        String body = mockMvc.perform(post("/api/v1/auth/login")
+        body = mockMvc.perform(post("/api/v1/auth/token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"email":"%s","password":"%s"}

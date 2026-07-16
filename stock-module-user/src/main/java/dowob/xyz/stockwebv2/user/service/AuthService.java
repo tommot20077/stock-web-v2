@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.user.service;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.DuplicateResourceException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.common.error.ResourceNotFoundException;
 import dowob.xyz.stockwebv2.common.model.UserStatus;
 import dowob.xyz.stockwebv2.user.api.RegisterRequest;
 import dowob.xyz.stockwebv2.user.domain.User;
@@ -12,15 +13,64 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Locale;
+import java.util.UUID;
 
 @Service
 public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final RefreshTokenService refreshTokenService;
+    private final LoginAttemptService loginAttemptService;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public AuthService(
+        UserRepository userRepository,
+        PasswordEncoder passwordEncoder,
+        RefreshTokenService refreshTokenService,
+        LoginAttemptService loginAttemptService
+    ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.refreshTokenService = refreshTokenService;
+        this.loginAttemptService = loginAttemptService;
+    }
+
+    /**
+     * 執行即時登出：遞增 DB token version（權威來源）並同步至 Redis，使該使用者所有既有
+     * access token 立即失效（security.md §5）。Redis 同步失敗時整筆交易回滾，維持 DB 與
+     * Redis 版本一致。
+     *
+     * @param userId 登出的使用者 id
+     */
+    @Transactional
+    public void logout(Long userId) {
+        int newVersion = userRepository.incrementTokenVersion(userId);
+        refreshTokenService.updateAuthTokenVersion(userId, newVersion);
+    }
+
+    /**
+     * 依內部 id 取得使用者；不存在時拋出 {@link ResourceNotFoundException}。
+     *
+     * <p>提供給 Controller 使用，使其毋須直接相依 Repository（architecture.md §DDD-Lite）。</p>
+     *
+     * @param userId 使用者內部 id
+     * @return 使用者
+     */
+    @Transactional(readOnly = true)
+    public User requireById(Long userId) {
+        return userRepository.findById(userId)
+            .orElseThrow(() -> new ResourceNotFoundException("user"));
+    }
+
+    /**
+     * 解除指定使用者的登入失敗鎖定（ADMIN 操作，security.md §15）。
+     *
+     * @param uuid 使用者對外 UUID
+     */
+    @Transactional(readOnly = true)
+    public void unlockByUuid(UUID uuid) {
+        User user = userRepository.findByUuid(uuid)
+            .orElseThrow(() -> new ResourceNotFoundException("user"));
+        loginAttemptService.reset(user.id());
     }
 
     @Transactional
@@ -40,9 +90,15 @@ public class AuthService {
     public User verifyCredentials(String email, String password) {
         User user = userRepository.findByEmail(normalizeEmail(email))
             .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage()));
-        if (user.status() != UserStatus.ACTIVE || !passwordEncoder.matches(password, user.passwordHash())) {
+        loginAttemptService.assertNotLocked(user.id());
+        if (!passwordEncoder.matches(password, user.passwordHash())) {
+            loginAttemptService.recordFailure(user.id());
             throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
         }
+        if (user.status() != UserStatus.ACTIVE) {
+            throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
+        }
+        loginAttemptService.reset(user.id());
         return user;
     }
 

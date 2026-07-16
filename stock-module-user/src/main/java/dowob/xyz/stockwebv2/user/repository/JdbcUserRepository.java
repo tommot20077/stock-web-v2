@@ -53,6 +53,14 @@ public class JdbcUserRepository implements UserRepository {
     }
 
     @Override
+    public Optional<User> findByUuid(UUID uuid) {
+        return jdbcClient.sql("select " + USER_COLUMNS + " from users where uuid = :uuid")
+            .param("uuid", uuid)
+            .query(this::map)
+            .optional();
+    }
+
+    @Override
     public User save(User user) {
         if (user.id() != null) {
             throw new IllegalArgumentException("User updates are not part of foundation save()");
@@ -78,6 +86,19 @@ public class JdbcUserRepository implements UserRepository {
         } catch (DataIntegrityViolationException exception) {
             throw duplicateResourceException(exception);
         }
+    }
+
+    @Override
+    public int incrementTokenVersion(Long id) {
+        return jdbcClient.sql("""
+                update users
+                set token_version = token_version + 1, updated_at = now()
+                where id = :id
+                returning token_version
+                """)
+            .param("id", id)
+            .query(Integer.class)
+            .single();
     }
 
     private RuntimeException duplicateResourceException(DataIntegrityViolationException exception) {

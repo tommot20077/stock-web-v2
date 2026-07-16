@@ -4,9 +4,11 @@ import dowob.xyz.stockwebv2.common.api.ApiError;
 import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.common.model.Permission;
 import dowob.xyz.stockwebv2.infrastructure.security.JwtService;
 import dowob.xyz.stockwebv2.infrastructure.security.JwtService.JwtClaims;
 import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
+import dowob.xyz.stockwebv2.user.service.BrowserAuthCookieService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,9 +22,9 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -41,34 +43,45 @@ import tools.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 public class SecurityConfig {
 
     @Bean
     SecurityFilterChain securityFilterChain(
         HttpSecurity http,
         JwtAuthenticationFilter jwtAuthenticationFilter,
+        BrowserCsrfFilter browserCsrfFilter,
         ApiSecurityErrorWriter apiSecurityErrorWriter,
         CorsConfigurationSource corsConfigurationSource
     ) throws Exception {
         return http
-            .csrf(AbstractHttpConfigurer::disable)
+            .csrf(csrf -> csrf.disable())
             .cors(cors -> cors.configurationSource(corsConfigurationSource))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.GET, "/api/v1/assets").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/csrf").permitAll()
                 .requestMatchers(
                     "/api/v1/auth/register",
                     "/api/v1/auth/login",
+                    "/api/v1/auth/token",
+                    "/api/v1/auth/refresh",
+                    "/api/v1/auth/logout",
                     "/actuator/health",
                     "/v3/api-docs/**",
                     "/swagger-ui/**"
                 ).permitAll()
+                // WebSocket handshake 路徑：HTTP Filter 層放行，由 MarketHandshakeInterceptor 以 ticket 驗證
+                .requestMatchers("/ws/v1/market/**").permitAll()
+                // ADMIN 端點：URL 層粗粒度保護，須在 anyRequest 之前（security.md §1/§2）
+                .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )
             .exceptionHandling(exception -> exception
@@ -76,6 +89,7 @@ public class SecurityConfig {
                 .accessDeniedHandler(apiSecurityErrorWriter.accessDeniedHandler())
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+            .addFilterAfter(browserCsrfFilter, JwtAuthenticationFilter.class)
             .build();
     }
 
@@ -83,9 +97,15 @@ public class SecurityConfig {
     JwtAuthenticationFilter jwtAuthenticationFilter(
         JwtService jwtService,
         StringRedisTemplate redisTemplate,
-        ApiSecurityErrorWriter apiSecurityErrorWriter
+        ApiSecurityErrorWriter apiSecurityErrorWriter,
+        BrowserAuthCookieService cookieService
     ) {
-        return new JwtAuthenticationFilter(jwtService, redisTemplate, apiSecurityErrorWriter);
+        return new JwtAuthenticationFilter(jwtService, redisTemplate, apiSecurityErrorWriter, cookieService);
+    }
+
+    @Bean
+    BrowserCsrfFilter browserCsrfFilter(BrowserAuthCookieService cookieService, ApiSecurityErrorWriter apiSecurityErrorWriter) {
+        return new BrowserCsrfFilter(cookieService, apiSecurityErrorWriter);
     }
 
     @Bean
@@ -115,30 +135,53 @@ public class SecurityConfig {
     }
 
     static class JwtAuthenticationFilter extends OncePerRequestFilter {
+        static final String AUTH_TRANSPORT_ATTRIBUTE = "stock.auth.transport";
+        private static final String AUTH_TRANSPORT_BEARER = "bearer";
+        private static final String AUTH_TRANSPORT_COOKIE = "cookie";
         private static final String BEARER_PREFIX = "Bearer ";
         private static final String ACTIVE_STATUS = "ACTIVE";
 
         private final JwtService jwtService;
         private final StringRedisTemplate redisTemplate;
         private final ApiSecurityErrorWriter errorWriter;
+        private final BrowserAuthCookieService cookieService;
 
-        JwtAuthenticationFilter(JwtService jwtService, StringRedisTemplate redisTemplate, ApiSecurityErrorWriter errorWriter) {
+        JwtAuthenticationFilter(
+            JwtService jwtService,
+            StringRedisTemplate redisTemplate,
+            ApiSecurityErrorWriter errorWriter,
+            BrowserAuthCookieService cookieService
+        ) {
             this.jwtService = jwtService;
             this.redisTemplate = redisTemplate;
             this.errorWriter = errorWriter;
+            this.cookieService = cookieService;
         }
 
         @Override
         protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
             String authorization = request.getHeader("Authorization");
-            if (authorization == null || !authorization.startsWith(BEARER_PREFIX)) {
+            String token;
+            String transport;
+            if (authorization != null && authorization.startsWith(BEARER_PREFIX)) {
+                token = authorization.substring(BEARER_PREFIX.length());
+                transport = AUTH_TRANSPORT_BEARER;
+            } else if (!isRefreshEndpoint(request)) {
+                token = cookieService.readAccessCookie(request);
+                transport = AUTH_TRANSPORT_COOKIE;
+            } else {
+                token = null;
+                transport = null;
+            }
+
+            if (token == null || token.isBlank()) {
                 filterChain.doFilter(request, response);
                 return;
             }
 
             try {
-                JwtClaims claims = jwtService.parse(authorization.substring(BEARER_PREFIX.length()));
+                JwtClaims claims = jwtService.parse(token);
                 AuthState authState = readAuthState(claims.userId());
                 if (authState == null || !Objects.equals(authState.tokenVersion(), String.valueOf(claims.tokenVersion()))) {
                     SecurityContextHolder.clearContext();
@@ -153,9 +196,10 @@ public class SecurityConfig {
                 UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                     String.valueOf(claims.userId()),
                     null,
-                    List.of(new SimpleGrantedAuthority("ROLE_" + claims.role().name()))
+                    authoritiesFor(claims)
                 );
                 SecurityContextHolder.getContext().setAuthentication(authentication);
+                request.setAttribute(AUTH_TRANSPORT_ATTRIBUTE, transport);
             } catch (DataAccessException exception) {
                 SecurityContextHolder.clearContext();
                 errorWriter.write(response, ErrorCode.AUTH_REDIS_UNAVAILABLE);
@@ -171,6 +215,15 @@ public class SecurityConfig {
             }
 
             filterChain.doFilter(request, response);
+        }
+
+        private List<SimpleGrantedAuthority> authoritiesFor(JwtClaims claims) {
+            List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+            authorities.add(new SimpleGrantedAuthority("ROLE_" + claims.role().name()));
+            for (Permission permission : claims.role().permissions()) {
+                authorities.add(new SimpleGrantedAuthority(permission.name()));
+            }
+            return authorities;
         }
 
         private AuthState readAuthState(Long userId) {
@@ -193,7 +246,61 @@ public class SecurityConfig {
             return value != null && value.toLowerCase().contains("expired");
         }
 
+        private boolean isRefreshEndpoint(HttpServletRequest request) {
+            return "/api/v1/auth/refresh".equals(request.getRequestURI());
+        }
+
         private record AuthState(String tokenVersion, String status) {
+        }
+    }
+
+    static class BrowserCsrfFilter extends OncePerRequestFilter {
+        private final BrowserAuthCookieService cookieService;
+        private final ApiSecurityErrorWriter errorWriter;
+
+        BrowserCsrfFilter(BrowserAuthCookieService cookieService, ApiSecurityErrorWriter errorWriter) {
+            this.cookieService = cookieService;
+            this.errorWriter = errorWriter;
+        }
+
+        @Override
+        protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
+            if (isSafeMethod(request)) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            boolean cookieAuthenticated = JwtAuthenticationFilter.AUTH_TRANSPORT_COOKIE.equals(
+                request.getAttribute(JwtAuthenticationFilter.AUTH_TRANSPORT_ATTRIBUTE)
+            );
+            boolean browserSessionAction = isBrowserSessionAction(request) && cookieService.readRefreshCookie(request) != null;
+            if (!cookieAuthenticated && !browserSessionAction) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            String cookieToken = cookieService.readCsrfCookie(request);
+            String headerToken = request.getHeader(BrowserAuthCookieService.XSRF_HEADER);
+            if (cookieToken == null || headerToken == null || !cookieToken.equals(headerToken)) {
+                SecurityContextHolder.clearContext();
+                errorWriter.write(response, ErrorCode.AUTH_CSRF_TOKEN_INVALID);
+                return;
+            }
+
+            filterChain.doFilter(request, response);
+        }
+
+        private boolean isSafeMethod(HttpServletRequest request) {
+            return HttpMethod.GET.matches(request.getMethod())
+                || HttpMethod.HEAD.matches(request.getMethod())
+                || HttpMethod.OPTIONS.matches(request.getMethod())
+                || HttpMethod.TRACE.matches(request.getMethod());
+        }
+
+        private boolean isBrowserSessionAction(HttpServletRequest request) {
+            String uri = request.getRequestURI();
+            return "/api/v1/auth/refresh".equals(uri) || "/api/v1/auth/logout".equals(uri);
         }
     }
 

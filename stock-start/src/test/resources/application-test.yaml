@@ -14,6 +14,14 @@ spring:
       - org.springframework.boot.security.autoconfigure.web.servlet.ServletWebSecurityAutoConfiguration
       - org.springframework.boot.security.autoconfigure.web.servlet.SecurityFilterAutoConfiguration
       - org.springframework.boot.security.autoconfigure.actuate.web.servlet.ManagementWebSecurityAutoConfiguration
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+market-data:
+  scheduling:
+    enabled: false
+  ingestor:
+    enabled: false
+  mock:
+    enabled: false
 stock:
   jwt:
     private-key:

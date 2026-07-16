@@ -12,6 +12,8 @@ import dowob.xyz.stockwebv2.backtest.domain.BacktestRunStatus;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestStrategyId;
 import dowob.xyz.stockwebv2.backtest.engine.BacktestEngine;
 import dowob.xyz.stockwebv2.backtest.engine.BacktestEngineInput;
+import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
+import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 import dowob.xyz.stockwebv2.backtest.engine.StrategyValidator;
 import dowob.xyz.stockwebv2.backtest.repository.BacktestRepository;
 import dowob.xyz.stockwebv2.common.api.PageResponse;
@@ -35,17 +37,35 @@ public class BacktestService {
     private final BacktestEngine engine;
     private final BacktestMapper mapper;
     private final StrategyValidator strategyValidator;
+    private final AssetFacade assetFacade;
 
-    public BacktestService(BacktestRepository repository, BacktestEngine engine, BacktestMapper mapper) {
-        this(repository, engine, mapper, new StrategyValidator());
+    public BacktestService(BacktestRepository repository, BacktestEngine engine, BacktestMapper mapper, AssetFacade assetFacade) {
+        this(repository, engine, mapper, new StrategyValidator(), assetFacade);
     }
 
     @Autowired
-    public BacktestService(BacktestRepository repository, BacktestEngine engine, BacktestMapper mapper, StrategyValidator strategyValidator) {
+    public BacktestService(BacktestRepository repository, BacktestEngine engine, BacktestMapper mapper,
+                           StrategyValidator strategyValidator, AssetFacade assetFacade) {
         this.repository = repository;
         this.engine = engine;
         this.mapper = mapper;
         this.strategyValidator = strategyValidator;
+        this.assetFacade = assetFacade;
+    }
+
+    /**
+     * 檢查 symbol 是否對應到一個 active 的資產。
+     *
+     * <p>經由 stock-infrastructure 的 {@link AssetFacade} 查詢，不得直接以 SQL 存取 asset 模組
+     * 的資料表（architecture.md §Facade Pattern）。</p>
+     *
+     * @param symbol 已正規化的資產代號
+     * @return 該 symbol 是否存在且為 active
+     */
+    private boolean activeSymbolExists(String symbol) {
+        return assetFacade.findBySymbol(symbol)
+            .filter(AssetSummary::active)
+            .isPresent();
     }
 
     public BacktestRunDto createRun(Long userId, CreateBacktestRunRequest request) {
@@ -58,7 +78,7 @@ public class BacktestService {
         validateRequestOptions(request);
 
         String symbol = normalizeRequiredSymbol(request.symbol());
-        if (!repository.activeSymbolExists(symbol)) {
+        if (!activeSymbolExists(symbol)) {
             throw new BusinessException(ErrorCode.BACKTEST_UNSUPPORTED_SYMBOL, ErrorCode.BACKTEST_UNSUPPORTED_SYMBOL.defaultMessage());
         }
 
