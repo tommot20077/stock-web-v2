@@ -129,6 +129,16 @@ class JwtServiceTest {
     }
 
     @Test
+    void allowsGeneratedKeyUnderE2eBrowserProfile() {
+        JwtProperties properties = new JwtProperties("", Duration.ofMinutes(30), Duration.ofDays(14));
+        JwtService jwtService = new JwtService(properties, environment("e2e-browser"));
+
+        String token = jwtService.createAccessToken(42L, Role.USER, 7);
+
+        assertThat(jwtService.parse(token).userId()).isEqualTo(42L);
+    }
+
+    @Test
     void rejectsBlankPrivateKeyOutsideDevelopmentProfiles() {
         JwtProperties properties = new JwtProperties("", Duration.ofMinutes(30), Duration.ofDays(14));
 

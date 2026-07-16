@@ -134,8 +134,8 @@ public class JwtService {
 
     private ECKey resolveKey(String privateKeyPem, Environment environment) {
         if (privateKeyPem == null || privateKeyPem.isBlank()) {
-            if (!environment.acceptsProfiles(Profiles.of("dev", "test", "e2e"))) {
-                throw new IllegalStateException("STOCK_JWT_PRIVATE_KEY must be configured outside dev/test/e2e profiles");
+            if (!environment.acceptsProfiles(Profiles.of("dev", "test", "e2e", "e2e-browser"))) {
+                throw new IllegalStateException("STOCK_JWT_PRIVATE_KEY must be configured outside dev/test/e2e/e2e-browser profiles");
             }
             log.warn("stock.jwt.private-key is blank; generating an ephemeral development JWT key");
             return generateKey();
