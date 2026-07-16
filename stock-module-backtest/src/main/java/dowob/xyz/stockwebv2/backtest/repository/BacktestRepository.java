@@ -7,8 +7,6 @@ import dowob.xyz.stockwebv2.common.api.PageResponse;
 import java.util.Optional;
 
 public interface BacktestRepository {
-    boolean activeSymbolExists(String symbol);
-
     BacktestRun createSucceededRun(BacktestRun run, BacktestResult result);
 
     Optional<BacktestRun> findRunForUser(Long userId, String externalRunId);
