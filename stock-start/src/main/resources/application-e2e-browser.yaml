@@ -1,0 +1,64 @@
+# Browser E2E(Playwright)專用 profile:由外部 java -jar 啟動,連 compose 暫時容器。
+# 對應設計:docs/plans/2026-07-16-browser-e2e-testing-design.md §3.3
+# 與測試用 e2e profile 的差異:market-data scheduling/ingestor 開啟(畫面需要活資料)、
+# rate-limit 保持啟用但一般限額調高(平行測試不互踩),僅 lockout 門檻調低供 A10 案例使用。
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  server:
+    port: ${STOCK_MANAGEMENT_PORT:8080}
+
+spring:
+  datasource:
+    url: ${STOCK_DB_URL:jdbc:postgresql://localhost:15432/stock_e2e}
+    username: ${STOCK_DB_USERNAME:stock}
+    password: ${STOCK_DB_PASSWORD:stock}
+  data:
+    redis:
+      host: ${STOCK_REDIS_HOST:localhost}
+      port: ${STOCK_REDIS_PORT:16379}
+      database: ${STOCK_REDIS_DATABASE:0}
+      password: ${STOCK_REDIS_PASSWORD:}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    mixed: true
+  kafka:
+    bootstrap-servers: ${STOCK_KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
+  batch:
+    job:
+      enabled: false
+
+stock:
+  cors:
+    allowed-origins: ${STOCK_CORS_ALLOWED_ORIGINS:http://localhost:4173,http://localhost:5173}
+  jwt:
+    access-token-ttl: PT2H
+    refresh-token-ttl: P14D
+  auth:
+    cookie:
+      access-token-ttl: PT2H
+  security:
+    rate-limit:
+      enabled: true
+      login:
+        limit: 10000
+        window: PT1M
+      register:
+        limit: 10000
+        window: PT1H
+      refresh:
+        limit: 10000
+        window: PT1M
+      lockout:
+        threshold: ${STOCK_LOCKOUT_THRESHOLD:3}
+        duration: ${STOCK_LOCKOUT_DURATION:PT2M}
+
+market-data:
+  scheduling:
+    enabled: true
+  ingestor:
+    enabled: true
+  mock:
+    enabled: true
