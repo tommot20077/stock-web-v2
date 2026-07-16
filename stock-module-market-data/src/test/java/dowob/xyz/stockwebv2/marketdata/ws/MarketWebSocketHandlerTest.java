@@ -72,7 +72,34 @@ class MarketWebSocketHandlerTest {
         ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
         verify(session).sendMessage(captor.capture());
         assertThat(captor.getValue().getPayload()).contains("WELCOME");
-        verify(heartbeat).register(session);
+        verify(heartbeat).register(org.mockito.ArgumentMatchers.any(WebSocketSession.class));
+    }
+
+    /** 連線登錄的 session 必須為併發安全包裝，避免廣播/心跳/IO 三執行緒同時 sendMessage */
+    @Test
+    @DisplayName("連線建立後登錄的 session 以 ConcurrentWebSocketSessionDecorator 包裝")
+    void establishedSessionIsWrappedForConcurrentSend() throws Exception {
+        WebSocketSession session = mockSession("session-concurrent");
+
+        handler.afterConnectionEstablished(session);
+
+        assertThat(handler.findSession("session-concurrent"))
+            .get()
+            .isInstanceOf(org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator.class);
+    }
+
+    /** 心跳須以包裝後的 session 註冊，否則排程執行緒的 PING 會繞過鎖 */
+    @Test
+    @DisplayName("心跳以包裝後的 session 註冊")
+    void heartbeatRegistersWrappedSession() throws Exception {
+        WebSocketSession session = mockSession("session-heartbeat");
+
+        handler.afterConnectionEstablished(session);
+
+        ArgumentCaptor<WebSocketSession> captor = ArgumentCaptor.forClass(WebSocketSession.class);
+        verify(heartbeat).register(captor.capture());
+        assertThat(captor.getValue())
+            .isInstanceOf(org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator.class);
     }
 
     /** handleTextMessage SUBSCRIBE → 呼叫 SubscriptionManager.subscribe 並送出 SUB_ACK */
@@ -204,7 +231,8 @@ class MarketWebSocketHandlerTest {
 
         handler.afterConnectionEstablished(session);
 
-        assertThat(handler.findSession("s1")).isPresent().contains(session);
+        assertThat(handler.findSession("s1")).isPresent();
+        assertThat(handler.findSession("s1").orElseThrow().getId()).isEqualTo("s1");
     }
 
     /** afterConnectionClosed → session 從 sessions map 移除，findSession 回傳 empty */

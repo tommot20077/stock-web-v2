@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -62,6 +63,12 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
     /** 4002 — 因每帳號連線上限被較新連線取代（FIFO 驅逐，security.md §18）。 */
     static final CloseStatus CLOSE_SESSION_REPLACED = new CloseStatus(4002, "Session replaced");
 
+    /** 併發送訊的等待上限（毫秒）：超過即由 decorator 關閉 session，避免慢客戶端拖垮執行緒。 */
+    private static final int SEND_TIME_LIMIT_MS = 10_000;
+
+    /** 併發送訊的緩衝上限（位元組）：超過即由 decorator 關閉 session。 */
+    private static final int SEND_BUFFER_SIZE_LIMIT = 512 * 1024;
+
     private final WsMessageParser parser;
     private final SubscriptionManager subscriptionManager;
     private final WsHeartbeat heartbeat;
@@ -112,11 +119,13 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         Long userId = (Long) session.getAttributes().get(MarketHandshakeInterceptor.ATTR_USER_ID);
         String clientIp = (String) session.getAttributes().get(MarketHandshakeInterceptor.ATTR_CLIENT_IP);
-        sessions.put(session.getId(), session);
+        WebSocketSession concurrentSession = new ConcurrentWebSocketSessionDecorator(
+            session, SEND_TIME_LIMIT_MS, SEND_BUFFER_SIZE_LIMIT);
+        sessions.put(session.getId(), concurrentSession);
         contexts.put(session.getId(), new SessionContext());
         java.util.List<String> evicted = connectionManager.register(session.getId(), userId, clientIp);
-        sendWelcome(session);
-        heartbeat.register(session);
+        sendWelcome(concurrentSession);
+        heartbeat.register(concurrentSession);
         for (String evictedId : evicted) {
             closeEvictedSession(evictedId);
         }
@@ -162,8 +171,10 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
+        WebSocketSession target = sessions.getOrDefault(session.getId(), session);
+
         if (!ctx.rateLimiter.tryAcquire()) {
-            session.close(CLOSE_RATE_LIMITED);
+            target.close(CLOSE_RATE_LIMITED);
             return;
         }
 
@@ -172,9 +183,9 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
             msg = parser.parse(message.getPayload());
         } catch (InvalidMessageException ex) {
             int errorCount = ctx.formatErrors.incrementAndGet();
-            sendError(session, "WS_MSG_FORMAT_INVALID", ex.getMessage());
+            sendError(target, "WS_MSG_FORMAT_INVALID", ex.getMessage());
             if (errorCount >= MAX_FORMAT_ERRORS) {
-                session.close(CLOSE_BAD_MESSAGE);
+                target.close(CLOSE_BAD_MESSAGE);
             }
             return;
         }
@@ -182,7 +193,7 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
         switch (msg) {
             case ClientMessage.Subscribe sub -> {
                 SubscribeResult result = subscriptionManager.subscribe(session.getId(), sub.channels());
-                sendSubAck(session, result);
+                sendSubAck(target, result);
             }
             case ClientMessage.Unsubscribe unsub -> subscriptionManager.unsubscribe(session.getId(), unsub.channels());
             case ClientMessage.Pong ignored -> heartbeat.onPong(session.getId());
