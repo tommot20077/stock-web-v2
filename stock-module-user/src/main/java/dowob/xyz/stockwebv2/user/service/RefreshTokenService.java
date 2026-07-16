@@ -11,11 +11,17 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class RefreshTokenService {
     private static final int MAX_DEVICE_INFO_LENGTH = 128;
+
+    /**
+     * 已消費 refresh token 的標記 key 前綴，用於重放偵測（security.md §5a 步驟 5）。
+     */
+    private static final String CONSUMED_KEY_PREFIX = "user:refresh:used:";
 
     private final StringRedisTemplate redisTemplate;
     private final JwtProperties jwtProperties;
@@ -95,6 +101,7 @@ public class RefreshTokenService {
         String refreshKey = "user:refresh:" + token;
         Map<Object, Object> refreshEntries = redisTemplate.opsForHash().entries(refreshKey);
         if (refreshEntries == null || refreshEntries.isEmpty()) {
+            revokeFamilyIfReplayed(token);
             throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID, ErrorCode.AUTH_REFRESH_TOKEN_INVALID.defaultMessage());
         }
 
@@ -115,8 +122,58 @@ public class RefreshTokenService {
             throw new BusinessException(ErrorCode.AUTH_FORBIDDEN, ErrorCode.AUTH_FORBIDDEN.defaultMessage());
         }
 
-        revoke(token, userId);
+        if (!Boolean.TRUE.equals(redisTemplate.delete(refreshKey))) {
+            throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID, ErrorCode.AUTH_REFRESH_TOKEN_INVALID.defaultMessage());
+        }
+        redisTemplate.opsForSet().remove("user:refresh:index:" + userId, token);
+        markConsumed(token, userId);
         return new RefreshSession(userId);
+    }
+
+    /**
+     * 撤銷指定使用者的所有 refresh token（security.md §5a 步驟 5、§11 刪除流程）。
+     * 以 reverse index 找出全部 token 後逐一刪除，最後移除索引本身。
+     *
+     * @param userId 使用者 id
+     */
+    public void revokeAllForUser(Long userId) {
+        String indexKey = "user:refresh:index:" + userId;
+        Set<String> tokens = redisTemplate.opsForSet().members(indexKey);
+        if (tokens != null) {
+            for (String token : tokens) {
+                redisTemplate.delete("user:refresh:" + token);
+            }
+        }
+        redisTemplate.delete(indexKey);
+    }
+
+    /**
+     * 若該 token 曾被成功輪替消費過（即為重放），撤銷其擁有者的全部 refresh token。
+     * 從未存在的 token 則不做任何事（避免以隨機值觸發他人 session 失效）。
+     *
+     * @param token 疑似被重放的 refresh token
+     */
+    private void revokeFamilyIfReplayed(String token) {
+        String owner = redisTemplate.opsForValue().get(CONSUMED_KEY_PREFIX + token);
+        if (owner == null) {
+            return;
+        }
+        revokeAllForUser(parseUserId(owner));
+    }
+
+    /**
+     * 標記 token 已被輪替消費，供日後重放偵測使用；TTL 與 refresh token 效期一致，
+     * 超出效期後重放已無意義。
+     *
+     * @param token  已消費的 refresh token
+     * @param userId 擁有者使用者 id
+     */
+    private void markConsumed(String token, Long userId) {
+        redisTemplate.opsForValue().set(
+            CONSUMED_KEY_PREFIX + token,
+            String.valueOf(userId),
+            jwtProperties.refreshTokenTtl()
+        );
     }
 
     public void revoke(String token, Long expectedUserId) {
