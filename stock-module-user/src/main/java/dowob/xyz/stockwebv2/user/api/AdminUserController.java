@@ -3,11 +3,8 @@ package dowob.xyz.stockwebv2.user.api;
 import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.api.EmptyResponse;
-import dowob.xyz.stockwebv2.common.error.ResourceNotFoundException;
 import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
-import dowob.xyz.stockwebv2.user.domain.User;
-import dowob.xyz.stockwebv2.user.repository.UserRepository;
-import dowob.xyz.stockwebv2.user.service.LoginAttemptService;
+import dowob.xyz.stockwebv2.user.service.AuthService;
 import org.slf4j.MDC;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,18 +20,16 @@ import java.util.UUID;
  * 與方法層 {@code @PreAuthorize} 雙重保護（security.md §1）。
  *
  * @author Yuan
- * @version 1.0
+ * @version 1.1
  */
 @RestController
 @RequestMapping("/api/admin")
 public class AdminUserController {
 
-    private final UserRepository userRepository;
-    private final LoginAttemptService loginAttemptService;
+    private final AuthService authService;
 
-    public AdminUserController(UserRepository userRepository, LoginAttemptService loginAttemptService) {
-        this.userRepository = userRepository;
-        this.loginAttemptService = loginAttemptService;
+    public AdminUserController(AuthService authService) {
+        this.authService = authService;
     }
 
     /**
@@ -46,9 +41,7 @@ public class AdminUserController {
     @PostMapping("/users/{uuid}/unlock")
     @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<EmptyResponse> unlock(@PathVariable UUID uuid) {
-        User user = userRepository.findByUuid(uuid)
-            .orElseThrow(() -> new ResourceNotFoundException("user"));
-        loginAttemptService.reset(user.id());
+        authService.unlockByUuid(uuid);
         return ApiResponse.empty(meta());
     }
 

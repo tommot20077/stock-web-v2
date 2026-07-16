@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.user.service;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.DuplicateResourceException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.common.error.ResourceNotFoundException;
 import dowob.xyz.stockwebv2.common.model.UserStatus;
 import dowob.xyz.stockwebv2.user.api.RegisterRequest;
 import dowob.xyz.stockwebv2.user.domain.User;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Locale;
+import java.util.UUID;
 
 @Service
 public class AuthService {
@@ -43,6 +45,32 @@ public class AuthService {
     public void logout(Long userId) {
         int newVersion = userRepository.incrementTokenVersion(userId);
         refreshTokenService.updateAuthTokenVersion(userId, newVersion);
+    }
+
+    /**
+     * 依內部 id 取得使用者；不存在時拋出 {@link ResourceNotFoundException}。
+     *
+     * <p>提供給 Controller 使用，使其毋須直接相依 Repository（architecture.md §DDD-Lite）。</p>
+     *
+     * @param userId 使用者內部 id
+     * @return 使用者
+     */
+    @Transactional(readOnly = true)
+    public User requireById(Long userId) {
+        return userRepository.findById(userId)
+            .orElseThrow(() -> new ResourceNotFoundException("user"));
+    }
+
+    /**
+     * 解除指定使用者的登入失敗鎖定（ADMIN 操作，security.md §15）。
+     *
+     * @param uuid 使用者對外 UUID
+     */
+    @Transactional(readOnly = true)
+    public void unlockByUuid(UUID uuid) {
+        User user = userRepository.findByUuid(uuid)
+            .orElseThrow(() -> new ResourceNotFoundException("user"));
+        loginAttemptService.reset(user.id());
     }
 
     @Transactional

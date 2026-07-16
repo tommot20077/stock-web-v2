@@ -5,14 +5,12 @@ import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.api.EmptyResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
-import dowob.xyz.stockwebv2.common.error.ResourceNotFoundException;
 import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
 import dowob.xyz.stockwebv2.infrastructure.security.JwtService;
 import dowob.xyz.stockwebv2.infrastructure.security.RateLimitProperties;
 import dowob.xyz.stockwebv2.infrastructure.security.RateLimitService;
 import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
 import dowob.xyz.stockwebv2.user.domain.User;
-import dowob.xyz.stockwebv2.user.repository.UserRepository;
 import dowob.xyz.stockwebv2.user.service.AuthService;
 import dowob.xyz.stockwebv2.user.service.BrowserAuthCookieService;
 import dowob.xyz.stockwebv2.user.service.RefreshTokenService;
@@ -35,7 +33,6 @@ public class AuthController {
     private final AuthService authService;
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
-    private final UserRepository userRepository;
     private final BrowserAuthCookieService cookieService;
     private final RateLimitService rateLimitService;
     private final RateLimitProperties rateLimitProperties;
@@ -45,7 +42,6 @@ public class AuthController {
         AuthService authService,
         JwtService jwtService,
         RefreshTokenService refreshTokenService,
-        UserRepository userRepository,
         BrowserAuthCookieService cookieService,
         RateLimitService rateLimitService,
         RateLimitProperties rateLimitProperties,
@@ -54,7 +50,6 @@ public class AuthController {
         this.authService = authService;
         this.jwtService = jwtService;
         this.refreshTokenService = refreshTokenService;
-        this.userRepository = userRepository;
         this.cookieService = cookieService;
         this.rateLimitService = rateLimitService;
         this.rateLimitProperties = rateLimitProperties;
@@ -121,8 +116,7 @@ public class AuthController {
         rateLimitService.enforce("refresh", refreshIdentity, rateLimitProperties.refresh());
         try {
             RefreshTokenService.RefreshSession session = refreshTokenService.consumeForRotation(refreshToken);
-            User user = userRepository.findById(session.userId())
-                .orElseThrow(() -> new ResourceNotFoundException("user"));
+            User user = authService.requireById(session.userId());
             auditLogger.log(user.id(), "refresh", "session", "success", clientIp(servletRequest));
             return ApiResponse.success(browserSession(user, servletRequest, servletResponse), meta());
         } catch (BusinessException exception) {
@@ -136,8 +130,7 @@ public class AuthController {
     @GetMapping("/me")
     public ApiResponse<MeResponse> me(Authentication authentication) {
         Long userId = authenticatedUserId(authentication);
-        User user = userRepository.findById(userId)
-            .orElseThrow(() -> new ResourceNotFoundException("user"));
+        User user = authService.requireById(userId);
         return ApiResponse.success(user.toMeResponse(), meta());
     }
 
