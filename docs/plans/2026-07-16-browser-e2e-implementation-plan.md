@@ -12,6 +12,11 @@
 
 ## 前置(Yuan 手動)
 - [ ] GitHub 建 cross-repo checkout 用的 PAT(或 deploy key),兩 repo 各設 secret `CROSS_REPO_TOKEN`(Task 11、12 才需要,本地開發不用)
+- [ ] security batch-1~3 分支依序合回 `develop`(走 PR 流程)——E2E 對 develop 測的前置條件
+
+## v2 修訂(2026-07-16,Yuan 裁決)
+- Phase 1 範圍 = 旅程 A + D(前端 API mode 已接線者);旅程 B/C 綁 mock-to-real 接線 PR(Phase 2,不在本計畫);Watchlist 移出(後端無 API)
+- Task 6–9 依設計文件 §5 v2 矩陣重寫;原「13 條案例」改為 Phase 1 十四條(7 @smoke + 7 @extended)
 
 ## Tasks
 
@@ -45,35 +50,34 @@
 - **相依**: Task 4
 - **驗證**: `npm run test:e2e -- e2e/tests/fixtures.spec.ts` 通過
 
-### Task 6 — 前端 e2e/Tests: 旅程 A 註冊/登入/Session(A1–A5)
-- **目標**: `e2e/tests/auth.spec.ts` 5 條案例;AuthPanel/Header/SessionBanner 補 `data-testid`
-- **TDD**: 先寫 5 條 spec 跑紅(缺 testid)→ 補 testid 與必要接線轉 Green
-- **相依**: Task 5
+### Task 6 — 前端 e2e/Tests: 旅程 A 註冊/登入/Session(v2 矩陣)
+- **目標**: `e2e/tests/auth.spec.ts`——@smoke:A1 註冊自動登入、A2 reload session 在、A3 登出、A7 錯誤密碼(`AUTH_INVALID_CREDENTIALS` + traceId 可見)、A9 未登入導向;@extended:A4 密碼欄位錯誤顯示、A5 email 正規化、A8 重複 email、A10 帳號鎖定(`AUTH_ACCOUNT_LOCKED`,e2e-browser profile 設低門檻/短時長)、A11 refresh 失效回登入。AuthPanel/Header/SessionBanner 補 `data-testid`
+- **TDD**: 先寫 spec 跑紅(缺 testid)→ 補 testid 與必要接線轉 Green
+- **相依**: Task 5(A10 另相依 Task 1 的 lockout 參數)
 - **驗證**: `npm run test:e2e -- e2e/tests/auth.spec.ts` 通過,且 `npm test`(Vitest)不退步
 
-### Task 7 — 前端 e2e/Tests: 旅程 B 行情瀏覽(B1–B3)
-- **目標**: `e2e/tests/markets.spec.ts` 3 條;Markets/Chart/Watchlist 補 `data-testid`;B3 驗證寫入 DB 後 reload 仍在
+### Task 7 — 前端 e2e/Tests: 旅程 D 回測(v2 矩陣)
+- **目標**: `e2e/tests/backtest.spec.ts`——@smoke:D1 建立→`expect.poll` 至完成→結果顯示(驗結構)、D2 完成後 reload 歷史仍在;@extended:D4 initialCapital 0/負欄位錯誤、D5 不存在 symbol 業務錯誤、D6 執行中防重複(若屬純前端行為改歸 Vitest 並註記)。Backtest 頁補 `data-testid`
 - **TDD**: 同上 Red → Green
 - **相依**: Task 5(與 Task 6 可平行)
-- **驗證**: `npm run test:e2e -- e2e/tests/markets.spec.ts` 通過
-
-### Task 8 — 前端 e2e/Tests: 旅程 C 交易與持倉(C1–C3)
-- **目標**: `e2e/tests/trading.spec.ts` 3 條(C1→C2 同檔 serial);Trades/Positions 補 `data-testid`
-- **TDD**: 同上 Red → Green
-- **相依**: Task 5(與 Task 6、7 可平行)
-- **驗證**: `npm run test:e2e -- e2e/tests/trading.spec.ts` 通過
-
-### Task 9 — 前端 e2e/Tests: 旅程 D 回測(D1–D2)
-- **目標**: `e2e/tests/backtest.spec.ts` 2 條(`expect.poll` 等非同步 job);Backtest 頁補 `data-testid`
-- **TDD**: 同上 Red → Green
-- **相依**: Task 5(與 Task 6–8 可平行)
 - **驗證**: `npm run test:e2e -- e2e/tests/backtest.spec.ts` 通過
 
+### Task 8 — 後端 API 層補測: 矩陣中歸屬 API 層的邊界案例
+- **目標**: 在後端 `*E2E.java`(MockMvc)補:A4 密碼規則組合、A6 username 3/50 邊界、D3 initialCapital 極小值、C7 note 500/501、C8 不存在 symbol 下單;另寫 finding #1 的失敗測試(quantity/price 極大值)——若證實溢位/精度問題,**先回報 Yuan 再修**,不順手改 validation
+- **TDD**: 標準 Red → Green(finding #1 停在 Red 並回報)
+- **相依**: 無(可與 Task 6、7 平行;在後端 repo 進行)
+- **驗證**: `./mvnw -pl stock-start -am test -Pe2e --no-transfer-progress`
+
+### Task 9 —(佔位)Phase 2: 旅程 B/C 綁 mock-to-real 接線
+- **目標**: 不在本計畫執行。每接一頁真 API(Markets/Chart、Trades/Positions),同 PR 依設計 §5 的 B1–B5、C1–C8 落地該頁 E2E
+- **相依**: mock-to-real 接線進度
+- **驗證**: 各接線 PR 內驗證
+
 ### Task 10 — 前端 e2e/Script: run-e2e 串上 Playwright 與 artifacts
-- **目標**: script 尾端串 `playwright test`;失敗收集後端 stdout log 到 `e2e/artifacts/`;README 補本地執行說明(含 Windows)
+- **目標**: script 尾端串 `playwright test`(預設只跑 @smoke,`--grep @extended` 跑擴充);失敗收集後端 stdout log 到 `e2e/artifacts/`;README 補本地執行說明(含 Windows)
 - **TDD**: 腳本任務
-- **相依**: Task 6–9
-- **驗證**: `npm run test:e2e` 全套 13 條綠
+- **相依**: Task 6、7
+- **驗證**: `npm run test:e2e` @smoke 7 條綠;`npm run test:e2e -- --grep @extended` 綠(或含已註記之 skip)
 
 ### Task 11 — 前端 CI: `browser-e2e` job
 - **目標**: 前端 repo `.github/workflows/ci.yml` 新增 job(needs: frontend):checkout 自己 + checkout 後端 `develop`(用 `CROSS_REPO_TOKEN`)、setup java/node + cache、跑 `run-e2e.sh`、失敗上傳 report/trace/後端 log artifacts
@@ -97,5 +101,6 @@
 
 ```
 Task 1 ─┐
-Task 2 ─┴→ Task 3 → Task 4 → Task 5 → Task 6/7/8/9(可平行)→ Task 10 → Task 11 → Task 12 → Task 13
+Task 2 ─┴→ Task 3 → Task 4 → Task 5 → Task 6/7(可平行;Task 8 後端側隨時可平行)→ Task 10 → Task 11 → Task 12 → Task 13
+(Task 9 = Phase 2 佔位,綁 mock-to-real 接線,不在本次執行)
 ```
