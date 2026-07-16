@@ -57,11 +57,20 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
     /** 4400 — 連續格式錯誤超過上限。 */
     static final CloseStatus CLOSE_BAD_MESSAGE = new CloseStatus(4400, "Bad message");
 
-    /** 4429 — 速率限制超過。 */
-    static final CloseStatus CLOSE_RATE_LIMITED = new CloseStatus(4429, "Rate limit exceeded");
+    /** 4008 — 速率限制超過（security.md §9 RATE_LIMITED）。 */
+    static final CloseStatus CLOSE_RATE_LIMITED = new CloseStatus(4008, "Rate limited");
 
     /** 4002 — 因每帳號連線上限被較新連線取代（FIFO 驅逐，security.md §18）。 */
     static final CloseStatus CLOSE_SESSION_REPLACED = new CloseStatus(4002, "Session replaced");
+
+    /** 4001 — token 過期／被撤銷／使用者被停權（security.md §9 AUTH_EXPIRED）。 */
+    static final CloseStatus CLOSE_AUTH_EXPIRED = new CloseStatus(4001, "Auth expired");
+
+    /** 4003 — 閒置逾時：逾時且無任何訂閱（security.md §9 IDLE_TIMEOUT）。 */
+    static final CloseStatus CLOSE_IDLE_TIMEOUT = new CloseStatus(4003, "Idle timeout");
+
+    /** 4009 — 伺服器正常關閉（security.md §9 SERVER_SHUTDOWN）。 */
+    static final CloseStatus CLOSE_SERVER_SHUTDOWN = new CloseStatus(4009, "Server shutdown");
 
     /** 併發送訊的等待上限（毫秒）：超過即由 decorator 關閉 session，避免慢客戶端拖垮執行緒。 */
     private static final int SEND_TIME_LIMIT_MS = 10_000;
@@ -119,10 +128,11 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         Long userId = (Long) session.getAttributes().get(MarketHandshakeInterceptor.ATTR_USER_ID);
         String clientIp = (String) session.getAttributes().get(MarketHandshakeInterceptor.ATTR_CLIENT_IP);
+        Integer tokenVersion = (Integer) session.getAttributes().get(MarketHandshakeInterceptor.ATTR_TOKEN_VERSION);
         WebSocketSession concurrentSession = new ConcurrentWebSocketSessionDecorator(
             session, SEND_TIME_LIMIT_MS, SEND_BUFFER_SIZE_LIMIT);
         sessions.put(session.getId(), concurrentSession);
-        contexts.put(session.getId(), new SessionContext());
+        contexts.put(session.getId(), new SessionContext(userId, tokenVersion, java.time.Instant.now()));
         java.util.List<String> evicted = connectionManager.register(session.getId(), userId, clientIp);
         sendWelcome(concurrentSession);
         heartbeat.register(concurrentSession);
@@ -245,6 +255,81 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
     }
 
     /**
+     * 取得目前所有活躍連線的快照，供 {@link WebSocketAuthValidator} 週期掃描。
+     *
+     * @return 連線快照清單（不含尚未取得 context 的 session）
+     */
+    public java.util.List<SessionSnapshot> snapshotSessions() {
+        java.util.List<SessionSnapshot> snapshots = new java.util.ArrayList<>();
+        contexts.forEach((sessionId, ctx) ->
+            snapshots.add(new SessionSnapshot(sessionId, ctx.userId, ctx.tokenVersion, ctx.connectedAt)));
+        return snapshots;
+    }
+
+    /**
+     * 推送 {@code auth_expired} 通知後以 4001 關閉連線（security.md §9）。
+     *
+     * @param sessionId 目標 session id
+     * @param reason    失效原因（如 {@code token_revoked} / {@code user_suspended} / {@code redis_unavailable}）
+     */
+    public void closeAuthExpired(String sessionId, String reason) {
+        WebSocketSession session = sessions.get(sessionId);
+        if (session == null) {
+            return;
+        }
+        try {
+            if (session.isOpen()) {
+                ObjectNode node = objectMapper.createObjectNode();
+                node.put("type", "auth_expired");
+                node.put("reason", reason);
+                session.sendMessage(new TextMessage(objectMapper.writeValueAsString(node)));
+                session.close(CLOSE_AUTH_EXPIRED);
+            }
+        } catch (Exception exception) {
+            log.warn("以 auth_expired 關閉 session {} 失敗：{}", sessionId, exception.getMessage());
+        }
+    }
+
+    /**
+     * 以 4003 關閉閒置逾時的連線（security.md §9）。
+     *
+     * @param sessionId 目標 session id
+     */
+    public void closeIdle(String sessionId) {
+        closeQuietly(sessionId, CLOSE_IDLE_TIMEOUT);
+    }
+
+    /**
+     * 伺服器正常關閉時，以 4009 關閉所有連線（security.md §9 SERVER_SHUTDOWN）。
+     */
+    @jakarta.annotation.PreDestroy
+    public void shutdown() {
+        for (String sessionId : java.util.Set.copyOf(sessions.keySet())) {
+            closeQuietly(sessionId, CLOSE_SERVER_SHUTDOWN);
+        }
+    }
+
+    /**
+     * 以指定關閉碼關閉連線並吞掉例外（關閉流程不應影響其他連線）。
+     *
+     * @param sessionId 目標 session id
+     * @param status    關閉碼
+     */
+    private void closeQuietly(String sessionId, CloseStatus status) {
+        WebSocketSession session = sessions.get(sessionId);
+        if (session == null) {
+            return;
+        }
+        try {
+            if (session.isOpen()) {
+                session.close(status);
+            }
+        } catch (Exception exception) {
+            log.warn("關閉 session {}（{}）失敗：{}", sessionId, status.getCode(), exception.getMessage());
+        }
+    }
+
+    /**
      * 傳送 WELCOME 訊息給客戶端。
      *
      * @param session 目標 session
@@ -306,6 +391,32 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
 
         /** 連續格式錯誤計數器。 */
         final AtomicInteger formatErrors = new AtomicInteger(0);
+
+        /** 連線所屬使用者 id（來自 handshake attributes），供週期性重新驗證使用。 */
+        final Long userId;
+
+        /** handshake 當下的 tokenVersion 快照，供比對 Redis 是否已被撤銷。 */
+        final Integer tokenVersion;
+
+        /** 連線建立時間，供閒置逾時判斷。 */
+        final java.time.Instant connectedAt;
+
+        SessionContext(Long userId, Integer tokenVersion, java.time.Instant connectedAt) {
+            this.userId = userId;
+            this.tokenVersion = tokenVersion;
+            this.connectedAt = connectedAt;
+        }
+    }
+
+    /**
+     * 供 {@link WebSocketAuthValidator} 週期掃描的連線快照。
+     *
+     * @param sessionId    session id
+     * @param userId       所屬使用者 id
+     * @param tokenVersion handshake 當下的 tokenVersion
+     * @param connectedAt  連線建立時間
+     */
+    public record SessionSnapshot(String sessionId, Long userId, Integer tokenVersion, java.time.Instant connectedAt) {
     }
 
     /**

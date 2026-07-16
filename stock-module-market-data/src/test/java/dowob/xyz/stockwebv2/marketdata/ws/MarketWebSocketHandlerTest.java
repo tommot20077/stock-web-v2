@@ -191,10 +191,10 @@ class MarketWebSocketHandlerTest {
         assertThat(closeCaptor.getValue().getCode()).isEqualTo(4400);
     }
 
-    /** 超過速率限制（11 msg in <1s） → 以 4429 關閉 session */
+    /** 超過速率限制（11 msg in <1s） → 以 4008 RATE_LIMITED 關閉 session（security.md §9） */
     @Test
-    @DisplayName("超過速率限制 → 以 4429 關閉 session")
-    void handleTextMessage_rateLimitExceeded_closesWith4429() throws Exception {
+    @DisplayName("超過速率限制 → 以 4008 關閉 session")
+    void handleTextMessage_rateLimitExceeded_closesWith4008() throws Exception {
         WebSocketSession session = mockSession("s1");
         handler.afterConnectionEstablished(session);
 
@@ -207,7 +207,7 @@ class MarketWebSocketHandlerTest {
 
         ArgumentCaptor<CloseStatus> closeCaptor = ArgumentCaptor.forClass(CloseStatus.class);
         verify(session).close(closeCaptor.capture());
-        assertThat(closeCaptor.getValue().getCode()).isEqualTo(4429);
+        assertThat(closeCaptor.getValue().getCode()).isEqualTo(4008);
     }
 
     /** afterConnectionClosed → 呼叫 removeSession 和 heartbeat.unregister */

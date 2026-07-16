@@ -63,6 +63,9 @@ class WsTicketControllerTest {
     @MockitoBean
     StringRedisTemplate redisTemplate;
 
+    @MockitoBean
+    dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger auditLogger;
+
     // ── 200 with valid auth ───────────────────────────────────────────────────
 
     @Test
