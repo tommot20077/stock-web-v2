@@ -123,6 +123,16 @@ class BacktestServiceTest {
     }
 
     @Test
+    void inactiveSymbolIsRejected() {
+        // symbol 存在於 assets 表但 active = false（已下市）：activeSymbolExists 的 .filter(active) 須將其排除。
+        assetFacade.inactiveSymbols.add("AAPL");
+
+        assertThatThrownBy(() -> service.createRun(1L, request("ma_cross", "AAPL", "3Y", new BigDecimal("100000"), null)))
+            .isInstanceOfSatisfying(BusinessException.class, exception ->
+                assertThat(exception.errorCode()).isEqualTo(ErrorCode.BACKTEST_UNSUPPORTED_SYMBOL));
+    }
+
+    @Test
     void customStrategyRequiresCode() {
         assetFacade.activeSymbols.add("AAPL");
 
@@ -315,28 +325,34 @@ class BacktestServiceTest {
     }
 
     /**
-     * AssetFacade 的手寫 fake：以 {@code activeSymbols} 控制哪些 symbol 視為存在且 active。
+     * AssetFacade 的手寫 fake：以 {@code activeSymbols} 控制哪些 symbol 視為存在且 active，
+     * 以 {@code inactiveSymbols} 控制哪些 symbol 存在但 {@code active = false}
+     * （symbol 存在於 assets 表但已下市）。
      * backtest 模組僅能經由 Facade 存取 asset，不得直接查 assets 資料表。
      */
     private static final class InMemoryAssetFacade implements AssetFacade {
 
         private final Set<String> activeSymbols = new HashSet<>();
+        private final Set<String> inactiveSymbols = new HashSet<>();
 
         @Override
         public List<AssetSummary> findAllTradeable() {
-            return activeSymbols.stream().map(InMemoryAssetFacade::summaryOf).toList();
+            return activeSymbols.stream().map(symbol -> summaryOf(symbol, true)).toList();
         }
 
         @Override
         public Optional<AssetSummary> findBySymbol(String symbol) {
-            if (!activeSymbols.contains(symbol)) {
-                return Optional.empty();
+            if (activeSymbols.contains(symbol)) {
+                return Optional.of(summaryOf(symbol, true));
             }
-            return Optional.of(summaryOf(symbol));
+            if (inactiveSymbols.contains(symbol)) {
+                return Optional.of(summaryOf(symbol, false));
+            }
+            return Optional.empty();
         }
 
-        private static AssetSummary summaryOf(String symbol) {
-            return new AssetSummary(1L, symbol, symbol, AssetType.STOCK, "US", true, true);
+        private static AssetSummary summaryOf(String symbol, boolean active) {
+            return new AssetSummary(1L, symbol, symbol, AssetType.STOCK, "US", true, active);
         }
     }
 
