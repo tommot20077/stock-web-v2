@@ -4,13 +4,11 @@ import dowob.xyz.stockwebv2.start.e2e.support.AbstractStockE2ETest;
 import dowob.xyz.stockwebv2.start.e2e.support.AuthE2EHelper;
 import dowob.xyz.stockwebv2.start.e2e.support.DatabaseCleaner;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MvcResult;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -18,7 +16,6 @@ import java.util.Map;
 import static dowob.xyz.stockwebv2.start.e2e.support.AuthE2EHelper.bearerToken;
 import static dowob.xyz.stockwebv2.start.e2e.support.StockE2EAssertions.apiError;
 import static dowob.xyz.stockwebv2.start.e2e.support.StockE2EAssertions.apiSuccess;
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -196,61 +193,117 @@ class ValidationBoundaryE2E extends AbstractStockE2ETest {
     }
 
     @Nested
-    @DisplayName("Finding #1 quantity/price 無上限驗證")
+    @DisplayName("Finding #1 quantity/price 上限驗證(2026-07-17 Yuan 裁決方案 A:quantity ≤ 10^9、price ≤ 10^6)")
     class QuantityPriceUpperBound {
 
         @Test
-        @Disabled("Finding #1:quantity/price 無上限驗證,停在 Red 待 Yuan 裁決 — 勿修 validation(實測 10^15 回 200 被接受)")
-        @DisplayName("quantity 為 10^15(遠超合理值)應被拒絕")
+        @DisplayName("quantity 為 10^15 → 400 且回報 quantity 欄位")
         void tradeQuantityAtTenToFifteenIsRejected() throws Exception {
             var session = auth.register("f1-qty-1e15@example.com", "f1qty1e15", "Password1");
 
-            MvcResult result = mockMvc.perform(post("/api/v1/trades")
+            mockMvc.perform(post("/api/v1/trades")
                     .contentType(MediaType.APPLICATION_JSON)
                     .with(bearerToken(session.accessToken()))
                     .content(tradeBody("NVDA", "BUY", "1000000000000000", "100", null)))
-                .andReturn();
-
-            assertThat(result.getResponse().getStatus())
-                .as("quantity=10^15 應被拒絕(4xx),實際 status=%d body=%s",
-                    result.getResponse().getStatus(), result.getResponse().getContentAsString())
-                .isBetween(400, 499);
+                .andExpect(status().isBadRequest())
+                .andExpect(apiError("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.fields.quantity").exists());
         }
 
         @Test
-        @Disabled("Finding #1:quantity/price 無上限驗證,停在 Red 待 Yuan 裁決 — 勿修 validation(實測 10^15 回 200 被接受)")
-        @DisplayName("price 為 10^15(遠超合理值)應被拒絕")
+        @DisplayName("price 為 10^15 → 400 且回報 price 欄位")
         void tradePriceAtTenToFifteenIsRejected() throws Exception {
             var session = auth.register("f1-price-1e15@example.com", "f1price1e15", "Password1");
 
-            MvcResult result = mockMvc.perform(post("/api/v1/trades")
+            mockMvc.perform(post("/api/v1/trades")
                     .contentType(MediaType.APPLICATION_JSON)
                     .with(bearerToken(session.accessToken()))
                     .content(tradeBody("NVDA", "BUY", "1", "1000000000000000", null)))
-                .andReturn();
-
-            assertThat(result.getResponse().getStatus())
-                .as("price=10^15 應被拒絕(4xx),實際 status=%d body=%s",
-                    result.getResponse().getStatus(), result.getResponse().getContentAsString())
-                .isBetween(400, 499);
+                .andExpect(status().isBadRequest())
+                .andExpect(apiError("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.fields.price").exists());
         }
 
         @Test
-        @Disabled("Finding #1:quantity/price 無上限驗證,停在 Red 待 Yuan 裁決 — 勿修 validation(實測 10^17 於 holdings insert 觸發 numeric overflow 回 500)")
-        @DisplayName("quantity 為 10^17(超出 NUMERIC(24,8) 整數位數)應被拒絕")
+        @DisplayName("quantity 為 10^17(原 DB overflow 回 500 案例)→ 400 且回報 quantity 欄位")
         void tradeQuantityAtTenToSeventeenIsRejected() throws Exception {
             var session = auth.register("f1-qty-1e17@example.com", "f1qty1e17", "Password1");
 
-            MvcResult result = mockMvc.perform(post("/api/v1/trades")
+            mockMvc.perform(post("/api/v1/trades")
                     .contentType(MediaType.APPLICATION_JSON)
                     .with(bearerToken(session.accessToken()))
                     .content(tradeBody("NVDA", "BUY", "100000000000000000", "100", null)))
-                .andReturn();
+                .andExpect(status().isBadRequest())
+                .andExpect(apiError("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.fields.quantity").exists());
+        }
 
-            assertThat(result.getResponse().getStatus())
-                .as("quantity=10^17 應被拒絕(4xx),實際 status=%d body=%s",
-                    result.getResponse().getStatus(), result.getResponse().getContentAsString())
-                .isBetween(400, 499);
+        @Test
+        @DisplayName("quantity 恰為上限 10^9 → 成功")
+        void tradeQuantityAtUpperBoundSucceeds() throws Exception {
+            var session = auth.register("f1-qty-max@example.com", "f1qtymax", "Password1");
+
+            mockMvc.perform(post("/api/v1/trades")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .with(bearerToken(session.accessToken()))
+                    .content(tradeBody("NVDA", "BUY", "1000000000", "100", null)))
+                .andExpect(status().isOk())
+                .andExpect(apiSuccess());
+        }
+
+        @Test
+        @DisplayName("quantity 超過上限一個最小刻度(10^9 + 0.00000001)→ 400")
+        void tradeQuantityJustAboveUpperBoundIsRejected() throws Exception {
+            var session = auth.register("f1-qty-over@example.com", "f1qtyover", "Password1");
+
+            mockMvc.perform(post("/api/v1/trades")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .with(bearerToken(session.accessToken()))
+                    .content(tradeBody("NVDA", "BUY", "1000000000.00000001", "100", null)))
+                .andExpect(status().isBadRequest())
+                .andExpect(apiError("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.fields.quantity").exists());
+        }
+
+        @Test
+        @DisplayName("price 恰為上限 10^6 → 成功")
+        void tradePriceAtUpperBoundSucceeds() throws Exception {
+            var session = auth.register("f1-price-max@example.com", "f1pricemax", "Password1");
+
+            mockMvc.perform(post("/api/v1/trades")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .with(bearerToken(session.accessToken()))
+                    .content(tradeBody("NVDA", "BUY", "1", "1000000", null)))
+                .andExpect(status().isOk())
+                .andExpect(apiSuccess());
+        }
+
+        @Test
+        @DisplayName("price 超過上限一個最小刻度(10^6 + 0.00000001)→ 400")
+        void tradePriceJustAboveUpperBoundIsRejected() throws Exception {
+            var session = auth.register("f1-price-over@example.com", "f1priceover", "Password1");
+
+            mockMvc.perform(post("/api/v1/trades")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .with(bearerToken(session.accessToken()))
+                    .content(tradeBody("NVDA", "BUY", "1", "1000000.00000001", null)))
+                .andExpect(status().isBadRequest())
+                .andExpect(apiError("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.fields.price").exists());
+        }
+
+        @Test
+        @DisplayName("quantity 小數超過 8 位(第 9 位)→ 400 且回報 quantity 欄位")
+        void tradeQuantityWithNineDecimalsIsRejected() throws Exception {
+            var session = auth.register("f1-qty-scale@example.com", "f1qtyscale", "Password1");
+
+            mockMvc.perform(post("/api/v1/trades")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .with(bearerToken(session.accessToken()))
+                    .content(tradeBody("NVDA", "BUY", "1.123456789", "100", null)))
+                .andExpect(status().isBadRequest())
+                .andExpect(apiError("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.fields.quantity").exists());
         }
     }
 
