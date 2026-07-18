@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -64,10 +65,14 @@ public class WebSocketAuthValidator {
 
     /**
      * 掃描一輪所有活躍連線並關閉已失效或閒置者。
+     *
+     * <p>同一使用者的多條連線共用單次 Redis 查詢：以 {@code authCache} 於本輪掃描內
+     * 對每個 userId 的 auth 狀態最多查一次，避免 N 條連線造成 N 次 HGETALL。</p>
      */
     public void revalidateOnce() {
+        Map<Long, AuthLookup> authCache = new HashMap<>();
         for (MarketWebSocketHandler.SessionSnapshot snapshot : handler.snapshotSessions()) {
-            String expiryReason = expiryReasonFor(snapshot);
+            String expiryReason = expiryReasonFor(snapshot, authCache);
             if (expiryReason != null) {
                 log.info("WS session {} 認證失效（{}），以 4001 關閉", snapshot.sessionId(), expiryReason);
                 handler.closeAuthExpired(snapshot.sessionId(), expiryReason);
@@ -83,19 +88,21 @@ public class WebSocketAuthValidator {
     /**
      * 判斷連線的認證是否已失效。
      *
-     * @param snapshot 連線快照
+     * @param snapshot  連線快照
+     * @param authCache 本輪掃描的 per-user auth 狀態快取，避免同 user 重複查 Redis
      * @return 失效原因；仍有效時回傳 {@code null}
      */
-    private String expiryReasonFor(MarketWebSocketHandler.SessionSnapshot snapshot) {
-        if (snapshot.userId() == null) {
+    private String expiryReasonFor(MarketWebSocketHandler.SessionSnapshot snapshot,
+                                   Map<Long, AuthLookup> authCache) {
+        Long userId = snapshot.userId();
+        if (userId == null) {
             return null;
         }
-        Map<Object, Object> authState;
-        try {
-            authState = redisTemplate.opsForHash().entries(USER_AUTH_KEY_PREFIX + snapshot.userId());
-        } catch (DataAccessException exception) {
+        AuthLookup auth = authCache.computeIfAbsent(userId, this::lookupAuth);
+        if (!auth.available()) {
             return "redis_unavailable";
         }
+        Map<Object, Object> authState = auth.state();
         if (authState == null || authState.isEmpty()) {
             return "token_revoked";
         }
@@ -108,6 +115,32 @@ public class WebSocketAuthValidator {
             return "user_suspended";
         }
         return null;
+    }
+
+    /**
+     * 查詢單一使用者的 auth 狀態；Redis 不可用時回傳 {@link AuthLookup#unavailable()}。
+     *
+     * @param userId 使用者 id
+     * @return auth 狀態查詢結果
+     */
+    private AuthLookup lookupAuth(Long userId) {
+        try {
+            return new AuthLookup(redisTemplate.opsForHash().entries(USER_AUTH_KEY_PREFIX + userId), true);
+        } catch (DataAccessException exception) {
+            return AuthLookup.unavailable();
+        }
+    }
+
+    /**
+     * 單次 Redis auth 狀態查詢結果。
+     *
+     * @param state     auth hash 內容；{@code available} 為 {@code false} 時為 {@code null}
+     * @param available Redis 是否可用（查詢是否成功）
+     */
+    private record AuthLookup(Map<Object, Object> state, boolean available) {
+        static AuthLookup unavailable() {
+            return new AuthLookup(null, false);
+        }
     }
 
     /**

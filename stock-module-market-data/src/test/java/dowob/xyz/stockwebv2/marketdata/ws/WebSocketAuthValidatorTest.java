@@ -17,6 +17,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -148,5 +149,19 @@ class WebSocketAuthValidatorTest {
         validator.revalidateOnce();
 
         verify(handler).closeAuthExpired("s1", "token_revoked");
+    }
+
+    @Test
+    @DisplayName("同一 user 的多條連線 → 每輪只查一次 Redis auth 狀態")
+    void authStateFetchedOncePerUserPerScan() {
+        when(handler.snapshotSessions()).thenReturn(List.of(
+            new MarketWebSocketHandler.SessionSnapshot("s1", 7L, 1, Instant.now(), Instant.now()),
+            new MarketWebSocketHandler.SessionSnapshot("s2", 7L, 1, Instant.now(), Instant.now())));
+        when(hashOps.entries("user:auth:7")).thenReturn(Map.of("tokenVersion", "1", "status", "ACTIVE"));
+        when(subscriptionManager.channelsOf(anyString())).thenReturn(Set.of("price:1"));
+
+        validator.revalidateOnce();
+
+        verify(hashOps, times(1)).entries("user:auth:7");
     }
 }
