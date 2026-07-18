@@ -47,7 +47,20 @@ class AuthPersistenceIT extends ContainerIT {
 
     @AfterEach
     void cleanUserData() {
-        jdbcTemplate.execute("DELETE FROM users");
+        // transactions 為 append-only 帳本(V8 trigger 禁止 DELETE)且以 FK 參照 users;
+        // 共用容器下其他 IT(如 TransactionsAppendOnlyIT)會種下 transactions 列,故不能直接
+        // DELETE FROM users。改在單一交易內以 session_replication_role='replica' 暫時停用 user
+        // triggers 與 FK 檢查後 FK-safe 依序刪除(對齊 e2e 的 DatabaseCleaner);Testcontainers
+        // 的資料庫使用者為 superuser,SET LOCAL 於交易結束自動還原,不影響 production schema。
+        jdbcTemplate.execute("""
+            BEGIN;
+            SET LOCAL session_replication_role = 'replica';
+            DELETE FROM transactions;
+            DELETE FROM holdings;
+            DELETE FROM backtest_runs;
+            DELETE FROM users;
+            COMMIT;
+            """);
         try (RedisConnection connection = redisConnectionFactory.getConnection()) {
             connection.serverCommands().flushDb();
         }

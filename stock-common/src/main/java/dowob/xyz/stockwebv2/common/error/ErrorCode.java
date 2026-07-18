@@ -9,6 +9,8 @@ public enum ErrorCode {
     AUTH_FORBIDDEN(403, "Forbidden"),
     AUTH_CSRF_TOKEN_INVALID(403, "CSRF token invalid"),
     AUTH_REDIS_UNAVAILABLE(503, "Authentication state unavailable"),
+    AUTH_RATE_LIMITED(429, "Too many requests"),
+    AUTH_ACCOUNT_LOCKED(429, "Account temporarily locked"),
     DUPLICATE_RESOURCE(409, "Duplicate resource"),
 
     // Market-data module error codes

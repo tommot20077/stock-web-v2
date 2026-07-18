@@ -80,6 +80,8 @@ public class SecurityConfig {
                 ).permitAll()
                 // WebSocket handshake 路徑：HTTP Filter 層放行，由 MarketHandshakeInterceptor 以 ticket 驗證
                 .requestMatchers("/ws/v1/market/**").permitAll()
+                // ADMIN 端點：URL 層粗粒度保護，須在 anyRequest 之前（security.md §1/§2）
+                .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )
             .exceptionHandling(exception -> exception

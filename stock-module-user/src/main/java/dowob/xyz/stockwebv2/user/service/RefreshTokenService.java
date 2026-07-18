@@ -58,6 +58,35 @@ public class RefreshTokenService {
         revoke(token, null);
     }
 
+    /**
+     * 讀取 refresh token 所屬的使用者 id，供登出時定位需撤銷 session 的帳號。
+     *
+     * @param token refresh token
+     * @return 擁有者使用者 id；token 不存在時回 {@code null}
+     */
+    public Long findOwner(String token) {
+        if (token == null || token.isBlank()) {
+            return null;
+        }
+        Object userId = redisTemplate.opsForHash().get("user:refresh:" + token, "userId");
+        return userId == null ? null : parseUserId(String.valueOf(userId));
+    }
+
+    /**
+     * 將 Redis {@code user:auth:{userId}} 的 token version 同步為新值，使既有 access token
+     * 立即失效（security.md §5「Instant logout」）。Redis 不可用時以 fail-closed 拋出。
+     *
+     * @param userId       使用者 id
+     * @param tokenVersion 遞增後的新 token version
+     */
+    public void updateAuthTokenVersion(Long userId, int tokenVersion) {
+        try {
+            redisTemplate.opsForHash().put("user:auth:" + userId, "tokenVersion", String.valueOf(tokenVersion));
+        } catch (DataAccessResourceFailureException exception) {
+            throw new BusinessException(ErrorCode.AUTH_REDIS_UNAVAILABLE, ErrorCode.AUTH_REDIS_UNAVAILABLE.defaultMessage());
+        }
+    }
+
     public RefreshSession consumeForRotation(String token) {
         if (token == null || token.isBlank()) {
             throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID, ErrorCode.AUTH_REFRESH_TOKEN_INVALID.defaultMessage());

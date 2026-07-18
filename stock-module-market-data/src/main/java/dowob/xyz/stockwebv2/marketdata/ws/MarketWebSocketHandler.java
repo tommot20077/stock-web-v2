@@ -59,10 +59,14 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
     /** 4429 — 速率限制超過。 */
     static final CloseStatus CLOSE_RATE_LIMITED = new CloseStatus(4429, "Rate limit exceeded");
 
+    /** 4002 — 因每帳號連線上限被較新連線取代（FIFO 驅逐，security.md §18）。 */
+    static final CloseStatus CLOSE_SESSION_REPLACED = new CloseStatus(4002, "Session replaced");
+
     private final WsMessageParser parser;
     private final SubscriptionManager subscriptionManager;
     private final WsHeartbeat heartbeat;
     private final ObjectMapper objectMapper;
+    private final WebSocketConnectionManager connectionManager;
 
     /** 每個 session 的上下文（速率限制 + 格式錯誤計數）。 */
     private final ConcurrentMap<String, SessionContext> contexts = new ConcurrentHashMap<>();
@@ -83,15 +87,18 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
      * @param subscriptionManager 訂閱管理器，不可為 null
      * @param heartbeat           心跳排程器，不可為 null
      * @param objectMapper        Jackson ObjectMapper，不可為 null
+     * @param connectionManager   WebSocket 連線治理器，不可為 null
      */
     public MarketWebSocketHandler(WsMessageParser parser,
                                    SubscriptionManager subscriptionManager,
                                    WsHeartbeat heartbeat,
-                                   ObjectMapper objectMapper) {
+                                   ObjectMapper objectMapper,
+                                   WebSocketConnectionManager connectionManager) {
         this.parser = Objects.requireNonNull(parser, "parser must not be null");
         this.subscriptionManager = Objects.requireNonNull(subscriptionManager, "subscriptionManager must not be null");
         this.heartbeat = Objects.requireNonNull(heartbeat, "heartbeat must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
+        this.connectionManager = Objects.requireNonNull(connectionManager, "connectionManager must not be null");
     }
 
     /**
@@ -103,10 +110,52 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
      */
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        Long userId = (Long) session.getAttributes().get(MarketHandshakeInterceptor.ATTR_USER_ID);
+        String clientIp = (String) session.getAttributes().get(MarketHandshakeInterceptor.ATTR_CLIENT_IP);
         sessions.put(session.getId(), session);
         contexts.put(session.getId(), new SessionContext());
+        java.util.List<String> evicted = connectionManager.register(session.getId(), userId, clientIp);
         sendWelcome(session);
         heartbeat.register(session);
+        for (String evictedId : evicted) {
+            closeEvictedSession(evictedId);
+        }
+    }
+
+    /**
+     * 關閉因每帳號連線上限被 FIFO 驅逐的較舊 session:先推送
+     * {@code auth_expired}(reason {@code session_replaced})通知客戶端,再以 4002 SESSION_REPLACED
+     * 關閉(security.md §18),讓客戶端能區分「被新連線取代」與其他斷線原因。
+     *
+     * @param sessionId 被驅逐的 session id
+     */
+    private void closeEvictedSession(String sessionId) {
+        WebSocketSession evicted = sessions.get(sessionId);
+        if (evicted == null) {
+            return;
+        }
+        try {
+            if (evicted.isOpen()) {
+                sendAuthExpired(evicted, "session_replaced");
+                evicted.close(CLOSE_SESSION_REPLACED);
+            }
+        } catch (Exception exception) {
+            log.warn("關閉被驅逐 session {} 失敗：{}", sessionId, exception.getMessage());
+        }
+    }
+
+    /**
+     * 推送 {@code auth_expired} 通知訊息給即將被關閉的 session。
+     *
+     * @param session 目標 session
+     * @param reason  失效原因（如 {@code session_replaced}）
+     * @throws Exception 若傳送失敗
+     */
+    private void sendAuthExpired(WebSocketSession session, String reason) throws Exception {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("type", "auth_expired");
+        node.put("reason", reason);
+        session.sendMessage(new TextMessage(objectMapper.writeValueAsString(node)));
     }
 
     /**
@@ -183,6 +232,7 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
         sessions.remove(session.getId());
         contexts.remove(session.getId());
+        connectionManager.unregister(session.getId());
         subscriptionManager.removeSession(session.getId());
         heartbeat.unregister(session.getId());
     }

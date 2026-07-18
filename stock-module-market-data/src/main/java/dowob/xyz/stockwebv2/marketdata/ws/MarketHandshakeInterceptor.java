@@ -1,5 +1,6 @@
 package dowob.xyz.stockwebv2.marketdata.ws;
 
+import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -36,23 +37,30 @@ public class MarketHandshakeInterceptor implements HandshakeInterceptor {
     /** 注入至 WebSocket session attributes 的 userId key 名稱。 */
     public static final String ATTR_USER_ID = "userId";
 
+    /** 注入至 WebSocket session attributes 的來源 IP key 名稱。 */
+    public static final String ATTR_CLIENT_IP = "clientIp";
+
     private static final Logger log = LoggerFactory.getLogger(MarketHandshakeInterceptor.class);
     private static final Logger audit = LoggerFactory.getLogger("AUDIT");
     private static final String USER_AUTH_KEY_PREFIX = "user:auth:";
 
     private final WsTicketService ticketService;
     private final StringRedisTemplate redisTemplate;
+    private final WebSocketConnectionManager connectionManager;
 
     /**
      * 建構子注入。
      *
-     * @param ticketService  WS ticket 服務，不可 null
-     * @param redisTemplate  Spring Data Redis template，不可 null
+     * @param ticketService     WS ticket 服務，不可 null
+     * @param redisTemplate     Spring Data Redis template，不可 null
+     * @param connectionManager WebSocket 連線治理器，不可 null
      */
     public MarketHandshakeInterceptor(WsTicketService ticketService,
-                                      StringRedisTemplate redisTemplate) {
+                                      StringRedisTemplate redisTemplate,
+                                      WebSocketConnectionManager connectionManager) {
         this.ticketService = ticketService;
         this.redisTemplate = redisTemplate;
+        this.connectionManager = connectionManager;
     }
 
     /**
@@ -71,21 +79,30 @@ public class MarketHandshakeInterceptor implements HandshakeInterceptor {
                                    Map<String, Object> attributes) {
         String ticket = extractTicket(request);
         if (ticket == null || ticket.isBlank()) {
-            return reject(response, "MISSING_TICKET");
+            return reject(response, HttpStatus.UNAUTHORIZED, "MISSING_TICKET");
         }
 
         Optional<TicketPayload> payloadOpt = ticketService.consume(ticket);
         if (payloadOpt.isEmpty()) {
-            return reject(response, "TICKET_INVALID_OR_EXPIRED");
+            return reject(response, HttpStatus.UNAUTHORIZED, "TICKET_INVALID_OR_EXPIRED");
         }
 
         TicketPayload payload = payloadOpt.get();
         Integer currentTokenVersion = currentTokenVersionOf(payload.userId());
         if (currentTokenVersion == null || !currentTokenVersion.equals(payload.tokenVersion())) {
-            return reject(response, "TOKEN_VERSION_MISMATCH");
+            return reject(response, HttpStatus.UNAUTHORIZED, "TOKEN_VERSION_MISMATCH");
+        }
+
+        if (connectionManager.globalLimitReached()) {
+            return reject(response, HttpStatus.SERVICE_UNAVAILABLE, "GLOBAL_CONNECTION_LIMIT");
+        }
+        String clientIp = ClientIpResolver.resolve(request);
+        if (connectionManager.ipLimitReached(clientIp)) {
+            return reject(response, HttpStatus.TOO_MANY_REQUESTS, "IP_CONNECTION_LIMIT");
         }
 
         attributes.put(ATTR_USER_ID, payload.userId());
+        attributes.put(ATTR_CLIENT_IP, clientIp);
         return true;
     }
 
@@ -145,14 +162,15 @@ public class MarketHandshakeInterceptor implements HandshakeInterceptor {
     }
 
     /**
-     * 拒絕 handshake：設定 HTTP 401，記錄 audit log，並回傳 {@code false}。
+     * 拒絕 handshake：設定指定 HTTP 狀態碼，記錄 audit log，並回傳 {@code false}。
      *
      * @param response HTTP 回應
+     * @param status   要設定的 HTTP 狀態碼（401 認證失敗 / 429 每 IP 上限 / 503 全域上限）
      * @param reason   拒絕原因（記錄至 audit log）
      * @return 永遠回傳 {@code false}
      */
-    private boolean reject(ServerHttpResponse response, String reason) {
-        response.setStatusCode(HttpStatus.UNAUTHORIZED);
+    private boolean reject(ServerHttpResponse response, HttpStatus status, String reason) {
+        response.setStatusCode(status);
         audit.warn("WS_AUTH_FAILED reason={}", reason);
         return false;
     }
