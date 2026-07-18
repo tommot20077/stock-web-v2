@@ -60,6 +60,17 @@ class BacktestServiceTest {
     }
 
     @Test
+    void inMemoryAssetFacadeReturnsTradeableSymbolsInAscendingOrder() {
+        assetFacade.activeSymbols.add("MSFT");
+        assetFacade.activeSymbols.add("AAPL");
+        assetFacade.activeSymbols.add("GOOG");
+
+        assertThat(assetFacade.findAllTradeable())
+            .extracting(AssetSummary::symbol)
+            .containsExactly("AAPL", "GOOG", "MSFT");
+    }
+
+    @Test
     void presetStrategyIgnoresSuppliedStrategyCode() {
         assetFacade.activeSymbols.add("AAPL");
 
@@ -337,7 +348,9 @@ class BacktestServiceTest {
 
         @Override
         public List<AssetSummary> findAllTradeable() {
-            return activeSymbols.stream().map(symbol -> summaryOf(symbol, true)).toList();
+            // 遵守 AssetFacade.findAllTradeable() 合約:結果按 symbol 升冪排序,
+            // 避免依賴 HashSet 迭代順序而造成 flaky。
+            return activeSymbols.stream().sorted().map(symbol -> summaryOf(symbol, true)).toList();
         }
 
         @Override
