@@ -147,11 +147,26 @@ jobs:
           path: backend
 
       # 前端為 public repo,跨 repo checkout 以預設 GITHUB_TOKEN 匿名讀取即可,無需 PAT / deploy key。
-      - name: Checkout frontend (stock-web-v2-front-end @ develop)
+      # 跨 repo 協作功能:e2e harness 可能還在前端 feature 分支(尚未 merge 進 develop),
+      # 故 checkout「與後端 head 同名的前端分支」,不存在才 fallback develop。
+      - name: Resolve frontend ref (match backend branch, else develop)
+        id: fe_ref
+        run: |
+          CANDIDATE="${{ github.head_ref || github.ref_name }}"
+          FE_REPO="https://github.com/tommot20077/stock-web-v2-front-end.git"
+          if git ls-remote --exit-code --heads "$FE_REPO" "$CANDIDATE" >/dev/null 2>&1; then
+            echo "ref=$CANDIDATE" >> "$GITHUB_OUTPUT"
+            echo "前端使用對應分支:$CANDIDATE"
+          else
+            echo "ref=develop" >> "$GITHUB_OUTPUT"
+            echo "前端無對應分支 $CANDIDATE,fallback develop"
+          fi
+
+      - name: Checkout frontend (stock-web-v2-front-end)
         uses: actions/checkout@v4
         with:
           repository: tommot20077/stock-web-v2-front-end
-          ref: develop
+          ref: ${{ steps.fe_ref.outputs.ref }}
           path: frontend
 
       - name: Set up Java 21
