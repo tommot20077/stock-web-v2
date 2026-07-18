@@ -71,7 +71,7 @@ public class AuthService {
      *
      * @param uuid 使用者對外 UUID
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public void unlockByUuid(UUID uuid) {
         User user = userRepository.findByUuid(uuid)
             .orElseThrow(() -> new ResourceNotFoundException("user"));
