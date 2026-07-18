@@ -130,3 +130,80 @@ jobs:
           path: "stock-start/target/surefire-reports/"
           retention-days: 7
           if-no-files-found: ignore
+
+  browser-e2e:
+    name: Browser E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: e2e
+    # 跨 repo browser E2E 成本高(compose infra + 建置後端 + Playwright，約 8–10 分鐘)。
+    # 僅在對 develop/main 的 PR 或 develop push 上跑,避免每個 feature 分支 push 都觸發。
+    if: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/develop' }}
+
+    steps:
+      - name: Checkout backend (self)
+        uses: actions/checkout@v4
+        with:
+          path: backend
+
+      # 前端為 public repo,跨 repo checkout 以預設 GITHUB_TOKEN 匿名讀取即可,無需 PAT / deploy key。
+      # 跨 repo 協作功能:e2e harness 可能還在前端 feature 分支(尚未 merge 進 develop),
+      # 故 checkout「與後端 head 同名的前端分支」,不存在才 fallback develop。
+      - name: Resolve frontend ref (match backend branch, else develop)
+        id: fe_ref
+        run: |
+          CANDIDATE="${{ github.head_ref || github.ref_name }}"
+          FE_REPO="https://github.com/tommot20077/stock-web-v2-front-end.git"
+          if git ls-remote --exit-code --heads "$FE_REPO" "$CANDIDATE" >/dev/null 2>&1; then
+            echo "ref=$CANDIDATE" >> "$GITHUB_OUTPUT"
+            echo "前端使用對應分支:$CANDIDATE"
+          else
+            echo "ref=develop" >> "$GITHUB_OUTPUT"
+            echo "前端無對應分支 $CANDIDATE,fallback develop"
+          fi
+
+      - name: Checkout frontend (stock-web-v2-front-end)
+        uses: actions/checkout@v4
+        with:
+          repository: tommot20077/stock-web-v2-front-end
+          ref: ${{ steps.fe_ref.outputs.ref }}
+          path: frontend
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/vue-app/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend/vue-app
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: frontend/vue-app
+        run: npx playwright install --with-deps chromium
+
+      # run-e2e.sh:compose up infra → 後端 mvnw package + java -jar(e2e-browser,port 8080)
+      # → 等 /actuator/health UP → Playwright(預設只跑 @smoke)。E2E_BACKEND_DIR 指向後端 checkout。
+      - name: Run Browser E2E (@smoke)
+        working-directory: frontend/vue-app
+        env:
+          E2E_BACKEND_DIR: ${{ github.workspace }}/backend
+        run: bash e2e/run-e2e.sh
+
+      - name: Upload Browser E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-e2e-artifacts
+          path: frontend/vue-app/e2e/artifacts/
+          retention-days: 7
+          if-no-files-found: ignore
