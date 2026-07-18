@@ -71,6 +71,33 @@ class BrowserAuthFlowIT extends ContainerIT {
     }
 
     @Test
+    void staleAccessCookieDoesNotBlockReLoginOnPublicEndpoint() throws Exception {
+        // 全域登出會遞增 tokenVersion，使既有 access cookie 失效（security.md §5）。瀏覽器仍會自動
+        // 帶著這個失效的 stock_access cookie；重新登入時，filter 不應在 permitAll 的 /auth/login
+        // 端點因 cookie 失效而回 401，否則使用者會被卡在無法重新登入（除非手動清 cookie）。
+        MvcResult login = login("stale-relogin@example.com", "stalerelogin");
+        Cookie staleAccess = login.getResponse().getCookie(ACCESS_COOKIE);
+        Cookie refresh = login.getResponse().getCookie(REFRESH_COOKIE);
+        Cookie xsrf = csrfCookie();
+
+        mockMvc.perform(post("/api/v1/auth/logout")
+                .cookie(staleAccess)
+                .cookie(refresh)
+                .cookie(xsrf)
+                .header(XSRF_HEADER, xsrf.getValue()))
+            .andExpect(status().is2xxSuccessful());
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"email":"stale-relogin@example.com","password":"Password1"}
+                    """)
+                .cookie(staleAccess))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success", equalTo(true)));
+    }
+
+    @Test
     void meAcceptsAccessCookieWithoutBearerHeader() throws Exception {
         MvcResult login = login("cookie-me@example.com", "cookieme");
         Cookie accessCookie = login.getResponse().getCookie(ACCESS_COOKIE);

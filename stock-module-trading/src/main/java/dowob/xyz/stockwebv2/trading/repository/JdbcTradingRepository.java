@@ -10,6 +10,7 @@ import dowob.xyz.stockwebv2.trading.domain.TradeType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
@@ -81,10 +82,13 @@ public class JdbcTradingRepository implements TradingRepository {
     }
 
     @Override
-    public Holding insertHolding(Holding holding) {
+    public Optional<Holding> insertHoldingIfAbsent(Holding holding) {
+        // ON CONFLICT DO NOTHING 讓併發首次建倉不會拋唯一鍵例外（不會污染交易）；
+        // 回傳空 Optional 表示已被他交易插入，呼叫端重讀後改走 update 併倉。
         return jdbcClient.sql("""
                 insert into holdings (user_id, asset_id, total_quantity, avg_cost, realized_pnl, version, last_updated)
                 values (:userId, :assetId, :totalQuantity, :avgCost, :realizedPnl, 0, :lastUpdated)
+                on conflict (user_id, asset_id) do nothing
                 returning id, user_id, asset_id, total_quantity, avg_cost, realized_pnl, version, last_updated
                 """)
             .param("userId", holding.userId())
@@ -94,7 +98,7 @@ public class JdbcTradingRepository implements TradingRepository {
             .param("realizedPnl", holding.realizedPnl())
             .param("lastUpdated", holding.lastUpdated())
             .query(this::mapHolding)
-            .single();
+            .optional();
     }
 
     @Override
@@ -158,6 +162,18 @@ public class JdbcTradingRepository implements TradingRepository {
             .param("userId", userId)
             .query(this::mapPosition)
             .list();
+    }
+
+    @Override
+    public BigDecimal sumRealizedPnl(Long userId) {
+        return jdbcClient.sql("""
+                select coalesce(sum(realized_pnl), 0)
+                from holdings
+                where user_id = :userId
+                """)
+            .param("userId", userId)
+            .query(BigDecimal.class)
+            .single();
     }
 
     @Override
