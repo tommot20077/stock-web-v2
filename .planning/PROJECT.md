@@ -61,6 +61,7 @@ The codebase has a dirty worktree with prior implementation changes. Planning co
 - **API contract**: REST responses should continue using the common `ApiResponse<T>` envelope and existing backend error semantics.
 - **Trading semantics**: Treat current backend trading API as executed manual trades, not live broker orders.
 - **Verification**: Backend changes need Maven tests; frontend changes need type-check/build and focused Vitest coverage where affected.
+- **AI institution**: Judgment rubrics, model dispatch, task briefs, and the maintenance protocol live in `ai-docs/judgment.md`, `ai-docs/model-dispatch.md`, `ai-docs/task-briefs.md`, `ai-docs/maintenance-protocol.md` — read on demand, do not inline them here.
 
 ## Key Decisions
 
