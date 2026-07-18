@@ -10,6 +10,7 @@ import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
 import dowob.xyz.stockwebv2.infrastructure.security.JwtService;
 import dowob.xyz.stockwebv2.infrastructure.security.RateLimitProperties;
 import dowob.xyz.stockwebv2.infrastructure.security.RateLimitService;
+import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
 import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
 import dowob.xyz.stockwebv2.user.domain.User;
 import dowob.xyz.stockwebv2.user.repository.UserRepository;
@@ -67,7 +68,7 @@ public class AuthController {
         HttpServletRequest servletRequest,
         HttpServletResponse servletResponse
     ) {
-        String ip = clientIp(servletRequest);
+        String ip = ClientIpResolver.resolve(servletRequest);
         rateLimitService.enforce("register", ip, rateLimitProperties.register());
         User user = authService.register(request);
         auditLogger.log(user.id(), "register", "user", "success", ip);
@@ -80,7 +81,7 @@ public class AuthController {
         HttpServletRequest servletRequest,
         HttpServletResponse servletResponse
     ) {
-        String ip = clientIp(servletRequest);
+        String ip = ClientIpResolver.resolve(servletRequest);
         rateLimitService.enforce("login", ip, rateLimitProperties.login());
         User user = authenticate(request, ip);
         return ApiResponse.success(browserSession(user, servletRequest, servletResponse), meta());
@@ -88,7 +89,7 @@ public class AuthController {
 
     @PostMapping("/auth/token")
     public ApiResponse<TokenResponse> token(@Valid @RequestBody LoginRequest request, HttpServletRequest servletRequest) {
-        String ip = clientIp(servletRequest);
+        String ip = ClientIpResolver.resolve(servletRequest);
         rateLimitService.enforce("login", ip, rateLimitProperties.login());
         User user = authenticate(request, ip);
         return ApiResponse.success(tokenResponse(user, servletRequest), meta());
@@ -117,17 +118,17 @@ public class AuthController {
     public ApiResponse<BrowserSessionResponse> refresh(HttpServletRequest servletRequest, HttpServletResponse servletResponse) {
         String refreshToken = cookieService.readRefreshCookie(servletRequest);
         Long refreshOwner = refreshTokenService.findOwner(refreshToken);
-        String refreshIdentity = refreshOwner != null ? "u:" + refreshOwner : "ip:" + clientIp(servletRequest);
+        String refreshIdentity = refreshOwner != null ? "u:" + refreshOwner : "ip:" + ClientIpResolver.resolve(servletRequest);
         rateLimitService.enforce("refresh", refreshIdentity, rateLimitProperties.refresh());
         try {
             RefreshTokenService.RefreshSession session = refreshTokenService.consumeForRotation(refreshToken);
             User user = userRepository.findById(session.userId())
                 .orElseThrow(() -> new ResourceNotFoundException("user"));
-            auditLogger.log(user.id(), "refresh", "session", "success", clientIp(servletRequest));
+            auditLogger.log(user.id(), "refresh", "session", "success", ClientIpResolver.resolve(servletRequest));
             return ApiResponse.success(browserSession(user, servletRequest, servletResponse), meta());
         } catch (BusinessException exception) {
             auditLogger.log(refreshOwner, "refresh", "session", "failure:" + exception.errorCode().name(),
-                clientIp(servletRequest));
+                ClientIpResolver.resolve(servletRequest));
             cookieService.clearAuthCookies(servletResponse);
             throw exception;
         }
@@ -148,7 +149,7 @@ public class AuthController {
         HttpServletRequest servletRequest,
         HttpServletResponse servletResponse
     ) {
-        String ip = clientIp(servletRequest);
+        String ip = ClientIpResolver.resolve(servletRequest);
         String browserRefreshToken = cookieService.readRefreshCookie(servletRequest);
         if (browserRefreshToken != null) {
             Long owner = refreshTokenService.findOwner(browserRefreshToken);
@@ -199,14 +200,6 @@ public class AuthController {
         } catch (NumberFormatException exception) {
             throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
         }
-    }
-
-    private String clientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
     }
 
     private ApiMeta meta() {
