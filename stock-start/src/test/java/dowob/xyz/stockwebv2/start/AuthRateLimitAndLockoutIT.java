@@ -4,11 +4,11 @@ import dowob.xyz.stockwebv2.start.support.ContainerIT;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
@@ -26,9 +26,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * 認證端點限流與帳號鎖定的整合測試（security.md §15）。
  *
- * <p>本測試獨立設定容器屬性並開啟限流（{@code stock.security.rate-limit.enabled=true}）並套用
- * 低門檻，以在不影響共用 IT 套件（{@link ContainerIT} 預設關閉限流）的前提下驗證行為。各測試以
- * 不同來源 IP 隔離 per-IP 計數桶。</p>
+ * <p>本測試需開啟限流(有別於 {@link ContainerIT} 預設關閉),而 {@code @DynamicPropertySource}
+ * 於父/子同鍵時無法可靠由子類覆寫,故不繼承 {@link ContainerIT},改於自身的
+ * {@code @DynamicPropertySource} 呼叫 {@link ContainerIT#registerContainerProperties} 取得
+ * 相同的共用容器 wiring(不複製整段設定),再自行設定 {@code stock.security.rate-limit.enabled=true}
+ * 與低門檻。各測試以不同來源 IP 隔離 per-IP 計數桶。</p>
  *
  * @author Yuan
  * @version 1.0
@@ -52,18 +54,7 @@ class AuthRateLimitAndLockoutIT {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", ContainerIT.postgres::getJdbcUrl);
-        registry.add("spring.datasource.username", ContainerIT.postgres::getUsername);
-        registry.add("spring.datasource.password", ContainerIT.postgres::getPassword);
-        registry.add("spring.data.redis.host", ContainerIT.redis::getHost);
-        registry.add("spring.data.redis.port", () -> ContainerIT.redis.getMappedPort(6379));
-        registry.add("spring.data.redis.database", () -> 0);
-        registry.add("spring.flyway.enabled", () -> true);
-        registry.add("spring.flyway.locations", () -> "classpath:db/migration");
-        registry.add("spring.flyway.mixed", () -> true);
-        registry.add("management.server.port", () -> 11180);
-        registry.add("spring.kafka.bootstrap-servers", ContainerIT.kafka::getBootstrapServers);
-
+        ContainerIT.registerContainerProperties(registry);
         registry.add("stock.security.rate-limit.enabled", () -> true);
         registry.add("stock.security.rate-limit.login.limit", () -> 6);
         registry.add("stock.security.rate-limit.login.window", () -> "PT1M");
