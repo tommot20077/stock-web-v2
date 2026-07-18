@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.marketdata.ws;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -110,6 +111,7 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
      * @param objectMapper        Jackson ObjectMapper，不可為 null
      * @param connectionManager   WebSocket 連線治理器，不可為 null
      */
+    @Autowired
     public MarketWebSocketHandler(WsMessageParser parser,
                                    SubscriptionManager subscriptionManager,
                                    WsHeartbeat heartbeat,
@@ -162,7 +164,9 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
     }
 
     /**
-     * 關閉因每帳號連線上限被 FIFO 驅逐的較舊 session（以 4002 SESSION_REPLACED）。
+     * 關閉因每帳號連線上限被 FIFO 驅逐的較舊 session:先推送
+     * {@code auth_expired}(reason {@code session_replaced})通知客戶端,再以 4002 SESSION_REPLACED
+     * 關閉(security.md §18),讓客戶端能區分「被新連線取代」與其他斷線原因。
      *
      * @param sessionId 被驅逐的 session id
      */
@@ -173,11 +177,26 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
         }
         try {
             if (evicted.isOpen()) {
+                sendAuthExpired(evicted, "session_replaced");
                 evicted.close(CLOSE_SESSION_REPLACED);
             }
         } catch (Exception exception) {
             log.warn("關閉被驅逐 session {} 失敗：{}", sessionId, exception.getMessage());
         }
+    }
+
+    /**
+     * 推送 {@code auth_expired} 通知訊息給即將被關閉的 session。
+     *
+     * @param session 目標 session
+     * @param reason  失效原因（如 {@code session_replaced}）
+     * @throws Exception 若傳送失敗
+     */
+    private void sendAuthExpired(WebSocketSession session, String reason) throws Exception {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("type", "auth_expired");
+        node.put("reason", reason);
+        session.sendMessage(new TextMessage(objectMapper.writeValueAsString(node)));
     }
 
     /**

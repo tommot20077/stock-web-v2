@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -13,6 +14,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -59,6 +61,44 @@ class MarketWebSocketHandlerTest {
         when(session.isOpen()).thenReturn(true);
         when(session.getAttributes()).thenReturn(new java.util.HashMap<>());
         return session;
+    }
+
+    private WebSocketSession mockSessionWithUser(String id, Long userId) {
+        WebSocketSession session = mock(WebSocketSession.class);
+        when(session.getId()).thenReturn(id);
+        when(session.isOpen()).thenReturn(true);
+        java.util.Map<String, Object> attributes = new java.util.HashMap<>();
+        attributes.put(MarketHandshakeInterceptor.ATTR_USER_ID, userId);
+        when(session.getAttributes()).thenReturn(attributes);
+        return session;
+    }
+
+    /** 每帳號連線上限 FIFO 驅逐 → 被驅逐 session 先收到 auth_expired/session_replaced 再以 4002 關閉 */
+    @Test
+    @DisplayName("FIFO 驅逐 → 先送 auth_expired(session_replaced) 再以 4002 關閉")
+    void evictedSession_receivesAuthExpiredBeforeClose() throws Exception {
+        // 每帳號預設上限 2;同帳號第 3 條連線建立時最舊(e1)被驅逐
+        WebSocketSession e1 = mockSessionWithUser("e1", 42L);
+        WebSocketSession e2 = mockSessionWithUser("e2", 42L);
+        WebSocketSession e3 = mockSessionWithUser("e3", 42L);
+
+        handler.afterConnectionEstablished(e1);
+        handler.afterConnectionEstablished(e2);
+        handler.afterConnectionEstablished(e3);
+
+        // e1 應先收到 auth_expired(reason=session_replaced),再被以 4002 關閉
+        ArgumentCaptor<TextMessage> msgCaptor = ArgumentCaptor.forClass(TextMessage.class);
+        verify(e1, atLeastOnce()).sendMessage(msgCaptor.capture());
+        assertThat(msgCaptor.getAllValues())
+            .anyMatch(m -> m.getPayload().contains("auth_expired") && m.getPayload().contains("session_replaced"));
+
+        ArgumentCaptor<CloseStatus> closeCaptor = ArgumentCaptor.forClass(CloseStatus.class);
+        verify(e1).close(closeCaptor.capture());
+        assertThat(closeCaptor.getValue().getCode()).isEqualTo(4002);
+
+        InOrder inOrder = inOrder(e1);
+        inOrder.verify(e1).sendMessage(argThat((TextMessage m) -> m.getPayload().contains("auth_expired")));
+        inOrder.verify(e1).close(any(CloseStatus.class));
     }
 
     /** afterConnectionEstablished → 送出含 "WELCOME" 的訊息 */
