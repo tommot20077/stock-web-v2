@@ -3,8 +3,10 @@ package dowob.xyz.stockwebv2.infrastructure.security;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.error.RateLimitExceededException;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -24,6 +26,20 @@ public class RateLimitService {
      * 限流計數的 Redis key 前綴。
      */
     private static final String KEY_PREFIX = "rl:";
+
+    /**
+     * 原子遞增計數並於視窗首次建立時設定 TTL 的 Lua 腳本。以單一 round-trip 執行
+     * {@code INCR}(+首次 {@code PEXPIRE}),杜絕 INCR 與 EXPIRE 分兩步時首次請求可能
+     * 因 EXPIRE 遺漏而產生無 TTL 的永久計數桶(#3)。僅在 {@code count == 1} 時設定 TTL,
+     * 維持固定視窗語意(視窗到期後自然滾動,而非每次請求都刷新)。ARGV[1] 為視窗毫秒數。
+     */
+    private static final RedisScript<Long> INCR_AND_EXPIRE_IF_FIRST = RedisScript.of(
+        "local count = redis.call('INCR', KEYS[1])\n"
+            + "if count == 1 then\n"
+            + "  redis.call('PEXPIRE', KEYS[1], ARGV[1])\n"
+            + "end\n"
+            + "return count",
+        Long.class);
 
     private final StringRedisTemplate redisTemplate;
     private final RateLimitProperties properties;
@@ -47,10 +63,8 @@ public class RateLimitService {
         }
 
         String key = KEY_PREFIX + bucket + ":" + identity;
-        Long count = redisTemplate.opsForValue().increment(key);
-        if (count != null && count == 1L) {
-            redisTemplate.expire(key, rule.window());
-        }
+        long windowMillis = rule.window().toMillis();
+        Long count = redisTemplate.execute(INCR_AND_EXPIRE_IF_FIRST, List.of(key), String.valueOf(windowMillis));
         if (count != null && count > rule.limit()) {
             throw new RateLimitExceededException(
                 ErrorCode.AUTH_RATE_LIMITED,
