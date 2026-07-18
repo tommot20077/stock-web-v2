@@ -111,7 +111,11 @@ public class WebSocketAuthValidator {
     }
 
     /**
-     * 判斷連線是否為「無訂閱且已逾閒置門檻」。
+     * 判斷連線是否為「無訂閱且自最後活動起已逾閒置門檻」。
+     *
+     * <p>以最後活動時間（{@code lastActiveAt}）而非連線建立時間計算，
+     * 才能正確反映「閒置」語意：近期仍有收送訊息的連線不應被回收，
+     * 反之才在真正靜默逾門檻時關閉。</p>
      *
      * @param snapshot 連線快照
      * @return 是否應以閒置逾時回收
@@ -120,9 +124,9 @@ public class WebSocketAuthValidator {
         if (!subscriptionManager.channelsOf(snapshot.sessionId()).isEmpty()) {
             return false;
         }
-        if (snapshot.connectedAt() == null) {
+        if (snapshot.lastActiveAt() == null) {
             return false;
         }
-        return Duration.between(snapshot.connectedAt(), Instant.now()).compareTo(IDLE_TIMEOUT) >= 0;
+        return Duration.between(snapshot.lastActiveAt(), Instant.now()).compareTo(IDLE_TIMEOUT) >= 0;
     }
 }

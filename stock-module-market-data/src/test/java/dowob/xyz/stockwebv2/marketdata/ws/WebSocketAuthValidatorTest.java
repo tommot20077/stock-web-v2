@@ -46,8 +46,13 @@ class WebSocketAuthValidatorTest {
     }
 
     private void givenSession(String sessionId, Long userId, Integer tokenVersion, Instant connectedAt) {
+        givenSession(sessionId, userId, tokenVersion, connectedAt, connectedAt);
+    }
+
+    private void givenSession(String sessionId, Long userId, Integer tokenVersion,
+                              Instant connectedAt, Instant lastActiveAt) {
         when(handler.snapshotSessions()).thenReturn(List.of(
-            new MarketWebSocketHandler.SessionSnapshot(sessionId, userId, tokenVersion, connectedAt)));
+            new MarketWebSocketHandler.SessionSnapshot(sessionId, userId, tokenVersion, connectedAt, lastActiveAt)));
     }
 
     @Test
@@ -106,6 +111,20 @@ class WebSocketAuthValidatorTest {
         validator.revalidateOnce();
 
         verify(handler).closeIdle("s1");
+    }
+
+    @Test
+    @DisplayName("無訂閱、連線已久但近期仍有活動 → 不以閒置逾時關閉")
+    void recentlyActiveOldConnectionIsKept() {
+        givenSession("s1", 7L, 1,
+            Instant.now().minus(2, ChronoUnit.HOURS),
+            Instant.now().minus(1, ChronoUnit.MINUTES));
+        when(hashOps.entries("user:auth:7")).thenReturn(Map.of("tokenVersion", "1", "status", "ACTIVE"));
+        when(subscriptionManager.channelsOf("s1")).thenReturn(Set.of());
+
+        validator.revalidateOnce();
+
+        verify(handler, never()).closeIdle(anyString());
     }
 
     @Test

@@ -125,6 +125,34 @@ class MarketWebSocketHandlerTest {
         assertThat(hasSub_ack).isTrue();
     }
 
+    /** handleTextMessage 收到訊息後更新 lastActiveAt，供閒置逾時以「活動時間」而非連線齡判斷 */
+    @Test
+    @DisplayName("handleTextMessage 收到訊息後更新 lastActiveAt，connectedAt 不變")
+    void handleTextMessageUpdatesLastActiveAt() throws Exception {
+        java.util.concurrent.atomic.AtomicReference<java.time.Instant> now =
+            new java.util.concurrent.atomic.AtomicReference<>(java.time.Instant.parse("2026-07-18T00:00:00Z"));
+        java.time.Clock clock = new java.time.Clock() {
+            @Override public java.time.ZoneId getZone() { return java.time.ZoneOffset.UTC; }
+            @Override public java.time.Clock withZone(java.time.ZoneId zone) { return this; }
+            @Override public java.time.Instant instant() { return now.get(); }
+        };
+        WebSocketConnectionManager connectionManager = new WebSocketConnectionManager(
+            new dowob.xyz.stockwebv2.marketdata.config.WebSocketLimitProperties(null, null, null));
+        MarketWebSocketHandler clockedHandler = new MarketWebSocketHandler(
+            parser, subscriptionManager, heartbeat, objectMapper, connectionManager, clock);
+        WebSocketSession session = mockSession("s-touch");
+        clockedHandler.afterConnectionEstablished(session);
+        java.time.Instant connectedAt = clockedHandler.snapshotSessions().get(0).connectedAt();
+
+        now.set(java.time.Instant.parse("2026-07-18T00:10:00Z"));
+        when(parser.parse(any())).thenReturn(new ClientMessage.Pong());
+        clockedHandler.handleTextMessage(session, new TextMessage("{\"type\":\"PONG\"}"));
+
+        MarketWebSocketHandler.SessionSnapshot snapshot = clockedHandler.snapshotSessions().get(0);
+        assertThat(snapshot.connectedAt()).isEqualTo(connectedAt);
+        assertThat(snapshot.lastActiveAt()).isEqualTo(java.time.Instant.parse("2026-07-18T00:10:00Z"));
+    }
+
     /** handleTextMessage UNSUBSCRIBE → 呼叫 SubscriptionManager.unsubscribe */
     @Test
     @DisplayName("handleTextMessage UNSUBSCRIBE → 呼叫 unsubscribe")

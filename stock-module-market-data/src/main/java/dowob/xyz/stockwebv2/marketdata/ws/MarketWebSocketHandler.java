@@ -11,6 +11,8 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Objects;
@@ -84,6 +86,9 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper;
     private final WebSocketConnectionManager connectionManager;
 
+    /** 時間來源，供連線建立時間與最後活動時間戳記；抽出以利測試控制時鐘。 */
+    private final Clock clock;
+
     /** 每個 session 的上下文（速率限制 + 格式錯誤計數）。 */
     private final ConcurrentMap<String, SessionContext> contexts = new ConcurrentHashMap<>();
 
@@ -110,11 +115,26 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
                                    WsHeartbeat heartbeat,
                                    ObjectMapper objectMapper,
                                    WebSocketConnectionManager connectionManager) {
+        this(parser, subscriptionManager, heartbeat, objectMapper, connectionManager, Clock.systemUTC());
+    }
+
+    /**
+     * 測試用建構子：可注入受控 {@link Clock} 以驗證時間相關行為（如最後活動時間更新）。
+     *
+     * @param clock 時間來源，不可為 null
+     */
+    MarketWebSocketHandler(WsMessageParser parser,
+                           SubscriptionManager subscriptionManager,
+                           WsHeartbeat heartbeat,
+                           ObjectMapper objectMapper,
+                           WebSocketConnectionManager connectionManager,
+                           Clock clock) {
         this.parser = Objects.requireNonNull(parser, "parser must not be null");
         this.subscriptionManager = Objects.requireNonNull(subscriptionManager, "subscriptionManager must not be null");
         this.heartbeat = Objects.requireNonNull(heartbeat, "heartbeat must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
         this.connectionManager = Objects.requireNonNull(connectionManager, "connectionManager must not be null");
+        this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
 
     /**
@@ -132,7 +152,7 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
         WebSocketSession concurrentSession = new ConcurrentWebSocketSessionDecorator(
             session, SEND_TIME_LIMIT_MS, SEND_BUFFER_SIZE_LIMIT);
         sessions.put(session.getId(), concurrentSession);
-        contexts.put(session.getId(), new SessionContext(userId, tokenVersion, java.time.Instant.now()));
+        contexts.put(session.getId(), new SessionContext(userId, tokenVersion, clock.instant()));
         java.util.List<String> evicted = connectionManager.register(session.getId(), userId, clientIp);
         sendWelcome(concurrentSession);
         heartbeat.register(concurrentSession);
@@ -180,6 +200,7 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
         if (ctx == null) {
             return;
         }
+        ctx.touch(clock.instant());
 
         WebSocketSession target = sessions.getOrDefault(session.getId(), session);
 
@@ -262,7 +283,7 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
     public java.util.List<SessionSnapshot> snapshotSessions() {
         java.util.List<SessionSnapshot> snapshots = new java.util.ArrayList<>();
         contexts.forEach((sessionId, ctx) ->
-            snapshots.add(new SessionSnapshot(sessionId, ctx.userId, ctx.tokenVersion, ctx.connectedAt)));
+            snapshots.add(new SessionSnapshot(sessionId, ctx.userId, ctx.tokenVersion, ctx.connectedAt, ctx.lastActiveAt)));
         return snapshots;
     }
 
@@ -398,13 +419,26 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
         /** handshake 當下的 tokenVersion 快照，供比對 Redis 是否已被撤銷。 */
         final Integer tokenVersion;
 
-        /** 連線建立時間，供閒置逾時判斷。 */
-        final java.time.Instant connectedAt;
+        /** 連線建立時間。 */
+        final Instant connectedAt;
 
-        SessionContext(Long userId, Integer tokenVersion, java.time.Instant connectedAt) {
+        /** 最後一次收到客戶端訊息的時間，供閒置逾時判斷（以活動時間而非連線齡計算）。 */
+        volatile Instant lastActiveAt;
+
+        SessionContext(Long userId, Integer tokenVersion, Instant connectedAt) {
             this.userId = userId;
             this.tokenVersion = tokenVersion;
             this.connectedAt = connectedAt;
+            this.lastActiveAt = connectedAt;
+        }
+
+        /**
+         * 更新最後活動時間。
+         *
+         * @param at 活動發生時間
+         */
+        void touch(Instant at) {
+            this.lastActiveAt = at;
         }
     }
 
@@ -415,8 +449,10 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
      * @param userId       所屬使用者 id
      * @param tokenVersion handshake 當下的 tokenVersion
      * @param connectedAt  連線建立時間
+     * @param lastActiveAt 最後活動時間，供閒置逾時判斷
      */
-    public record SessionSnapshot(String sessionId, Long userId, Integer tokenVersion, java.time.Instant connectedAt) {
+    public record SessionSnapshot(String sessionId, Long userId, Integer tokenVersion,
+                                  Instant connectedAt, Instant lastActiveAt) {
     }
 
     /**
