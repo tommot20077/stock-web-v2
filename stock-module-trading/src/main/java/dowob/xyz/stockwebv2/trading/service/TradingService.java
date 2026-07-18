@@ -66,7 +66,16 @@ public class TradingService {
             case SELL -> calculator.applySell(current.orElse(null), request.quantity(), request.price(), fee, OffsetDateTime.now());
         };
         if (next.id() == null) {
-            repository.insertHolding(next);
+            // 首次建倉（僅 BUY 會走到此；SELL 於空持倉已在 applySell 拋 INSUFFICIENT）。併發下另一交易
+            // 可能同時插入同 (user_id, asset_id) 持倉，故以 ON CONFLICT DO NOTHING 嘗試建倉；若被搶先，
+            // 重讀（FOR UPDATE 會等對方 commit）後改以 update 併倉，避免唯一鍵衝突拋 500。
+            if (repository.insertHoldingIfAbsent(next).isEmpty()) {
+                Holding existing = repository.findHoldingForUpdate(userId, asset.id())
+                    .orElseThrow(() -> new BusinessException(ErrorCode.TRADE_CONFLICT, ErrorCode.TRADE_CONFLICT.defaultMessage()));
+                repository.updateHolding(
+                    calculator.applyBuy(existing, userId, asset.id(), request.quantity(), request.price(), fee, OffsetDateTime.now())
+                );
+            }
         } else {
             repository.updateHolding(next);
         }
@@ -110,7 +119,9 @@ public class TradingService {
             List<HoldingDto> holdings = listHoldings(userId);
             BigDecimal marketValue = sum(holdings.stream().map(HoldingDto::marketValue).toList());
             BigDecimal costBasis = sum(holdings.stream().map(HoldingDto::costBasis).toList());
-            BigDecimal realizedPnl = sum(holdings.stream().map(HoldingDto::realizedPnl).toList());
+            // realized PnL 需涵蓋已平倉部位（total_quantity = 0，不在 listHoldings 內），故直接由
+            // repository 加總所有持倉的 realized_pnl，避免平倉後遺失已實現損益。
+            BigDecimal realizedPnl = repository.sumRealizedPnl(userId);
             BigDecimal unrealizedPnl = sum(holdings.stream().map(HoldingDto::unrealizedPnl).toList());
             BigDecimal totalPnl = realizedPnl.add(unrealizedPnl);
             PortfolioSummaryDto dto = new PortfolioSummaryDto(
