@@ -28,14 +28,14 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <li>連線建立：傳送 WELCOME 訊息並向 {@link WsHeartbeat} 註冊</li>
  *   <li>訊息處理：速率限制 → 解析 → 路由至 SUBSCRIBE / UNSUBSCRIBE / PONG 處理</li>
  *   <li>格式錯誤：累計至 10 次後以 4400 關閉連線</li>
- *   <li>速率超限：超過 10 msg/s 時以 4429 關閉連線</li>
+ *   <li>速率超限：超過 10 msg/s 時以 4008 關閉連線</li>
  *   <li>連線關閉：通知 SubscriptionManager 與 WsHeartbeat 清理資源</li>
  * </ul>
  *
  * <p>自訂 WebSocket 關閉碼：
  * <ul>
  *   <li>4400 — 連續格式錯誤超過上限（Bad message）</li>
- *   <li>4429 — 速率限制超過（Rate limit exceeded）</li>
+ *   <li>4008 — 速率限制超過（Rate limited，security.md §9 RATE_LIMITED）</li>
  *   <li>4500 — 廣播傳送失敗（Send failure，由 WsBroadcastConsumer 觸發）</li>
  * </ul>
  *
@@ -185,7 +185,7 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
      *
      * <p>處理流程：
      * <ol>
-     *   <li>速率限制檢查 → 超限則以 4429 關閉</li>
+     *   <li>速率限制檢查 → 超限則以 4008 關閉</li>
      *   <li>解析訊息 → 格式錯誤累計至 10 次後以 4400 關閉</li>
      *   <li>依訊息類型路由：SUBSCRIBE / UNSUBSCRIBE / PONG</li>
      * </ol>
