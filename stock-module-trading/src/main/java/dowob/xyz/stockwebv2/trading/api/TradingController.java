@@ -42,9 +42,15 @@ public class TradingController {
         HttpServletRequest servletRequest
     ) {
         Long userId = authenticatedUserId(authentication);
-        TradeDto trade = tradingService.createTrade(userId, request);
-        auditLogger.log(userId, "trade_create", "trade:" + trade.id(), "success", clientIp(servletRequest));
-        return ApiResponse.success(trade, meta());
+        String ip = clientIp(servletRequest);
+        try {
+            TradeDto trade = tradingService.createTrade(userId, request);
+            auditLogger.log(userId, "trade_create", "trade:" + trade.id(), "success", ip);
+            return ApiResponse.success(trade, meta());
+        } catch (BusinessException exception) {
+            auditLogger.log(userId, "trade_create", "trade", "failure:" + exception.errorCode().name(), ip);
+            throw exception;
+        }
     }
 
     /**
