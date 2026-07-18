@@ -1,5 +1,6 @@
 package dowob.xyz.stockwebv2.marketdata.ws;
 
+import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -95,7 +96,7 @@ public class MarketHandshakeInterceptor implements HandshakeInterceptor {
         if (connectionManager.globalLimitReached()) {
             return reject(response, HttpStatus.SERVICE_UNAVAILABLE, "GLOBAL_CONNECTION_LIMIT");
         }
-        String clientIp = clientIp(request);
+        String clientIp = ClientIpResolver.resolve(request);
         if (connectionManager.ipLimitReached(clientIp)) {
             return reject(response, HttpStatus.TOO_MANY_REQUESTS, "IP_CONNECTION_LIMIT");
         }
@@ -103,27 +104,6 @@ public class MarketHandshakeInterceptor implements HandshakeInterceptor {
         attributes.put(ATTR_USER_ID, payload.userId());
         attributes.put(ATTR_CLIENT_IP, clientIp);
         return true;
-    }
-
-    /**
-     * 取得 handshake 請求的來源 IP，優先採用 {@code X-Forwarded-For} 首段。
-     *
-     * @param request HTTP upgrade 請求
-     * @return 來源 IP 字串；無法判定時回傳 {@code "unknown"}
-     */
-    private String clientIp(ServerHttpRequest request) {
-        org.springframework.http.HttpHeaders headers = request.getHeaders();
-        if (headers != null) {
-            String forwarded = headers.getFirst("X-Forwarded-For");
-            if (forwarded != null && !forwarded.isBlank()) {
-                return forwarded.split(",")[0].trim();
-            }
-        }
-        java.net.InetSocketAddress remote = request.getRemoteAddress();
-        if (remote != null && remote.getAddress() != null) {
-            return remote.getAddress().getHostAddress();
-        }
-        return "unknown";
     }
 
     /**
