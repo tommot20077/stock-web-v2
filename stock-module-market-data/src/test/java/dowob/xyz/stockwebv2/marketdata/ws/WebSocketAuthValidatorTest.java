@@ -17,6 +17,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -46,8 +47,13 @@ class WebSocketAuthValidatorTest {
     }
 
     private void givenSession(String sessionId, Long userId, Integer tokenVersion, Instant connectedAt) {
+        givenSession(sessionId, userId, tokenVersion, connectedAt, connectedAt);
+    }
+
+    private void givenSession(String sessionId, Long userId, Integer tokenVersion,
+                              Instant connectedAt, Instant lastActiveAt) {
         when(handler.snapshotSessions()).thenReturn(List.of(
-            new MarketWebSocketHandler.SessionSnapshot(sessionId, userId, tokenVersion, connectedAt)));
+            new MarketWebSocketHandler.SessionSnapshot(sessionId, userId, tokenVersion, connectedAt, lastActiveAt)));
     }
 
     @Test
@@ -109,6 +115,20 @@ class WebSocketAuthValidatorTest {
     }
 
     @Test
+    @DisplayName("無訂閱、連線已久但近期仍有活動 → 不以閒置逾時關閉")
+    void recentlyActiveOldConnectionIsKept() {
+        givenSession("s1", 7L, 1,
+            Instant.now().minus(2, ChronoUnit.HOURS),
+            Instant.now().minus(1, ChronoUnit.MINUTES));
+        when(hashOps.entries("user:auth:7")).thenReturn(Map.of("tokenVersion", "1", "status", "ACTIVE"));
+        when(subscriptionManager.channelsOf("s1")).thenReturn(Set.of());
+
+        validator.revalidateOnce();
+
+        verify(handler, never()).closeIdle(anyString());
+    }
+
+    @Test
     @DisplayName("無訂閱但尚未達閒置門檻 → 保留連線")
     void recentSessionWithoutSubscriptionIsKept() {
         givenSession("s1", 7L, 1, Instant.now().minus(5, ChronoUnit.MINUTES));
@@ -129,5 +149,19 @@ class WebSocketAuthValidatorTest {
         validator.revalidateOnce();
 
         verify(handler).closeAuthExpired("s1", "token_revoked");
+    }
+
+    @Test
+    @DisplayName("同一 user 的多條連線 → 每輪只查一次 Redis auth 狀態")
+    void authStateFetchedOncePerUserPerScan() {
+        when(handler.snapshotSessions()).thenReturn(List.of(
+            new MarketWebSocketHandler.SessionSnapshot("s1", 7L, 1, Instant.now(), Instant.now()),
+            new MarketWebSocketHandler.SessionSnapshot("s2", 7L, 1, Instant.now(), Instant.now())));
+        when(hashOps.entries("user:auth:7")).thenReturn(Map.of("tokenVersion", "1", "status", "ACTIVE"));
+        when(subscriptionManager.channelsOf(anyString())).thenReturn(Set.of("price:1"));
+
+        validator.revalidateOnce();
+
+        verify(hashOps, times(1)).entries("user:auth:7");
     }
 }

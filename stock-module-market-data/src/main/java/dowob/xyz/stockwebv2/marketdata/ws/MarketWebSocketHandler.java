@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.marketdata.ws;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -11,6 +12,8 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Objects;
@@ -26,14 +29,14 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <li>連線建立：傳送 WELCOME 訊息並向 {@link WsHeartbeat} 註冊</li>
  *   <li>訊息處理：速率限制 → 解析 → 路由至 SUBSCRIBE / UNSUBSCRIBE / PONG 處理</li>
  *   <li>格式錯誤：累計至 10 次後以 4400 關閉連線</li>
- *   <li>速率超限：超過 10 msg/s 時以 4429 關閉連線</li>
+ *   <li>速率超限：超過 10 msg/s 時以 4008 關閉連線</li>
  *   <li>連線關閉：通知 SubscriptionManager 與 WsHeartbeat 清理資源</li>
  * </ul>
  *
  * <p>自訂 WebSocket 關閉碼：
  * <ul>
  *   <li>4400 — 連續格式錯誤超過上限（Bad message）</li>
- *   <li>4429 — 速率限制超過（Rate limit exceeded）</li>
+ *   <li>4008 — 速率限制超過（Rate limited，security.md §9 RATE_LIMITED）</li>
  *   <li>4500 — 廣播傳送失敗（Send failure，由 WsBroadcastConsumer 觸發）</li>
  * </ul>
  *
@@ -84,6 +87,9 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper;
     private final WebSocketConnectionManager connectionManager;
 
+    /** 時間來源，供連線建立時間與最後活動時間戳記；抽出以利測試控制時鐘。 */
+    private final Clock clock;
+
     /** 每個 session 的上下文（速率限制 + 格式錯誤計數）。 */
     private final ConcurrentMap<String, SessionContext> contexts = new ConcurrentHashMap<>();
 
@@ -105,16 +111,32 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
      * @param objectMapper        Jackson ObjectMapper，不可為 null
      * @param connectionManager   WebSocket 連線治理器，不可為 null
      */
+    @Autowired
     public MarketWebSocketHandler(WsMessageParser parser,
                                    SubscriptionManager subscriptionManager,
                                    WsHeartbeat heartbeat,
                                    ObjectMapper objectMapper,
                                    WebSocketConnectionManager connectionManager) {
+        this(parser, subscriptionManager, heartbeat, objectMapper, connectionManager, Clock.systemUTC());
+    }
+
+    /**
+     * 測試用建構子：可注入受控 {@link Clock} 以驗證時間相關行為（如最後活動時間更新）。
+     *
+     * @param clock 時間來源，不可為 null
+     */
+    MarketWebSocketHandler(WsMessageParser parser,
+                           SubscriptionManager subscriptionManager,
+                           WsHeartbeat heartbeat,
+                           ObjectMapper objectMapper,
+                           WebSocketConnectionManager connectionManager,
+                           Clock clock) {
         this.parser = Objects.requireNonNull(parser, "parser must not be null");
         this.subscriptionManager = Objects.requireNonNull(subscriptionManager, "subscriptionManager must not be null");
         this.heartbeat = Objects.requireNonNull(heartbeat, "heartbeat must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
         this.connectionManager = Objects.requireNonNull(connectionManager, "connectionManager must not be null");
+        this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
 
     /**
@@ -132,7 +154,7 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
         WebSocketSession concurrentSession = new ConcurrentWebSocketSessionDecorator(
             session, SEND_TIME_LIMIT_MS, SEND_BUFFER_SIZE_LIMIT);
         sessions.put(session.getId(), concurrentSession);
-        contexts.put(session.getId(), new SessionContext(userId, tokenVersion, java.time.Instant.now()));
+        contexts.put(session.getId(), new SessionContext(userId, tokenVersion, clock.instant()));
         java.util.List<String> evicted = connectionManager.register(session.getId(), userId, clientIp);
         sendWelcome(concurrentSession);
         heartbeat.register(concurrentSession);
@@ -142,7 +164,9 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
     }
 
     /**
-     * 關閉因每帳號連線上限被 FIFO 驅逐的較舊 session（以 4002 SESSION_REPLACED）。
+     * 關閉因每帳號連線上限被 FIFO 驅逐的較舊 session:先推送
+     * {@code auth_expired}(reason {@code session_replaced})通知客戶端,再以 4002 SESSION_REPLACED
+     * 關閉(security.md §18),讓客戶端能區分「被新連線取代」與其他斷線原因。
      *
      * @param sessionId 被驅逐的 session id
      */
@@ -153,6 +177,7 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
         }
         try {
             if (evicted.isOpen()) {
+                sendAuthExpired(evicted, "session_replaced");
                 evicted.close(CLOSE_SESSION_REPLACED);
             }
         } catch (Exception exception) {
@@ -161,11 +186,25 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
     }
 
     /**
+     * 推送 {@code auth_expired} 通知訊息給即將被關閉的 session。
+     *
+     * @param session 目標 session
+     * @param reason  失效原因（如 {@code session_replaced}）
+     * @throws Exception 若傳送失敗
+     */
+    private void sendAuthExpired(WebSocketSession session, String reason) throws Exception {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("type", "auth_expired");
+        node.put("reason", reason);
+        session.sendMessage(new TextMessage(objectMapper.writeValueAsString(node)));
+    }
+
+    /**
      * 處理客戶端傳入的文字訊息。
      *
      * <p>處理流程：
      * <ol>
-     *   <li>速率限制檢查 → 超限則以 4429 關閉</li>
+     *   <li>速率限制檢查 → 超限則以 4008 關閉</li>
      *   <li>解析訊息 → 格式錯誤累計至 10 次後以 4400 關閉</li>
      *   <li>依訊息類型路由：SUBSCRIBE / UNSUBSCRIBE / PONG</li>
      * </ol>
@@ -180,6 +219,7 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
         if (ctx == null) {
             return;
         }
+        ctx.touch(clock.instant());
 
         WebSocketSession target = sessions.getOrDefault(session.getId(), session);
 
@@ -262,7 +302,7 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
     public java.util.List<SessionSnapshot> snapshotSessions() {
         java.util.List<SessionSnapshot> snapshots = new java.util.ArrayList<>();
         contexts.forEach((sessionId, ctx) ->
-            snapshots.add(new SessionSnapshot(sessionId, ctx.userId, ctx.tokenVersion, ctx.connectedAt)));
+            snapshots.add(new SessionSnapshot(sessionId, ctx.userId, ctx.tokenVersion, ctx.connectedAt, ctx.lastActiveAt)));
         return snapshots;
     }
 
@@ -398,13 +438,26 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
         /** handshake 當下的 tokenVersion 快照，供比對 Redis 是否已被撤銷。 */
         final Integer tokenVersion;
 
-        /** 連線建立時間，供閒置逾時判斷。 */
-        final java.time.Instant connectedAt;
+        /** 連線建立時間。 */
+        final Instant connectedAt;
 
-        SessionContext(Long userId, Integer tokenVersion, java.time.Instant connectedAt) {
+        /** 最後一次收到客戶端訊息的時間，供閒置逾時判斷（以活動時間而非連線齡計算）。 */
+        volatile Instant lastActiveAt;
+
+        SessionContext(Long userId, Integer tokenVersion, Instant connectedAt) {
             this.userId = userId;
             this.tokenVersion = tokenVersion;
             this.connectedAt = connectedAt;
+            this.lastActiveAt = connectedAt;
+        }
+
+        /**
+         * 更新最後活動時間。
+         *
+         * @param at 活動發生時間
+         */
+        void touch(Instant at) {
+            this.lastActiveAt = at;
         }
     }
 
@@ -415,8 +468,10 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
      * @param userId       所屬使用者 id
      * @param tokenVersion handshake 當下的 tokenVersion
      * @param connectedAt  連線建立時間
+     * @param lastActiveAt 最後活動時間，供閒置逾時判斷
      */
-    public record SessionSnapshot(String sessionId, Long userId, Integer tokenVersion, java.time.Instant connectedAt) {
+    public record SessionSnapshot(String sessionId, Long userId, Integer tokenVersion,
+                                  Instant connectedAt, Instant lastActiveAt) {
     }
 
     /**
