@@ -125,6 +125,7 @@ class WsSubscribeReceiveE2ETest extends AbstractWsE2ETest {
         URI uri = URI.create(wsBaseUrl() + "?ticket=" + ticket);
 
         CompletableFuture<String> welcomeFuture = new CompletableFuture<>();
+        CompletableFuture<String> subAckFuture = new CompletableFuture<>();
 
         AbstractWebSocketHandler handler = new AbstractWebSocketHandler() {
             @Override
@@ -133,6 +134,9 @@ class WsSubscribeReceiveE2ETest extends AbstractWsE2ETest {
                 received.add(payload);
                 if (payload.contains("WELCOME") && !welcomeFuture.isDone()) {
                     welcomeFuture.complete(payload);
+                }
+                if (payload.contains("SUB_ACK") && !subAckFuture.isDone()) {
+                    subAckFuture.complete(payload);
                 }
             }
         };
@@ -147,6 +151,8 @@ class WsSubscribeReceiveE2ETest extends AbstractWsE2ETest {
         String subscribeMsg = String.format(
             "{\"type\":\"SUBSCRIBE\",\"channels\":[\"%s\"]}", channel);
         wsSession.sendMessage(new TextMessage(subscribeMsg));
+        String subAck = subAckFuture.get(5, TimeUnit.SECONDS);
+        assertThat(subAck).contains(channel);
 
         return wsSession;
     }

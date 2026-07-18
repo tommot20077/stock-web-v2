@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Logback 設定：在 Spring Boot 預設行為之上，額外提供 security.md §13 要求的稽核專用 appender。
+
+  - 沿用 Boot 的 defaults.xml 與 console-appender.xml，維持既有 console 格式，
+    且 application*.yaml 的 logging.level.* 仍照常生效。
+  - AUDIT logger 以 additivity="false" 導向 audit.log，與應用日誌分流，避免稽核紀錄
+    被一般日誌淹沒；同時保留 console 以利本機開發觀察。
+  - 稽核檔按日切割並保留 90 天。
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <springProperty name="auditLogPath" source="stock.audit.log-path" defaultValue="logs"/>
+
+    <appender name="AUDIT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${auditLogPath}/audit.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${auditLogPath}/audit.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>90</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="AUDIT" level="INFO" additivity="false">
+        <appender-ref ref="AUDIT_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

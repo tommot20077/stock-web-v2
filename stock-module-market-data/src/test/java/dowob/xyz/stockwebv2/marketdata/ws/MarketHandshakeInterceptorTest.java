@@ -51,7 +51,11 @@ class MarketHandshakeInterceptorTest {
     @BeforeEach
     void setup() {
         when(redisTemplate.opsForHash()).thenReturn(hashOps);
-        interceptor = new MarketHandshakeInterceptor(ticketService, redisTemplate);
+        WebSocketConnectionManager connectionManager = new WebSocketConnectionManager(
+            new dowob.xyz.stockwebv2.marketdata.config.WebSocketLimitProperties(null, null, null));
+        interceptor = new MarketHandshakeInterceptor(
+            ticketService, redisTemplate, connectionManager,
+            new dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger());
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

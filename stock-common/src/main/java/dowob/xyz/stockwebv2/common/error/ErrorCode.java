@@ -7,7 +7,10 @@ public enum ErrorCode {
     AUTH_TOKEN_EXPIRED(401, "Access token expired"),
     AUTH_REFRESH_TOKEN_INVALID(401, "Refresh token invalid"),
     AUTH_FORBIDDEN(403, "Forbidden"),
+    AUTH_CSRF_TOKEN_INVALID(403, "CSRF token invalid"),
     AUTH_REDIS_UNAVAILABLE(503, "Authentication state unavailable"),
+    AUTH_RATE_LIMITED(429, "Too many requests"),
+    AUTH_ACCOUNT_LOCKED(429, "Account temporarily locked"),
     DUPLICATE_RESOURCE(409, "Duplicate resource"),
 
     // Market-data module error codes
@@ -32,6 +35,13 @@ public enum ErrorCode {
     BACKTEST_STRATEGY_COMPILE_FAILED(400, "Strategy compile failed"),
     BACKTEST_RUN_NOT_FOUND(404, "Backtest run not found"),
     BACKTEST_RESULT_NOT_READY(409, "Backtest result is not ready"),
+
+    // Trading module error codes
+    TRADE_UNSUPPORTED_TYPE(400, "Unsupported trade type"),
+    TRADE_INVALID_QUANTITY(400, "Trade quantity must be greater than 0"),
+    TRADE_INVALID_PRICE(400, "Trade price must be greater than 0"),
+    TRADE_INSUFFICIENT_HOLDING(409, "Insufficient holding quantity"),
+    TRADE_CONFLICT(409, "Holding changed during trade execution"),
 
     INTERNAL_ERROR(500, "Internal server error");
 

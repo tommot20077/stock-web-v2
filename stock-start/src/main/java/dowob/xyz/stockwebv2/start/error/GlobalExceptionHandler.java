@@ -5,12 +5,14 @@ import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.common.error.RateLimitExceededException;
 import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -23,6 +25,28 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    /**
+     * 方法層授權（{@code @PreAuthorize}）拒絕時必須重新拋出，交由 Spring Security 的
+     * {@code ExceptionTranslationFilter} 回應 403；若被 catch-all handler 接住會誤回 500
+     * （security.md §7）。
+     *
+     * @param exception 授權拒絕例外
+     * @throws AccessDeniedException 一律重新拋出
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public void handleAccessDenied(AccessDeniedException exception) throws AccessDeniedException {
+        throw exception;
+    }
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleRateLimited(RateLimitExceededException exception) {
+        ErrorCode code = exception.errorCode();
+        ApiError error = ApiError.of(code, exception.getMessage());
+        return ResponseEntity.status(code.httpStatus())
+            .header("Retry-After", String.valueOf(exception.retryAfterSeconds()))
+            .body(ApiResponse.failure(error, meta()));
+    }
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException exception) {

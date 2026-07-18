@@ -61,7 +61,7 @@ public abstract class AbstractWsE2ETest extends ContainerIT {
     }
 
     /**
-     * 向 {@code POST /api/v1/auth/register} 登錄新使用者，並回傳 access token。
+     * 向 {@code POST /api/v1/auth/register} 建立新使用者，並透過 token endpoint 回傳 access token。
      *
      * @param email    新使用者 email
      * @param username 新使用者名稱
@@ -75,14 +75,13 @@ public abstract class AbstractWsE2ETest extends ContainerIT {
         Map<String, String> body = Map.of("email", email, "username", username, "password", password);
         HttpEntity<String> request = new HttpEntity<>(objectMapper.writeValueAsString(body), headers);
 
-        ResponseEntity<String> response = restTemplate.postForEntity(
+        restTemplate.postForEntity(
             baseUrl() + "/api/v1/auth/register", request, String.class);
-        JsonNode data = objectMapper.readTree(response.getBody()).get("data");
-        return data.get("accessToken").asText();
+        return token(email, password).accessToken();
     }
 
     /**
-     * 向 {@code POST /api/v1/auth/login} 登錄並回傳 {@link AuthSession}（含 accessToken 與 refreshToken）。
+     * 向 {@code POST /api/v1/auth/token} 登錄並回傳 {@link AuthSession}（含 accessToken 與 refreshToken）。
      *
      * @param email    使用者 email
      * @param password 密碼
@@ -90,13 +89,17 @@ public abstract class AbstractWsE2ETest extends ContainerIT {
      * @throws Exception 若 HTTP 呼叫或 JSON 解析失敗
      */
     protected AuthSession login(String email, String password) throws Exception {
+        return token(email, password);
+    }
+
+    private AuthSession token(String email, String password) throws Exception {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         Map<String, String> body = Map.of("email", email, "password", password);
         HttpEntity<String> request = new HttpEntity<>(objectMapper.writeValueAsString(body), headers);
 
         ResponseEntity<String> response = restTemplate.postForEntity(
-            baseUrl() + "/api/v1/auth/login", request, String.class);
+            baseUrl() + "/api/v1/auth/token", request, String.class);
         JsonNode data = objectMapper.readTree(response.getBody()).get("data");
         return new AuthSession(data.get("accessToken").asText(), data.get("refreshToken").asText());
     }
@@ -116,10 +119,9 @@ public abstract class AbstractWsE2ETest extends ContainerIT {
         Map<String, String> body = Map.of("email", email, "username", username, "password", password);
         HttpEntity<String> request = new HttpEntity<>(objectMapper.writeValueAsString(body), headers);
 
-        ResponseEntity<String> response = restTemplate.postForEntity(
+        restTemplate.postForEntity(
             baseUrl() + "/api/v1/auth/register", request, String.class);
-        JsonNode data = objectMapper.readTree(response.getBody()).get("data");
-        return new AuthSession(data.get("accessToken").asText(), data.get("refreshToken").asText());
+        return token(email, password);
     }
 
     /**

@@ -93,7 +93,8 @@ class BackfillJobIT {
      */
     @SpringBootApplication(scanBasePackages = {
         "dowob.xyz.stockwebv2.marketdata",
-        "dowob.xyz.stockwebv2.asset"
+        "dowob.xyz.stockwebv2.asset",
+        "dowob.xyz.stockwebv2.infrastructure.audit"
     })
     static class BatchTestApplication {
     }

@@ -104,7 +104,7 @@ class MarketRestApiE2ETest extends AbstractStockE2ETest {
     }
 
     /**
-     * 輔助方法：透過 MockMvc 呼叫 register API 並取出 access token。
+     * 輔助方法：透過 MockMvc 呼叫 register API 建帳，再透過 token endpoint 取出 access token。
      *
      * @param email    使用者 email
      * @param username 使用者名稱
@@ -113,11 +113,20 @@ class MarketRestApiE2ETest extends AbstractStockE2ETest {
      * @throws Exception 若請求失敗
      */
     private String registerAndGetToken(String email, String username, String password) throws Exception {
-        String responseBody = mockMvc.perform(post("/api/v1/auth/register")
+        mockMvc.perform(post("/api/v1/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(java.util.Map.of(
                     "email", email,
                     "username", username,
+                    "password", password
+                ))))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        String responseBody = mockMvc.perform(post("/api/v1/auth/token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(java.util.Map.of(
+                    "email", email,
                     "password", password
                 ))))
             .andExpect(status().isOk())

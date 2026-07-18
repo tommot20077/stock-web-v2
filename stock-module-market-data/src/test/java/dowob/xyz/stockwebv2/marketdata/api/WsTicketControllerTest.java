@@ -63,6 +63,9 @@ class WsTicketControllerTest {
     @MockitoBean
     StringRedisTemplate redisTemplate;
 
+    @MockitoBean
+    dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger auditLogger;
+
     // ── 200 with valid auth ───────────────────────────────────────────────────
 
     @Test
@@ -83,6 +86,28 @@ class WsTicketControllerTest {
             .andExpect(jsonPath("$.data.ticket").value("test-ticket-xyz"))
             .andExpect(jsonPath("$.data.expiresIn").value(30))
             .andExpect(jsonPath("$.data.wsUrl").exists());
+    }
+
+    @Test
+    @DisplayName("簽發 ticket 的稽核事件帶入 TCP 對端 IP,忽略可偽造的 X-Forwarded-For")
+    @WithMockUser(username = "42")
+    @SuppressWarnings("unchecked")
+    void issueTicketAuditCarriesClientIp() throws Exception {
+        HashOperations<String, Object, Object> hashOps = mock(HashOperations.class);
+        when(redisTemplate.opsForHash()).thenReturn(hashOps);
+        when(hashOps.entries(eq("user:auth:42"))).thenReturn(Map.of("tokenVersion", "1", "status", "ACTIVE"));
+        when(ticketService.issue(eq(42L), any())).thenReturn("test-ticket");
+
+        // 帶偽造的 X-Forwarded-For,但實際 TCP 對端為 198.51.100.7:稽核須採用對端而非標頭
+        mvc.perform(post("/api/v1/market/ws/ticket")
+                .header("X-Forwarded-For", "203.0.113.9")
+                .with(request -> {
+                    request.setRemoteAddr("198.51.100.7");
+                    return request;
+                }))
+            .andExpect(status().isOk());
+
+        verify(auditLogger).log(eq(42L), eq("ws_ticket_issue"), eq("ws_ticket"), eq("success"), eq("198.51.100.7"));
     }
 
     // ── Redis 認證狀態缺失 → 503 AUTH_REDIS_UNAVAILABLE ─────────────────────

@@ -21,10 +21,16 @@
             <artifactId>stock-infrastructure</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!--
+            L2 模組隔離(architecture.md §Facade Pattern):主程式一律經 stock-infrastructure 的
+            AssetFacade 介面存取 asset,不得相依 stock-module-asset 實作。此相依僅供 BackfillJobIT
+            在測試中裝配 AssetFacadeImpl 使用,故限定 test scope,避免成為正式相依。
+        -->
         <dependency>
             <groupId>dowob.xyz</groupId>
             <artifactId>stock-module-asset</artifactId>
             <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>dowob.xyz</groupId>
@@ -57,6 +63,10 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
         <!-- Kafka -->

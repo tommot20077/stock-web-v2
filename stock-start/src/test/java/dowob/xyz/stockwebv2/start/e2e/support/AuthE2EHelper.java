@@ -44,11 +44,20 @@ public class AuthE2EHelper {
         if (mockMvc == null) {
             throw new IllegalStateException("AuthE2EHelper.register() 需要 MockMvc，但目前上下文（RANDOM_PORT）中不存在 MockMvc。");
         }
-        String response = mockMvc.perform(post("/api/v1/auth/register")
+        mockMvc.perform(post("/api/v1/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(Map.of(
                     "email", email,
                     "username", username,
+                    "password", password
+                ))))
+            .andExpect(status().isOk())
+            .andExpect(apiSuccess());
+
+        String response = mockMvc.perform(post("/api/v1/auth/token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of(
+                    "email", email,
                     "password", password
                 ))))
             .andExpect(status().isOk())
@@ -64,7 +73,7 @@ public class AuthE2EHelper {
         if (mockMvc == null) {
             throw new IllegalStateException("AuthE2EHelper.login() 需要 MockMvc，但目前上下文（RANDOM_PORT）中不存在 MockMvc。");
         }
-        String response = mockMvc.perform(post("/api/v1/auth/login")
+        String response = mockMvc.perform(post("/api/v1/auth/token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(Map.of(
                     "email", email,

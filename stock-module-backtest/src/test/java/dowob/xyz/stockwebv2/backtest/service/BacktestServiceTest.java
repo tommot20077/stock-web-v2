@@ -16,6 +16,9 @@ import dowob.xyz.stockwebv2.backtest.repository.BacktestRepository;
 import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.common.model.AssetType;
+import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
+import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -36,16 +39,18 @@ class BacktestServiceTest {
     private static final String VALID_STRATEGY_CODE = "function strategy({ bars }) { return null; }";
 
     private final InMemoryBacktestRepository repository = new InMemoryBacktestRepository();
+    private final InMemoryAssetFacade assetFacade = new InMemoryAssetFacade();
     private final BacktestService service = new BacktestService(
         repository,
         new DeterministicBacktestEngine(new StrategyValidator()),
         new BacktestMapper(),
-        new StrategyValidator()
+        new StrategyValidator(),
+        assetFacade
     );
 
     @Test
     void createRunStoresSucceededRun() {
-        repository.activeSymbols.add("AAPL");
+        assetFacade.activeSymbols.add("AAPL");
 
         BacktestRunDto run = service.createRun(1L, request("ma_cross", "AAPL", "3Y", new BigDecimal("100000"), null));
 
@@ -55,8 +60,19 @@ class BacktestServiceTest {
     }
 
     @Test
+    void inMemoryAssetFacadeReturnsTradeableSymbolsInAscendingOrder() {
+        assetFacade.activeSymbols.add("MSFT");
+        assetFacade.activeSymbols.add("AAPL");
+        assetFacade.activeSymbols.add("GOOG");
+
+        assertThat(assetFacade.findAllTradeable())
+            .extracting(AssetSummary::symbol)
+            .containsExactly("AAPL", "GOOG", "MSFT");
+    }
+
+    @Test
     void presetStrategyIgnoresSuppliedStrategyCode() {
-        repository.activeSymbols.add("AAPL");
+        assetFacade.activeSymbols.add("AAPL");
 
         service.createRun(1L, request("ma_cross", "AAPL", "3Y", new BigDecimal("100000"), null));
         BacktestRunDto withCode = service.createRun(1L, request("ma_cross", "AAPL", "3Y", new BigDecimal("100000"), VALID_STRATEGY_CODE));
@@ -94,7 +110,7 @@ class BacktestServiceTest {
 
     @Test
     void invalidCapitalIsRejected() {
-        repository.activeSymbols.add("AAPL");
+        assetFacade.activeSymbols.add("AAPL");
 
         assertThatThrownBy(() -> service.createRun(1L, request("ma_cross", "AAPL", "3Y", BigDecimal.ZERO, null)))
             .isInstanceOfSatisfying(BusinessException.class, exception ->
@@ -103,7 +119,7 @@ class BacktestServiceTest {
 
     @Test
     void nullCapitalIsRejected() {
-        repository.activeSymbols.add("AAPL");
+        assetFacade.activeSymbols.add("AAPL");
 
         assertThatThrownBy(() -> service.createRun(1L, request("ma_cross", "AAPL", "3Y", null, null)))
             .isInstanceOfSatisfying(BusinessException.class, exception ->
@@ -118,8 +134,18 @@ class BacktestServiceTest {
     }
 
     @Test
+    void inactiveSymbolIsRejected() {
+        // symbol 存在於 assets 表但 active = false（已下市）：activeSymbolExists 的 .filter(active) 須將其排除。
+        assetFacade.inactiveSymbols.add("AAPL");
+
+        assertThatThrownBy(() -> service.createRun(1L, request("ma_cross", "AAPL", "3Y", new BigDecimal("100000"), null)))
+            .isInstanceOfSatisfying(BusinessException.class, exception ->
+                assertThat(exception.errorCode()).isEqualTo(ErrorCode.BACKTEST_UNSUPPORTED_SYMBOL));
+    }
+
+    @Test
     void customStrategyRequiresCode() {
-        repository.activeSymbols.add("AAPL");
+        assetFacade.activeSymbols.add("AAPL");
 
         assertThatThrownBy(() -> service.createRun(1L, request("custom", "AAPL", "3Y", new BigDecimal("100000"), "")))
             .isInstanceOfSatisfying(BusinessException.class, exception ->
@@ -128,14 +154,15 @@ class BacktestServiceTest {
 
     @Test
     void engineStrategyValidationFailureMapsToCompileFailed() {
-        repository.activeSymbols.add("AAPL");
+        assetFacade.activeSymbols.add("AAPL");
         BacktestService failingService = new BacktestService(
             repository,
             input -> {
                 throw new IllegalArgumentException("engine validator failed");
             },
             new BacktestMapper(),
-            new StrategyValidator()
+            new StrategyValidator(),
+            assetFacade
         );
 
         assertThatThrownBy(() -> failingService.createRun(1L, request("ma_cross", "AAPL", "3Y", new BigDecimal("100000"), null)))
@@ -172,7 +199,7 @@ class BacktestServiceTest {
 
     @Test
     void getRunMapsRepositoryRun() {
-        repository.activeSymbols.add("AAPL");
+        assetFacade.activeSymbols.add("AAPL");
         BacktestRunDto created = service.createRun(1L, request("ma_cross", "AAPL", "3Y", new BigDecimal("100000"), null));
 
         BacktestRunDto run = service.getRun(1L, created.id());
@@ -205,7 +232,7 @@ class BacktestServiceTest {
 
     @Test
     void getResultMapsRepositoryRunAndResult() {
-        repository.activeSymbols.add("AAPL");
+        assetFacade.activeSymbols.add("AAPL");
         BacktestRunDto created = service.createRun(1L, request("ma_cross", "AAPL", "3Y", new BigDecimal("100000"), null));
 
         BacktestResultDto result = service.getResult(1L, created.id());
@@ -225,7 +252,7 @@ class BacktestServiceTest {
 
     @Test
     void getResultMapsMissingResultToNotReady() {
-        repository.activeSymbols.add("AAPL");
+        assetFacade.activeSymbols.add("AAPL");
         BacktestRunDto created = service.createRun(1L, request("ma_cross", "AAPL", "3Y", new BigDecimal("100000"), null));
         repository.resultsByExternalId.remove(created.id());
 
@@ -308,8 +335,41 @@ class BacktestServiceTest {
         );
     }
 
-    private static final class InMemoryBacktestRepository implements BacktestRepository {
+    /**
+     * AssetFacade 的手寫 fake：以 {@code activeSymbols} 控制哪些 symbol 視為存在且 active，
+     * 以 {@code inactiveSymbols} 控制哪些 symbol 存在但 {@code active = false}
+     * （symbol 存在於 assets 表但已下市）。
+     * backtest 模組僅能經由 Facade 存取 asset，不得直接查 assets 資料表。
+     */
+    private static final class InMemoryAssetFacade implements AssetFacade {
+
         private final Set<String> activeSymbols = new HashSet<>();
+        private final Set<String> inactiveSymbols = new HashSet<>();
+
+        @Override
+        public List<AssetSummary> findAllTradeable() {
+            // 遵守 AssetFacade.findAllTradeable() 合約:結果按 symbol 升冪排序,
+            // 避免依賴 HashSet 迭代順序而造成 flaky。
+            return activeSymbols.stream().sorted().map(symbol -> summaryOf(symbol, true)).toList();
+        }
+
+        @Override
+        public Optional<AssetSummary> findBySymbol(String symbol) {
+            if (activeSymbols.contains(symbol)) {
+                return Optional.of(summaryOf(symbol, true));
+            }
+            if (inactiveSymbols.contains(symbol)) {
+                return Optional.of(summaryOf(symbol, false));
+            }
+            return Optional.empty();
+        }
+
+        private static AssetSummary summaryOf(String symbol, boolean active) {
+            return new AssetSummary(1L, symbol, symbol, AssetType.STOCK, "US", true, active);
+        }
+    }
+
+    private static final class InMemoryBacktestRepository implements BacktestRepository {
         private final List<BacktestResult> savedResults = new ArrayList<>();
         private final Map<String, BacktestRun> runsByExternalId = new HashMap<>();
         private final Map<String, BacktestResult> resultsByExternalId = new HashMap<>();
@@ -317,11 +377,6 @@ class BacktestServiceTest {
         private int lastPage = -1;
         private int lastSize = -1;
         private long nextId = 1L;
-
-        @Override
-        public boolean activeSymbolExists(String symbol) {
-            return activeSymbols.contains(symbol);
-        }
 
         @Override
         public BacktestRun createSucceededRun(BacktestRun run, BacktestResult result) {
