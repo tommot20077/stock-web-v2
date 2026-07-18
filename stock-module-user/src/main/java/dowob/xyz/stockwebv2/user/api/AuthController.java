@@ -6,6 +6,7 @@ import dowob.xyz.stockwebv2.common.api.EmptyResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.error.ResourceNotFoundException;
+import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
 import dowob.xyz.stockwebv2.infrastructure.security.JwtService;
 import dowob.xyz.stockwebv2.infrastructure.security.RateLimitProperties;
 import dowob.xyz.stockwebv2.infrastructure.security.RateLimitService;
@@ -39,6 +40,7 @@ public class AuthController {
     private final BrowserAuthCookieService cookieService;
     private final RateLimitService rateLimitService;
     private final RateLimitProperties rateLimitProperties;
+    private final AuditLogger auditLogger;
 
     public AuthController(
         AuthService authService,
@@ -47,7 +49,8 @@ public class AuthController {
         UserRepository userRepository,
         BrowserAuthCookieService cookieService,
         RateLimitService rateLimitService,
-        RateLimitProperties rateLimitProperties
+        RateLimitProperties rateLimitProperties,
+        AuditLogger auditLogger
     ) {
         this.authService = authService;
         this.jwtService = jwtService;
@@ -56,6 +59,7 @@ public class AuthController {
         this.cookieService = cookieService;
         this.rateLimitService = rateLimitService;
         this.rateLimitProperties = rateLimitProperties;
+        this.auditLogger = auditLogger;
     }
 
     @PostMapping("/auth/register")
@@ -64,8 +68,10 @@ public class AuthController {
         HttpServletRequest servletRequest,
         HttpServletResponse servletResponse
     ) {
-        rateLimitService.enforce("register", ClientIpResolver.resolve(servletRequest), rateLimitProperties.register());
+        String ip = ClientIpResolver.resolve(servletRequest);
+        rateLimitService.enforce("register", ip, rateLimitProperties.register());
         User user = authService.register(request);
+        auditLogger.log(user.id(), "register", "user", "success", ip);
         return ApiResponse.success(browserSession(user, servletRequest, servletResponse), meta());
     }
 
@@ -75,16 +81,37 @@ public class AuthController {
         HttpServletRequest servletRequest,
         HttpServletResponse servletResponse
     ) {
-        rateLimitService.enforce("login", ClientIpResolver.resolve(servletRequest), rateLimitProperties.login());
-        User user = authService.verifyCredentials(request.email(), request.password());
+        String ip = ClientIpResolver.resolve(servletRequest);
+        rateLimitService.enforce("login", ip, rateLimitProperties.login());
+        User user = authenticate(request, ip);
         return ApiResponse.success(browserSession(user, servletRequest, servletResponse), meta());
     }
 
     @PostMapping("/auth/token")
     public ApiResponse<TokenResponse> token(@Valid @RequestBody LoginRequest request, HttpServletRequest servletRequest) {
-        rateLimitService.enforce("login", ClientIpResolver.resolve(servletRequest), rateLimitProperties.login());
-        User user = authService.verifyCredentials(request.email(), request.password());
+        String ip = ClientIpResolver.resolve(servletRequest);
+        rateLimitService.enforce("login", ip, rateLimitProperties.login());
+        User user = authenticate(request, ip);
         return ApiResponse.success(tokenResponse(user, servletRequest), meta());
+    }
+
+    /**
+     * 驗證登入憑證並記錄稽核事件（security.md §13）。成功與失敗皆須留下紀錄，
+     * 失敗時不揭露目標帳號 id 以免稽核日誌成為帳號枚舉來源。
+     *
+     * @param request 登入請求
+     * @param ip      來源 IP
+     * @return 驗證通過的使用者
+     */
+    private User authenticate(LoginRequest request, String ip) {
+        try {
+            User user = authService.verifyCredentials(request.email(), request.password());
+            auditLogger.log(user.id(), "login", "user", "success", ip);
+            return user;
+        } catch (BusinessException exception) {
+            auditLogger.log(null, "login", "user", "failure:" + exception.errorCode().name(), ip);
+            throw exception;
+        }
     }
 
     @PostMapping("/auth/refresh")
@@ -97,8 +124,11 @@ public class AuthController {
             RefreshTokenService.RefreshSession session = refreshTokenService.consumeForRotation(refreshToken);
             User user = userRepository.findById(session.userId())
                 .orElseThrow(() -> new ResourceNotFoundException("user"));
+            auditLogger.log(user.id(), "refresh", "session", "success", ClientIpResolver.resolve(servletRequest));
             return ApiResponse.success(browserSession(user, servletRequest, servletResponse), meta());
         } catch (BusinessException exception) {
+            auditLogger.log(refreshOwner, "refresh", "session", "failure:" + exception.errorCode().name(),
+                ClientIpResolver.resolve(servletRequest));
             cookieService.clearAuthCookies(servletResponse);
             throw exception;
         }
@@ -119,6 +149,7 @@ public class AuthController {
         HttpServletRequest servletRequest,
         HttpServletResponse servletResponse
     ) {
+        String ip = ClientIpResolver.resolve(servletRequest);
         String browserRefreshToken = cookieService.readRefreshCookie(servletRequest);
         if (browserRefreshToken != null) {
             Long owner = refreshTokenService.findOwner(browserRefreshToken);
@@ -127,6 +158,7 @@ public class AuthController {
                 authService.logout(owner);
             }
             cookieService.clearAuthCookies(servletResponse);
+            auditLogger.log(owner, "logout", "session", "success", ip);
             return ApiResponse.empty(meta());
         }
 
@@ -137,6 +169,7 @@ public class AuthController {
         }
         refreshTokenService.revoke(refreshToken, userId);
         authService.logout(userId);
+        auditLogger.log(userId, "logout", "session", "success", ip);
         return ApiResponse.empty(meta());
     }
 

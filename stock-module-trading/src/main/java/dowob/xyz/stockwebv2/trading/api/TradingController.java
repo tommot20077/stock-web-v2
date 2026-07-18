@@ -5,8 +5,11 @@ import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
+import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
 import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
 import dowob.xyz.stockwebv2.trading.service.TradingService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.slf4j.MDC;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,15 +28,30 @@ import java.util.List;
 @RequestMapping("/api/v1")
 public class TradingController {
     private final TradingService tradingService;
+    private final AuditLogger auditLogger;
 
-    public TradingController(TradingService tradingService) {
+    public TradingController(TradingService tradingService, AuditLogger auditLogger) {
         this.tradingService = tradingService;
+        this.auditLogger = auditLogger;
     }
 
     @PostMapping("/trades")
     @PreAuthorize("hasAuthority('TRADE_EXECUTE')")
-    public ApiResponse<TradeDto> createTrade(@Valid @RequestBody CreateTradeRequest request, Authentication authentication) {
-        return ApiResponse.success(tradingService.createTrade(authenticatedUserId(authentication), request), meta());
+    public ApiResponse<TradeDto> createTrade(
+        @Valid @RequestBody CreateTradeRequest request,
+        Authentication authentication,
+        HttpServletRequest servletRequest
+    ) {
+        Long userId = authenticatedUserId(authentication);
+        String ip = ClientIpResolver.resolve(servletRequest);
+        try {
+            TradeDto trade = tradingService.createTrade(userId, request);
+            auditLogger.log(userId, "trade_create", "trade:" + trade.id(), "success", ip);
+            return ApiResponse.success(trade, meta());
+        } catch (BusinessException exception) {
+            auditLogger.log(userId, "trade_create", "trade", "failure:" + exception.errorCode().name(), ip);
+            throw exception;
+        }
     }
 
     @GetMapping("/trades")

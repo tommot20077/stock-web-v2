@@ -53,7 +53,9 @@ class MarketHandshakeInterceptorTest {
         when(redisTemplate.opsForHash()).thenReturn(hashOps);
         WebSocketConnectionManager connectionManager = new WebSocketConnectionManager(
             new dowob.xyz.stockwebv2.marketdata.config.WebSocketLimitProperties(null, null, null));
-        interceptor = new MarketHandshakeInterceptor(ticketService, redisTemplate, connectionManager);
+        interceptor = new MarketHandshakeInterceptor(
+            ticketService, redisTemplate, connectionManager,
+            new dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger());
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
