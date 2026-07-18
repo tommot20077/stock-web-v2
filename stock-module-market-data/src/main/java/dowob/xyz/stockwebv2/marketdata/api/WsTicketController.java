@@ -5,12 +5,14 @@ import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
+import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
 import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
 import dowob.xyz.stockwebv2.marketdata.ws.WsTicketService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -69,15 +71,16 @@ public class WsTicketController {
      * 取得 ticket 並回傳 {@link WsTicketResponse}。
      *
      * @param authentication Spring Security 注入的當前請求身份，不可 null
+     * @param servletRequest 當前 HTTP 請求，用於解析來源 IP
      * @return 包含 ticket、expiresIn、wsUrl 的 {@link ApiResponse}
      */
     @PostMapping("/ticket")
-    public ApiResponse<WsTicketResponse> issueTicket(Authentication authentication) {
+    public ApiResponse<WsTicketResponse> issueTicket(Authentication authentication, HttpServletRequest servletRequest) {
         Long userId = resolveUserId(authentication);
         Integer tokenVersion = resolveTokenVersion(userId);
 
         String ticket = ticketService.issue(userId, tokenVersion);
-        auditLogger.log(userId, "ws_ticket_issue", "ws_ticket", "success", null);
+        auditLogger.log(userId, "ws_ticket_issue", "ws_ticket", "success", ClientIpResolver.resolve(servletRequest));
 
         WsTicketResponse body = new WsTicketResponse(
             ticket,

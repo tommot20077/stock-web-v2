@@ -88,6 +88,22 @@ class WsTicketControllerTest {
             .andExpect(jsonPath("$.data.wsUrl").exists());
     }
 
+    @Test
+    @DisplayName("簽發 ticket 的稽核事件帶入來源 IP（X-Forwarded-For 首段）")
+    @WithMockUser(username = "42")
+    @SuppressWarnings("unchecked")
+    void issueTicketAuditCarriesClientIp() throws Exception {
+        HashOperations<String, Object, Object> hashOps = mock(HashOperations.class);
+        when(redisTemplate.opsForHash()).thenReturn(hashOps);
+        when(hashOps.entries(eq("user:auth:42"))).thenReturn(Map.of("tokenVersion", "1", "status", "ACTIVE"));
+        when(ticketService.issue(eq(42L), any())).thenReturn("test-ticket");
+
+        mvc.perform(post("/api/v1/market/ws/ticket").header("X-Forwarded-For", "203.0.113.9"))
+            .andExpect(status().isOk());
+
+        verify(auditLogger).log(eq(42L), eq("ws_ticket_issue"), eq("ws_ticket"), eq("success"), eq("203.0.113.9"));
+    }
+
     // ── Redis 認證狀態缺失 → 503 AUTH_REDIS_UNAVAILABLE ─────────────────────
 
     @Test
