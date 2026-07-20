@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-05-PLAN.md
-last_updated: "2026-07-19T04:00:00.000Z"
+stopped_at: Phase 3 context gathered
+last_updated: "2026-07-20T13:55:30.414Z"
 last_activity: 2026-07-19
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 10
   completed_plans: 10
-  percent: 100
+  percent: 40
 ---
 
 # Project State
@@ -25,14 +25,15 @@ See: .planning/PROJECT.md (updated 2026-05-30)
 
 ## Current Position
 
-Phase: 02 (Frontend Session & API Client Foundation) — COMPLETE (5/5)
-Next: Phase 3 (Portfolio Read API Mode) — not yet planned
+Phase: 03 (Portfolio Read API Mode) — CONTEXT GATHERED,尚未規劃
 Last activity: 2026-07-19
 
-Progress: [████████████████████] 10/10 plans (100%)
+Progress(milestone v1.0):[████████░░░░░░░░░░░░] 2/5 phases (40%)
+Progress(已規劃的 plan):[████████████████████] 10/10 plans (100%)
 
-> ⚠️ 這個 100% 指的是「**已規劃**的 plan 全數執行完畢」。Phase 3、4、5 尚未規劃(無 plan、無目錄),
-> milestone v1.0 仍有 3 個 phase 未開始。勿將此數字誤讀為專案完成度。
+> ⚠️ 兩個數字看的是不同東西,別混淆:**40%** 是 milestone 真實進度(5 個 phase 完成 2 個);
+> **100%** 只代表「已經規劃出來的 plan 都執行完了」。Phase 3 剛完成 discuss(有 CONTEXT、尚無 plan),
+> Phase 4、5 連 CONTEXT 都還沒有。
 
 ## Performance Metrics
 
@@ -84,7 +85,8 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- Phase 2 planning should consume `ai-docs/browser-auth-contract.md` and avoid frontend token storage.
+- 1 pending — `/gsd-capture --list` to review
+- **後端支援 DIV(股利)交易類型**(`.planning/todos/pending/2026-07-19-backend-dividend-trade-type.md`)—— 前端交易頁有「股利」篩選頁籤但後端 `TradeType` 只有 BUY/SELL;Phase 3 期間 API mode 先藏起該頁籤。注意這不是加個 enum 就好,股利會改變成本/損益計算語意。
 
 ### Blockers/Concerns
 
@@ -103,7 +105,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-19
-Stopped at: Completed 02-05-PLAN.md — Phase 02 closed out
-Resume file: None
-Next action: Phase 3 (Portfolio Read API Mode) 尚未規劃 → `/gsd-discuss-phase 3` 或 `/gsd-plan-phase 3`
+Last session: 2026-07-20T13:55:30.398Z
+Stopped at: Phase 3 context gathered
+Resume file: .planning/phases/03-portfolio-read-api-mode/03-CONTEXT.md
+Next action: Phase 3 已完成 discuss(見 resume file)→ `/gsd-plan-phase 3`
+
+⚠️ Phase 3 的 CONTEXT 決議**包含後端改動**(`GET /trades` 補篩選與排序參數),
+與 ROADMAP 原本「前端讀取」的框定不同 —— planner 請先讀 `03-CONTEXT.md` 的 Phase Boundary。
