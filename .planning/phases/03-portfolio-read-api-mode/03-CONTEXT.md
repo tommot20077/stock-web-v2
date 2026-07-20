@@ -11,7 +11,11 @@
 **⚠️ 本階段包含後端改動 —— 這是 discuss 過程中的決議,與 ROADMAP 原本「前端讀取」的描述不同。**
 `GET /api/v1/trades` 目前只支援 `symbol` / `page` / `size`,缺篩選與排序參數。若不補,前端在分頁後做 client-side 篩選/排序只會作用於當前頁,產生「看起來對、實際錯」的結果(見 D-05/D-06 的理由)。因此後端 API 擴充屬於本階段的必要範圍。
 
-**不在本階段:** 交易建立(Phase 4)、Analytics/Alerts/Watchlist 等頁面(PORT-06,v2 deferred)、股利(DIV)交易類型(已記 todo)。
+**⚠️ 第二個範圍認知:PORT-01 的「映射 summary 到現有 overview UI」實際上是「取代合成假資料」,不是接線。**
+查證後確認 `Overview.vue` 的四張 KPI 卡**沒有一張來自真實持倉**:總資產與總報酬來自 `genSeries(80, 1_000_000, 0.012, 5)` 的亂數序列(:132-137),「今日損益」`'+$12,481'` 與「可用現金」`'$84,210'` 是**寫死的字串**,資產配置 donut(`alloc` :139-142)也是寫死陣列。`Overview.vue` 全檔只有 `:95` 一處讀 `portfolio.trades`。
+因此本階段要做的是**重建 KPI 區塊的資料來源**,而非把既有欄位接上 API。四張卡中只有兩張有後端對應(見 D-14)。
+
+**不在本階段:** 交易建立(Phase 4)、Analytics/Alerts/Watchlist 等頁面(PORT-06,v2 deferred)、股利(DIV)交易類型、日級損益、可用現金、資產分類(皆已記 todo)。
 
 </domain>
 
@@ -26,20 +30,31 @@
 
 ### 計算歸屬(單一真相來源)
 
-- **D-04:** API mode 的 P&L / ROI / 市值 / 成本 **一律使用後端算好的值**(`costBasis`、`marketValue`、`unrealizedPnl`、`realizedPnl`、`roi`,以及 `PortfolioSummaryDto` 的彙總),前端不再自行計算。
+- **D-04:** API mode 的 P&L / ROI / 市值 / 成本 **一律使用後端算好的值**(`costBasis`、`marketValue`、`unrealizedPnl`、`realizedPnl`、`roi`,以及 `PortfolioSummaryDto` 的彙總),前端**不得自行重算後端已提供的數值**。
+  **例外(重要):後端未提供、只能由後端值衍生的欄位仍在前端計算。** 已知案例:`Positions.vue:154` 的 `weight`(持倉權重)—— 後端 `HoldingDto` 13 個欄位與 `PortfolioSummaryDto` 7 個欄位都沒有 weight,只能以 `marketValue / totalMarketValue` 前端算出。executor 請勿為了服從本條而去找不存在的後端欄位或刪除 weight 欄。判準是:**後端有的就用,不要平行實作;後端沒有的才衍生,且必須衍生自後端值而非原始 qty×price。**
   理由有二:(1) judgment §7 明訂高頻計算走 Redis 預計算、API 只讀,後端是指定的計算方;(2) **`realizedPnl` 前端根本算不出來** —— 它需要完整交易歷史,不是持倉快照能推導的,現有 mock 的 client-side 算法本質上不完整。
   影響:`Positions.vue` 現有的 `totalCost = reduce((s,p) => s + p.qty * p.avg)`(:237)與 `qty * effPrice(p)`(:174)等計算,在 API mode 需改為讀後端欄位。
 
 ### 交易查詢:分頁 / 篩選 / 排序
 
 - **D-05:** **後端 `GET /trades` 新增篩選參數**(交易類型、日期區間)。現有前端篩選 chips `['All','Buy','Sell','Dividend','2026']` 是對完整陣列做 client-side 過濾(`Trades.vue:68-79`);分頁後 client-side 過濾只會作用於當前頁,使用者按「Buy」會以為看到所有買入,實際只有這 20 筆裡的買入。這是正確性問題,不是體驗問題。
-- **D-06:** **後端 `GET /trades` 新增排序參數**,支援 `executedAt` / `price` / `quantity` 三個欄位的升降序。與 D-05 同一個理由:分頁下的 client-side 排序只排當前頁,比沒有排序更危險(看起來正確但結果是錯的)。
+  **注意 `2026` 這個 chip 是硬編年份**(篩選邏輯為 `tr.d.startsWith('2026')`)。原樣搬到後端日期區間參數等於固定查 2026 年,2027 年就是壞的。實作時改為**動態當年度**(或直接改成日期區間選擇器),不要把年份寫死。
+- **D-06:** **後端 `GET /trades` 新增排序參數**,支援三個排序鍵:`executedAt`(成交時間)、**`total`(金額 = `quantity × price`)**、`quantity`(數量),皆需升降序。與 D-05 同一個理由:分頁下的 client-side 排序只排當前頁,比沒有排序更危險(看起來正確但結果是錯的)。
+  **⚠️ `total` 是計算值,後端沒有這個欄位。** `TradeDto` 只有 `quantity` / `price` / `fee`,而交易表格同時存在 `price`(單價 `tr.px`)與 `total`(總額 `tr.qty * tr.px`)兩欄 —— 使用者要的「金額」是**總額**,不是單價,兩者排序結果完全不同(1 股 $1000 vs 1000 股 $50)。因此後端必須以 `quantity * price` 的**計算式排序**,並評估運算式索引(否則大量交易時會全表掃描)。這與「加一個 sort 參數」不是同一量級的工作,規劃時請估進去,必要時依 `ai-docs/flyway-convention.md` 新增 migration。
   *(註:交易頁目前並無排序功能。討論初期曾判定為 scope creep,經 Yuan 指出「資料一多會有問題」後改列入本階段 —— 因為分頁一旦做了,排序就必須同時在後端做才正確。)*
 - **D-07:** 預設排序 `executedAt` 降序(最新在前,與現有 mock 行為一致),預設 `size` 20(與後端既有預設相同,不需額外傳參)。
 - **D-08:** 分頁 UI 採 **換頁按鈕**(上一頁/下一頁 + 當前頁數),**不用** append / infinite-scroll。
   理由:後端是 page-number 分頁,插入新資料會造成頁面位移;append 模式會出現重複列。Phase 4 就要加入交易建立,這個風險是真實的。換頁按鈕讓使用者明確知道自己在第幾頁。(參見 `pagination-page-number` 的既有結論。)
 - **D-09:** `Overview.vue` 的「近期交易」(現為 `trades.slice(0, 5)`,:95)改為 `GET /trades?page=0&size=5`,只取需要的量,不與交易頁共用跨頁面狀態。
-- **D-10:** CSV 匯出範圍為**全部交易**,而非當前頁。匯出時循環拉完所有頁再組 CSV。使用者對「匯出我的交易」的預期不是「匯出這 20 筆」。
+- **D-10:** CSV 匯出範圍為**當前篩選與排序條件下的所有頁**,而非只有當前頁。匯出時以相同的 filter/sort 參數循環拉完所有頁再組 CSV。
+  **明確界定(避免誤讀):「所有頁」不等於「忽略篩選匯出全部交易」。** 現有 `exportCsv()`(`Trades.vue:83`)本來就以 `filteredTrades` 為來源,檔名也帶入 `activeFilter`(`trades-${activeFilter}-....csv`),篩選語意必須保留 —— 使用者篩了 Buy 之後匯出,檔案裡不該出現 Sell。本決策只修正「分頁導致只匯出當前頁」這個問題。
+
+- **D-14:** **Overview KPI 卡在 API mode 只保留有後端資料的兩張**:總資產 ← `totalMarketValue`、總報酬 ← `roi`。
+  **隱藏**「今日損益」與「可用現金」—— 後端無對應資料(前者需日級歷史快照,後者需帳戶餘額模型,皆已記 todo)。同時**隱藏資產配置 donut**(`alloc`,需資產類別分類,已記 todo)。與 D-01(sector)、D-02(股利)同一原則:**後端沒有的就不露,不顯示假資料**。mock mode 四張卡與 donut 全部保留不受影響。
+  `PortfolioSummaryDto` 其餘欄位(`totalCostBasis` / `realizedPnl` / `unrealizedPnl` / `totalPnl` / `holdingCount`)的呈現位置由 planner 決定;`Positions.vue` 既有的彙總條(`pnlAbs` / `totalCost`,:79-83)是自然的落點。
+
+- **D-15:** **篩選或排序條件變更時,頁碼一律重置為第 0 頁**;另需處理「請求頁碼 ≥ `totalPages`」的回退(例如篩選後總頁數變少)。
+  否則使用者在第 5 頁切換篩選,前端仍送 `page=4`,後端回空 `items` 與 `totalPages=1`,畫面顯示空列表 —— 使用者會以為沒有符合的交易。這是 server-side 分頁 + 篩選的必經處理,不可省略。
 
 ### 錯誤與狀態呈現
 
@@ -71,7 +86,7 @@
 - `ai-docs/code-standards.md`、`ai-docs/testing-standards.md`、`ai-docs/flyway-convention.md`(若 D-05/D-06 需要新增索引)
 
 ### 需求與前期脈絡
-- `.planning/REQUIREMENTS.md` — PORT-01 ~ PORT-05
+- `.planning/REQUIREMENTS.md` — PORT-01 ~ PORT-05,以及 **PORT-08**(2026-07-19 新增:`/trades` 的篩選與排序參數)
 - `.planning/phases/02-frontend-session-api-client-foundation/02-CONTEXT.md` — Phase 2 的 API client 決策
 - `.planning/todos/pending/2026-07-19-backend-dividend-trade-type.md` — DIV 待辦
 
@@ -116,6 +131,7 @@
 ## Specific Ideas
 
 - holdings 不分頁(後端回 `List`),所以 Positions 現有的 client-side 排序**是安全的**,不需改為後端排序 —— 與 trades 的情況不同,不要一併套用。
+  但同一事實的另一面是**風險**:`GET /portfolio/holdings` 沒有 page/size 參數,持倉數量無上界,每筆 13 個欄位(含多個 BigDecimal 與兩個時間戳)。持有數千檔標的的使用者會在單一回應中取得全部資料,影響首屏載入與記憶體,client-side 排序成本也隨之上升。本階段不改後端(維持不分頁),但 planner 應在 loading 狀態設計上考慮大清單,並在 SUMMARY 記錄實測的持倉筆數上限,供未來決定是否要分頁。
 - 排序欄位刻意收斂為 `executedAt` / `price` / `quantity` 三個,而非「所有顯示欄位都可排」:後端要驗證欄位名以防注入、也要開索引,三個涵蓋「最近的」與「最大筆」兩種真實需求。
 - 換頁按鈕而非 append,是為了迴避 page-number 分頁在插入資料時的位移/重複問題 —— 這個結論在 2026-07-19 的分頁對齊工作中已經驗證過(mock 測試 `reports page-number drift when a newer log is prepended` 明確斷言該行為)。
 
@@ -125,7 +141,9 @@
 ## Deferred Ideas
 
 - **後端支援 DIV(股利)交易類型** — 已寫入 `.planning/todos/pending/2026-07-19-backend-dividend-trade-type.md`。不是加一個 enum 值就好:股利會改變成本/損益計算語意,`HoldingCalculator` 需要新分支,`CreateTradeRequest` 的 quantity/price 語意也不同,規模上很可能值得自己一個 phase。
-- **`sector` 與 Analytics 產業分布** — 屬 PORT-06(v2 deferred)。後端 `HoldingDto` 若未來要支援,需先決定 sector 資料的權威來源(asset 主檔?外部行情商?)。
+- **後端支援日級損益(今日損益 KPI)** — `.planning/todos/pending/2026-07-19-backend-daily-pnl.md`。需日級持倉市值快照,並先定義「今日」(交易日/自然日、時區)。
+- **後端支援可用現金 / 帳戶餘額模型** — `.planning/todos/pending/2026-07-19-backend-available-cash.md`。是新增領域模型而非加欄位,且可能讓語意往「帳戶系統」偏移,需先確認是否符合 PROJECT.md 範圍(judgment §1)。
+- **後端支援資產分類(產業別 / 資產類別)** — `.planning/todos/pending/2026-07-19-backend-asset-classification.md`。涵蓋 Analytics 的產業分布(`sector`,PORT-06 v2)與 Overview 的資產配置 donut,兩者同源,關鍵是先決定分類資料的權威來源與分類標準。
 - **多幣別呈現、空持倉的初始引導體驗、mock↔api 切換時的資料殘留** — 討論尾聲列為可選深入項目,使用者選擇直接進 CONTEXT,未展開。若 planner 認為影響驗收條件可回頭補。
 
 </deferred>

@@ -85,8 +85,16 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- 1 pending — `/gsd-capture --list` to review
-- **後端支援 DIV(股利)交易類型**(`.planning/todos/pending/2026-07-19-backend-dividend-trade-type.md`)—— 前端交易頁有「股利」篩選頁籤但後端 `TradeType` 只有 BUY/SELL;Phase 3 期間 API mode 先藏起該頁籤。注意這不是加個 enum 就好,股利會改變成本/損益計算語意。
+*(註:原有一條「Phase 2 planning should consume browser-auth-contract.md and avoid frontend token storage」已於 2026-07-19 移除 —— Phase 2 已完成,該提醒已過時。)*
+
+- 4 pending — `/gsd-capture --list` to review
+
+四條皆為 Phase 3 discuss(2026-07-19)發現的「前端有 UI、後端無資料來源」缺口,API mode 一律**隱藏**該 UI 而非顯示假資料:
+
+- **後端支援 DIV(股利)交易類型** — 交易頁有「股利」篩選頁籤但後端 `TradeType` 只有 BUY/SELL。不是加個 enum 就好,股利會改變成本/損益計算語意。
+- **後端支援日級損益** — Overview「今日損益」KPI 目前是寫死字串;後端無時間維度,需日級持倉快照。
+- **後端支援可用現金 / 帳戶餘額模型** — Overview「可用現金」KPI 目前是寫死字串;後端 portfolio 模型完全沒有現金概念,屬新增領域模型。
+- **後端支援資產分類(產業別 / 資產類別)** — Overview 資產配置 donut 與 Analytics 產業分布同源,後端 `HoldingDto` 無 sector/assetClass。
 
 ### Blockers/Concerns
 
