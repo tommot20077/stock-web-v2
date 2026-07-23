@@ -41,6 +41,8 @@
 - [ ] **PORT-03**: Vue API mode 可以從 backend 讀取 trade history，包含分頁/排序需要的 API response mapping。
 - [ ] **PORT-04**: Portfolio API adapters 保留 mock implementation，API mode 不直接讀寫 mock portfolio store。
 - [ ] **PORT-05**: Portfolio read views 提供 loading、empty、error、retry 狀態，並保留 request/trace id 以利除錯。
+- [ ] **PORT-08**: `GET /api/v1/trades` 提供篩選（交易類型、日期區間）與排序（`executedAt` / 金額 `quantity × price` / `quantity`）參數，使前端在 server-side 分頁下的篩選與排序語意正確。
+      *(2026-07-19 Phase 3 discuss 新增。理由：分頁導入後 client-side 篩選/排序只作用於當前頁，是正確性缺陷而非體驗問題。金額為計算值，後端需以 `quantity * price` 計算式排序並評估運算式索引。)*
 
 ### Trading
 
@@ -120,6 +122,7 @@ Roadmap creation will map each v1 requirement to exactly one phase.
 | PORT-03 | Phase 3 | Pending |
 | PORT-04 | Phase 3 | Pending |
 | PORT-05 | Phase 3 | Pending |
+| PORT-08 | Phase 3 | Pending |
 | TRAD-01 | Phase 4 | Pending |
 | TRAD-02 | Phase 4 | Pending |
 | TRAD-03 | Phase 4 | Pending |

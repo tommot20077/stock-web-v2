@@ -58,13 +58,15 @@ Decimal phases appear between their surrounding integers in numeric order.
 ### Phase 3: Portfolio Read API Mode
 **Goal**: 使用者在 API mode 可以從後端讀取 portfolio 狀態，且現有 mock mode 仍可獨立運作。
 **Depends on**: Phase 2
-**Requirements**: PORT-01, PORT-02, PORT-03, PORT-04, PORT-05
+**Requirements**: PORT-01, PORT-02, PORT-03, PORT-04, PORT-05, PORT-08
+**Scope note**(2026-07-19 discuss 修訂): 本階段**包含後端 API 擴充** —— `GET /api/v1/trades` 需新增篩選(交易類型、日期區間)與排序(`executedAt` / 金額 `quantity × price` / `quantity`)參數。原因是 server-side 分頁一旦導入，client-side 的篩選與排序只會作用於當前頁，屬正確性缺陷。詳見 `phases/03-portfolio-read-api-mode/03-CONTEXT.md` 的 Phase Boundary 與 D-05/D-06。
 **Success Criteria** (what must be TRUE):
-  1. 使用者可以在現有 overview/portfolio UI 看到由 backend portfolio summary 映射出的資料。
+  1. 使用者可以在現有 overview/portfolio UI 看到由 backend portfolio summary 映射出的資料。（註：現有 Overview KPI 為合成假資料，本項實為「取代」而非「接線」；「今日損益」「可用現金」「資產配置」後端無資料來源，API mode 隱藏並另記 todo — 見 03-CONTEXT.md D-14）
   2. 使用者可以在 positions UI 看到由 backend holdings/positions API 映射出的資料。
   3. 使用者可以在 trade history view 看到 backend trade history，包含分頁/排序 response mapping。
   4. Portfolio read views 在 API mode 顯示 loading、empty、error、retry 狀態，並保留 request/trace id 供除錯。
   5. Mock mode 仍使用 mock implementation；API mode 不直接讀寫 mock portfolio store。
+  6. `GET /api/v1/trades` 支援篩選與排序參數，且前端篩選/排序在跨頁時語意正確（非只作用於當前頁）。
 **Plans**: TBD
 **UI hint**: yes
 
