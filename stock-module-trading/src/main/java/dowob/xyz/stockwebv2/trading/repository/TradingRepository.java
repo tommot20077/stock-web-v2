@@ -22,7 +22,14 @@ public interface TradingRepository {
 
     Holding updateHolding(Holding holding);
 
-    PageResponse<TradeTransaction> listTransactions(Long userId, Long assetId, int page, int size);
+    /**
+     * 依查詢物件的篩選（標的、交易類型、成交時間半開區間）與排序（白名單排序鍵與方向）
+     * 分頁查詢交易紀錄。{@code totalElements} 與 {@code items} 必須套用同一組篩選條件。
+     *
+     * @param query 已由 service 層驗證完成的型別化查詢物件
+     * @return 該頁交易紀錄與符合篩選條件的總筆數
+     */
+    PageResponse<TradeTransaction> listTransactions(TradeQuery query);
 
     List<HoldingPosition> listHoldings(Long userId);
 

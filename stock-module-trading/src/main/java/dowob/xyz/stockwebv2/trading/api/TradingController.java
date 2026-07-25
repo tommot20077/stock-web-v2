@@ -58,6 +58,11 @@ public class TradingController {
     @PreAuthorize("hasAuthority('PORTFOLIO_VIEW')")
     public ApiResponse<PageResponse<TradeDto>> listTrades(
         @RequestParam(required = false) String symbol,
+        @RequestParam(required = false) String type,
+        @RequestParam(required = false) String dateFrom,
+        @RequestParam(required = false) String dateTo,
+        @RequestParam(required = false) String sort,
+        @RequestParam(required = false) String direction,
         @RequestParam(defaultValue = "0") String page,
         @RequestParam(defaultValue = "20") String size,
         Authentication authentication
@@ -65,6 +70,11 @@ public class TradingController {
         return ApiResponse.success(tradingService.listTrades(
             authenticatedUserId(authentication),
             symbol,
+            type,
+            dateFrom,
+            dateTo,
+            sort,
+            direction,
             parseQueryInt(page, "page"),
             parseQueryInt(size, "size")
         ), meta());
