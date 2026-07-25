@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 3 context gathered
-last_updated: "2026-07-20T13:55:30.414Z"
+stopped_at: Phase 3 planned (5 plans, plan-checker PASS)
+last_updated: "2026-07-25T01:57:43.791Z"
 last_activity: 2026-07-19
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 10
+  total_plans: 15
   completed_plans: 10
   percent: 40
 ---
@@ -21,18 +21,18 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can safely sign in, inspect portfolio state, and record trades through one coherent frontend/backend flow.
-**Current focus:** Phase 03 — Portfolio Read API Mode(尚未規劃)
+**Current focus:** Phase 03 — Portfolio Read API Mode(已規劃,待執行)
 
 ## Current Position
 
-Phase: 03 (Portfolio Read API Mode) — CONTEXT GATHERED,尚未規劃
-Last activity: 2026-07-19
+Phase: 03 (Portfolio Read API Mode) — PLANNED(5 plans,plan-checker PASS),待執行
+Last activity: 2026-07-25
 
 Progress(milestone v1.0):[████████░░░░░░░░░░░░] 2/5 phases (40%)
-Progress(已規劃的 plan):[████████████████████] 10/10 plans (100%)
+Progress(plan):10/15 plans executed(Phase 1-2 的 10 個已執行;Phase 3 的 5 個已規劃待執行)
 
-> ⚠️ 兩個數字看的是不同東西,別混淆:**40%** 是 milestone 真實進度(5 個 phase 完成 2 個);
-> **100%** 只代表「已經規劃出來的 plan 都執行完了」。Phase 3 剛完成 discuss(有 CONTEXT、尚無 plan),
+> ⚠️ 40% 是 milestone 真實進度(5 個 phase 完成 2 個)。Phase 3 已完成 discuss + plan
+> (CONTEXT 16 決策、5 個 PLAN、plan-checker goal-backward PASS),下一步是執行。
 > Phase 4、5 連 CONTEXT 都還沒有。
 
 ## Performance Metrics
@@ -113,10 +113,13 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-20T13:55:30.398Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-portfolio-read-api-mode/03-CONTEXT.md
-Next action: Phase 3 已完成 discuss(見 resume file)→ `/gsd-plan-phase 3`
+Last session: 2026-07-25T01:57:43.769Z
+Stopped at: Phase 3 planned (5 plans, plan-checker PASS)
+Resume file: .planning/phases/03-portfolio-read-api-mode/03-01-PLAN.md
+Next action: Phase 3 已完成 plan(5 plans,plan-checker PASS)→ `/gsd-execute-phase 3`
 
-⚠️ Phase 3 的 CONTEXT 決議**包含後端改動**(`GET /trades` 補篩選與排序參數),
-與 ROADMAP 原本「前端讀取」的框定不同 —— planner 請先讀 `03-CONTEXT.md` 的 Phase Boundary。
+⚠️ 執行者注意:
+- Wave 1(可平行):03-01 後端 `/trades` 篩選/排序 + V9 索引、03-02 前端 service 地基。
+- Wave 2(依賴 Wave 1):03-03/04/05 三頁改寫,05 依賴 01 的後端契約 + 02 的介面。
+- Phase 3 **包含後端改動**(`GET /trades` 補篩選與排序參數),非純前端。
+- 03-01 是後端(`./mvnw`),03-02~05 是前端(`../../vue/stock-v2/vue-app`,`npm test`)。

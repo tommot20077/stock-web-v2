@@ -7,6 +7,7 @@ files:
   - stock-module-asset/src/main/java/dowob/xyz/stockwebv2/asset/api/AssetController.java
   - ../../vue/stock-v2/vue-app/src/pages/Overview.vue:139-142
   - ../../vue/stock-v2/vue-app/src/pages/Analytics.vue:58,161,198
+  - ../../vue/stock-v2/vue-app/src/pages/Positions.vue:118-140
 ---
 
 ## Problem

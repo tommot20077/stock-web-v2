@@ -24,7 +24,8 @@
 
 ### 欄位映射與落差
 
-- **D-01:** `sector` 本階段不處理。查證後確認它**不在** Positions 頁,只用於 `Analytics.vue`(treemap 標籤、按產業分群、hover chip)與 i18n 的「產業分布」,而 Analytics 屬 PORT-06(v2 deferred)。後端 `HoldingDto` 沒有此欄位是可接受的。
+- **D-01:** `sector` 本階段不處理(後端 `HoldingDto` 不加此欄位)。
+  **⚠️ 2026-07-23 research 更正:** 原文「sector 不在 Positions 頁」是查證錯誤(grep 輸出被截斷)。實際上 `Positions.vue:118-140` 有一張 **Sector breakdown 卡**(`sectorStats` 衍生自 `p.sector`),Analytics 之外這裡也用了 sector。**結論不變**(後端仍不加 sector),但 API mode 必須把這張卡列入隱藏清單(適用 D-14/D-16 原則),已併入資產分類 todo。
 - **D-02:** 股利(DIV):API mode **隱藏**交易頁的「Dividend」篩選頁籤。後端 `TradeType` enum 只有 BUY/SELL,API mode 永遠回不出 DIV,露出入口會讓使用者以為功能壞掉。mock mode 保留該頁籤不受影響。後端支援 DIV 已記為 todo(見 Deferred)。
 - **D-03:** 顯示 `HoldingDto.priceTime` 作為行情時間。市價來自快取/預計算(judgment §7),可能有延遲;顯示時間讓使用者知道資料新鮮度,避免誤以為是即時報價。
 
@@ -55,6 +56,12 @@
 
 - **D-15:** **篩選或排序條件變更時,頁碼一律重置為第 0 頁**;另需處理「請求頁碼 ≥ `totalPages`」的回退(例如篩選後總頁數變少)。
   否則使用者在第 5 頁切換篩選,前端仍送 `page=4`,後端回空 `items` 與 `totalPages=1`,畫面顯示空列表 —— 使用者會以為沒有符合的交易。這是 server-side 分頁 + 篩選的必經處理,不可省略。
+
+- **D-16:**(2026-07-23,research 盤點合成資料邊界後,依 D-14 原則的一致延伸)**API mode 隱藏所有「無後端資料來源的合成/寫死區塊」**,除 D-14 已列者(今日損益、可用現金、資產配置 donut)外,還包括:
+  - Positions 的 **Sector breakdown 卡**(:118-140,見 D-01 更正)
+  - Positions 的**權益曲線 / 時光機(time machine)/ Sharpe・年化・MaxDD 假 KPI**(合成序列與寫死值)
+  - Overview 的**資產走勢圖**(`genSeries(80, 1_000_000, 0.012, 5)` 亂數序列)
+  mock mode 全部保留不受影響。此為 Yuan 於 discuss 中四度選擇「隱藏假資料」(D-02 股利、D-14 兩張 KPI + donut)之同一原則,不再逐項請示。**例外判準**:若某區塊可由既有後端欄位**真實推導**(如 weight ← `marketValue / totalMarketValue`),則以真實資料呈現而非隱藏 —— 隱藏只適用於「後端推導不出來」的內容。planner 對每個區塊需在 PLAN 中明確標記「隱藏」或「真實推導」並附依據。
 
 ### 錯誤與狀態呈現
 

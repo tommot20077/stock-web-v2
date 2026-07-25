@@ -67,7 +67,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Portfolio read views 在 API mode 顯示 loading、empty、error、retry 狀態，並保留 request/trace id 供除錯。
   5. Mock mode 仍使用 mock implementation；API mode 不直接讀寫 mock portfolio store。
   6. `GET /api/v1/trades` 支援篩選與排序參數，且前端篩選/排序在跨頁時語意正確（非只作用於當前頁）。
-**Plans**: TBD
+**Plans**: 5 plans
+  - **Wave 1:** `03-01-PLAN.md` — 後端 `GET /trades` 篩選/排序參數、白名單 ORDER BY 與 V9 排序索引（PORT-08）
+  - **Wave 1:** `03-02-PLAN.md` — 前端 portfolioApi 三件組、pageApiClients 註冊、DTO 型別與 i18n 地基（PORT-03/04）
+  - **Wave 2 *(blocked on Wave 1 completion)*:** `03-03-PLAN.md` — Overview KPI 重建、D-14/D-16 隱藏清單與近期交易走 API（PORT-01/05）
+  - **Wave 2 *(blocked on Wave 1 completion)*:** `03-04-PLAN.md` — Positions 後端欄位映射、weight/priceTime 衍生與合成區塊隱藏（PORT-02/05）
+  - **Wave 2 *(blocked on Wave 1 completion)*:** `03-05-PLAN.md` — Trades server-side 篩選/排序/分頁、D-15 頁碼規則與全頁 CSV（PORT-03/05/08）
 **UI hint**: yes
 
 ### Phase 4: Manual Trade Creation, Idempotency & Post-Trade Refetch
@@ -105,6 +110,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 |-------|----------------|--------|-----------|
 | 1. Browser Auth Contract & Backend Security Foundation | 5/5 | Completed | 2026-05-30 |
 | 2. Frontend Session & API Client Foundation | 5/5 | Completed | 2026-05-31 |
-| 3. Portfolio Read API Mode | 0/TBD | Not started | - |
+| 3. Portfolio Read API Mode | 0/5 | Planned | - |
 | 4. Manual Trade Creation, Idempotency & Post-Trade Refetch | 0/TBD | Not started | - |
 | 5. Cross-Repo Browser Flow Verification & Contract Hardening | 0/TBD | Not started | - |
