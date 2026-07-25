@@ -89,9 +89,15 @@ Recent decisions affecting current work:
 
 *(註:原有一條「Phase 2 planning should consume browser-auth-contract.md and avoid frontend token storage」已於 2026-07-19 移除 —— Phase 2 已完成,該提醒已過時。)*
 
-- 4 pending — `/gsd-capture --list` to review
+- 5 pending — `/gsd-capture --list` to review
 
-四條皆為 Phase 3 discuss(2026-07-19)發現的「前端有 UI、後端無資料來源」缺口,API mode 一律**隱藏**該 UI 而非顯示假資料:
+**第 5 條(2026-07-26,Phase 3 收尾發現):**
+- **Chart/Markets 仍直連 mock store(watchlist 未 API 化)** — Phase 3 已讓 Overview/Positions/Trades
+  三頁脫離 mock store,但這兩頁仍直接 import。**性質澄清**:它們用的是 watchlist(`isWatched`/
+  `toggleWatch`/`watchlists`)而非 portfolio 讀取,屬 PORT-06(v2 deferred),**不是 Phase 3 的遺漏**。
+  記錄此條是為了讓未來 grep judgment §3 合規性的人知道這兩處為何存在。
+
+**前四條**皆為 Phase 3 discuss(2026-07-19)發現的「前端有 UI、後端無資料來源」缺口,API mode 一律**隱藏**該 UI 而非顯示假資料:
 
 - **後端支援 DIV(股利)交易類型** — 交易頁有「股利」篩選頁籤但後端 `TradeType` 只有 BUY/SELL。不是加個 enum 就好,股利會改變成本/損益計算語意。
 - **後端支援日級損益** — Overview「今日損益」KPI 目前是寫死字串;後端無時間維度,需日級持倉快照。
