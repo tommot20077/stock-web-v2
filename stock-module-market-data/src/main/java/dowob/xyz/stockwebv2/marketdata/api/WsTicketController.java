@@ -126,7 +126,7 @@ public class WsTicketController {
      */
     private Integer resolveTokenVersion(Long userId) {
         Map<Object, Object> entries = redisTemplate.opsForHash().entries(AUTH_KEY_PREFIX + userId);
-        if (entries == null || entries.isEmpty()) {
+        if (ObjectUtils.isEmpty(entries)) {
             log.warn("resolveTokenVersion: Redis auth state missing for userId={}", userId);
             throw new BusinessException(ErrorCode.AUTH_REDIS_UNAVAILABLE,
                 ErrorCode.AUTH_REDIS_UNAVAILABLE.defaultMessage());

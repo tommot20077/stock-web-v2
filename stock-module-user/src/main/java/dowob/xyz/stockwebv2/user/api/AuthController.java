@@ -19,6 +19,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.MDC;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -158,7 +159,7 @@ public class AuthController {
 
         Long userId = authenticatedUserId(authentication);
         String refreshToken = request == null ? null : request.refreshToken();
-        if (refreshToken == null || refreshToken.isBlank()) {
+        if (StringUtils.isBlank(refreshToken)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage());
         }
         refreshTokenService.revoke(refreshToken, userId);

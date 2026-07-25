@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.marketdata.ws;
 
 import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
 import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -89,7 +90,7 @@ public class MarketHandshakeInterceptor implements HandshakeInterceptor {
                                    Map<String, Object> attributes) {
         String clientIp = ClientIpResolver.resolve(request);
         String ticket = extractTicket(request);
-        if (ticket == null || ticket.isBlank()) {
+        if (StringUtils.isBlank(ticket)) {
             return reject(response, HttpStatus.UNAUTHORIZED, "MISSING_TICKET", null, clientIp);
         }
 

@@ -14,6 +14,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.MDC;
 import org.springframework.dao.DataAccessException;
 import org.springframework.beans.factory.annotation.Value;
@@ -190,7 +191,7 @@ public class SecurityConfig {
                 transport = null;
             }
 
-            if (token == null || token.isBlank()) {
+            if (StringUtils.isBlank(token)) {
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -249,7 +250,7 @@ public class SecurityConfig {
 
         private AuthState readAuthState(Long userId) {
             Map<Object, Object> entries = redisTemplate.opsForHash().entries("user:auth:" + userId);
-            if (entries == null || entries.isEmpty()) {
+            if (ObjectUtils.isEmpty(entries)) {
                 return null;
             }
             return new AuthState((String) entries.get("tokenVersion"), (String) entries.get("status"));
