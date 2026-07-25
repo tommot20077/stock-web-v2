@@ -1,5 +1,6 @@
 package dowob.xyz.stockwebv2.marketdata.ws;
 
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -125,7 +126,7 @@ public class WsMessageParser {
      * @return {@code true} 表示名稱有效
      */
     static boolean isValidChannel(String ch) {
-        if (ch == null || ch.isBlank()) {
+        if (StringUtils.isBlank(ch)) {
             return false;
         }
         return TICK_PATTERN.matcher(ch).matches() || KLINE_PATTERN.matcher(ch).matches();

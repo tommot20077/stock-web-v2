@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.backtest.engine;
 
 import dowob.xyz.stockwebv2.backtest.domain.BacktestPeriod;
+import org.apache.commons.lang3.StringUtils;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestStrategyId;
 
 import java.math.BigDecimal;
@@ -20,7 +21,7 @@ public record BacktestEngineInput(
         if (strategyId == null) {
             throw new IllegalArgumentException("strategyId is required");
         }
-        if (symbol == null || symbol.isBlank()) {
+        if (StringUtils.isBlank(symbol)) {
             throw new IllegalArgumentException("symbol is required");
         }
         if (period == null) {

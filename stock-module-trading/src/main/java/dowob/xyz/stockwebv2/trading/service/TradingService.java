@@ -133,7 +133,7 @@ public class TradingService {
         int size
     ) {
         Long assetId = null;
-        if (symbol != null && !symbol.isBlank()) {
+        if (StringUtils.isNotBlank(symbol)) {
             assetId = resolveAsset(symbol).id();
         }
         TradeType tradeType = StringUtils.isBlank(type) ? null : TradeType.fromApiValue(type);

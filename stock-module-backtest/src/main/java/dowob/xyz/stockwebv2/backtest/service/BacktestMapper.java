@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.backtest.service;
 
 import dowob.xyz.stockwebv2.backtest.api.BacktestResultDto;
+import org.apache.commons.lang3.StringUtils;
 import dowob.xyz.stockwebv2.backtest.api.BacktestRunDto;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestResult;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestRun;
@@ -46,6 +47,6 @@ public class BacktestMapper {
     }
 
     private boolean hasText(String value) {
-        return value != null && !value.isBlank();
+        return StringUtils.isNotBlank(value);
     }
 }

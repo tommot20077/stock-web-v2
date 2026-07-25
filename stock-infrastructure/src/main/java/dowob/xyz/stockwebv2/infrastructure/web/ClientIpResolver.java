@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.infrastructure.web;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.server.ServerHttpRequest;
 
 import java.net.InetSocketAddress;
@@ -38,7 +39,7 @@ public final class ClientIpResolver {
      */
     public static String resolve(HttpServletRequest request) {
         String remoteAddr = request.getRemoteAddr();
-        return remoteAddr == null || remoteAddr.isBlank() ? UNKNOWN : remoteAddr;
+        return StringUtils.defaultIfBlank(remoteAddr, UNKNOWN);
     }
 
     /**
