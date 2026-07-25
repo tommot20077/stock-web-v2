@@ -11,6 +11,7 @@ import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
 import dowob.xyz.stockwebv2.trading.service.TradingService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.MDC;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -93,7 +94,7 @@ public class TradingController {
     }
 
     private Long authenticatedUserId(Authentication authentication) {
-        if (authentication == null || authentication.getName() == null || authentication.getName().isBlank()) {
+        if (authentication == null || StringUtils.isBlank(authentication.getName())) {
             throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
         }
         try {

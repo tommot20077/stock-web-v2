@@ -19,6 +19,7 @@ import dowob.xyz.stockwebv2.trading.domain.TradeType;
 import dowob.xyz.stockwebv2.trading.repository.LatestAssetPrice;
 import dowob.xyz.stockwebv2.trading.repository.TradeQuery;
 import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -135,7 +136,7 @@ public class TradingService {
         if (symbol != null && !symbol.isBlank()) {
             assetId = resolveAsset(symbol).id();
         }
-        TradeType tradeType = type == null || type.isBlank() ? null : TradeType.fromApiValue(type);
+        TradeType tradeType = StringUtils.isBlank(type) ? null : TradeType.fromApiValue(type);
         OffsetDateTime from = parseTimestamp(dateFrom, "dateFrom");
         OffsetDateTime to = parseTimestamp(dateTo, "dateTo");
         int safePage = Math.min(Math.max(0, page), MAX_PAGE);
@@ -167,7 +168,7 @@ public class TradingService {
      * @throws BusinessException 格式無法解析時丟出 VALIDATION_FAILED
      */
     private OffsetDateTime parseTimestamp(String value, String field) {
-        if (value == null || value.isBlank()) {
+        if (StringUtils.isBlank(value)) {
             return null;
         }
         try {
@@ -247,14 +248,14 @@ public class TradingService {
     }
 
     private String normalizeSymbol(String symbol) {
-        if (symbol == null || symbol.isBlank()) {
+        if (StringUtils.isBlank(symbol)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "symbol is required");
         }
         return symbol.trim().toUpperCase(Locale.ROOT);
     }
 
     private String cleanNote(String note) {
-        if (note == null || note.isBlank()) {
+        if (StringUtils.isBlank(note)) {
             return null;
         }
         return note.trim();

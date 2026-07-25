@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.trading.domain;
 
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Locale;
 
@@ -52,7 +53,7 @@ public enum SortDirection {
      *                           錯誤訊息刻意不回射原始輸入
      */
     public static SortDirection fromApiValue(String value) {
-        if (value == null || value.isBlank()) {
+        if (StringUtils.isBlank(value)) {
             return DESC;
         }
         try {
