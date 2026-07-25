@@ -13,6 +13,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.apache.commons.lang3.ObjectUtils;
 import org.slf4j.MDC;
 import org.springframework.dao.DataAccessException;
 import org.springframework.beans.factory.annotation.Value;
@@ -368,7 +369,7 @@ public class SecurityConfig {
 
         private ApiMeta meta() {
             String traceId = MDC.get(TraceIdFilter.TRACE_ID);
-            return new ApiMeta(traceId == null ? "missing-trace-id" : traceId, OffsetDateTime.now());
+            return new ApiMeta(ObjectUtils.defaultIfNull(traceId, "missing-trace-id"), OffsetDateTime.now());
         }
     }
 }
