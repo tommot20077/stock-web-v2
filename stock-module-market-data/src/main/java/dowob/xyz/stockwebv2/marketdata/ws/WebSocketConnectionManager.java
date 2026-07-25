@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.marketdata.ws;
 
 import dowob.xyz.stockwebv2.marketdata.config.WebSocketLimitProperties;
+import org.apache.commons.lang3.ObjectUtils;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayDeque;
@@ -85,7 +86,7 @@ public class WebSocketConnectionManager {
      * @return 需驅逐的 session id 清單（通常為空或單一）
      */
     public List<String> register(String sessionId, Long userId, String ip) {
-        String ipKey = ip == null ? "unknown" : ip;
+        String ipKey = ObjectUtils.defaultIfNull(ip, "unknown");
         globalCount.incrementAndGet();
         perIpCounts.computeIfAbsent(ipKey, key -> new AtomicInteger()).incrementAndGet();
         registrations.put(sessionId, new Registration(userId, ipKey));

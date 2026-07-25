@@ -1,5 +1,6 @@
 package dowob.xyz.stockwebv2.marketdata.config;
 
+import org.apache.commons.lang3.ObjectUtils;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -19,8 +20,8 @@ public record WebSocketLimitProperties(
 ) {
 
     public WebSocketLimitProperties {
-        maxConnectionsGlobal = maxConnectionsGlobal == null ? 1000 : maxConnectionsGlobal;
-        maxConnectionsPerIp = maxConnectionsPerIp == null ? 5 : maxConnectionsPerIp;
-        maxConnectionsPerAccount = maxConnectionsPerAccount == null ? 2 : maxConnectionsPerAccount;
+        maxConnectionsGlobal = ObjectUtils.defaultIfNull(maxConnectionsGlobal, 1000);
+        maxConnectionsPerIp = ObjectUtils.defaultIfNull(maxConnectionsPerIp, 5);
+        maxConnectionsPerAccount = ObjectUtils.defaultIfNull(maxConnectionsPerAccount, 2);
     }
 }

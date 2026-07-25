@@ -1,5 +1,6 @@
 package dowob.xyz.stockwebv2.infrastructure.security;
 
+import org.apache.commons.lang3.ObjectUtils;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
@@ -26,11 +27,13 @@ public record RateLimitProperties(
 ) {
 
     public RateLimitProperties {
-        enabled = enabled == null ? Boolean.TRUE : enabled;
-        login = login == null ? new Rule(10, Duration.ofMinutes(1)) : login;
-        register = register == null ? new Rule(5, Duration.ofHours(1)) : register;
-        refresh = refresh == null ? new Rule(5, Duration.ofMinutes(1)) : refresh;
-        lockout = lockout == null ? new Lockout(5, Duration.ofMinutes(15)) : lockout;
+        // 常數預設用 defaultIfNull;需要 new 的預設一律用 getIfNull(supplier),
+        // 避免 defaultIfNull 的急切求值在值已存在時仍白建物件。
+        enabled = ObjectUtils.defaultIfNull(enabled, Boolean.TRUE);
+        login = ObjectUtils.getIfNull(login, () -> new Rule(10, Duration.ofMinutes(1)));
+        register = ObjectUtils.getIfNull(register, () -> new Rule(5, Duration.ofHours(1)));
+        refresh = ObjectUtils.getIfNull(refresh, () -> new Rule(5, Duration.ofMinutes(1)));
+        lockout = ObjectUtils.getIfNull(lockout, () -> new Lockout(5, Duration.ofMinutes(15)));
     }
 
     /**
@@ -48,8 +51,8 @@ public record RateLimitProperties(
      */
     public record Rule(Integer limit, Duration window) {
         public Rule {
-            limit = limit == null ? Integer.MAX_VALUE : limit;
-            window = window == null ? Duration.ofMinutes(1) : window;
+            limit = ObjectUtils.defaultIfNull(limit, Integer.MAX_VALUE);
+            window = ObjectUtils.getIfNull(window, () -> Duration.ofMinutes(1));
         }
     }
 
@@ -61,8 +64,8 @@ public record RateLimitProperties(
      */
     public record Lockout(Integer threshold, Duration duration) {
         public Lockout {
-            threshold = threshold == null ? 5 : threshold;
-            duration = duration == null ? Duration.ofMinutes(15) : duration;
+            threshold = ObjectUtils.defaultIfNull(threshold, 5);
+            duration = ObjectUtils.getIfNull(duration, () -> Duration.ofMinutes(15));
         }
     }
 }
