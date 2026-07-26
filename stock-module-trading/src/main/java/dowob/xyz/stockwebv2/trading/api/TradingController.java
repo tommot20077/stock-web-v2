@@ -25,6 +25,18 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.OffsetDateTime;
 import java.util.List;
 
+/**
+ * 交易與投資組合的 HTTP 端點。
+ *
+ * <p>本 controller 只負責取出已驗證身分的 userId、把 query string 原始字串原樣往下傳，
+ * 以及為交易建立留下稽核事件；所有參數的白名單驗證與型別解析都在
+ * {@link TradingService} 完成，避免驗證邏輯散落在兩層。唯一的例外是 {@code page} /
+ * {@code size}：它們宣告為 String 再自行轉數字，讓「非數字」也走統一的
+ * {@code VALIDATION_FAILED} 錯誤信封，而不是 Spring 型別轉換的通用 400。</p>
+ *
+ * @author Yuan
+ * @version 1.1
+ */
 @RestController
 @RequestMapping("/api/v1")
 public class TradingController {
@@ -36,6 +48,19 @@ public class TradingController {
         this.auditLogger = auditLogger;
     }
 
+    /**
+     * 建立一筆交易並更新持倉。
+     *
+     * <p>無論成功或被業務規則拒絕，都會輸出一筆稽核事件（security.md §13）；
+     * 被拒時例外仍向外拋出，交由 {@code GlobalExceptionHandler} 轉成錯誤信封。</p>
+     *
+     * @param request        交易建立請求，已通過 bean validation
+     * @param authentication 已驗證的身分，name 即 userId
+     * @param servletRequest 原始請求，用於解析客戶端 IP 寫入稽核
+     * @return 建立完成的交易
+     * @throws BusinessException 標的不存在或不可交易、交易類型不支援、持倉不足、
+     *                           成交時間為未來時間，或併發衝突時
+     */
     @PostMapping("/trades")
     @PreAuthorize("hasAuthority('TRADE_EXECUTE')")
     public ApiResponse<TradeDto> createTrade(
@@ -55,6 +80,29 @@ public class TradingController {
         }
     }
 
+    /**
+     * 查詢登入者的交易紀錄，支援標的、類型、成交時間區間篩選與白名單排序（D-05 / D-06 / D-07）。
+     *
+     * <p>所有篩選與排序參數皆為選填，語意與非法值行為以
+     * {@link TradingService#listTrades} 為準；本方法不做任何解析，僅原樣轉交。</p>
+     *
+     * <p>日期參數請以 UTC 瞬間（{@code 2026-01-01T00:00:00Z}）傳送。若要帶
+     * {@code +08:00} 這類偏移量，{@code '+'} <strong>必須</strong>百分比編碼成 {@code %2B}：
+     * servlet 會把裸的 {@code '+'} 解成空白。服務層雖已還原此種破壞，客戶端仍應正確編碼。</p>
+     *
+     * @param symbol         標的代號；省略或空白代表不依標的篩選
+     * @param type           交易類型 BUY / SELL，大小寫不敏感；省略或空白代表不篩選
+     * @param dateFrom       成交時間下界（含），ISO-8601 日期或時間戳；省略代表不設下界
+     * @param dateTo         成交時間上界（不含），ISO-8601 日期或時間戳；純日期形式涵蓋當日整天
+     * @param sort           排序鍵 executedAt / createdAt / total / quantity；省略代表 executedAt
+     * @param direction      排序方向 asc / desc；省略代表 desc
+     * @param page           頁碼，預設 0，夾限 0..10000
+     * @param size           每頁筆數，預設 20，夾限 1..100
+     * @param authentication 已驗證的身分，name 即 userId
+     * @return 該頁交易與符合篩選條件的總筆數
+     * @throws BusinessException 標的不存在、類型不支援、排序參數非法、日期格式非法、
+     *                           dateFrom 晚於 dateTo，或 page / size 非數字時
+     */
     @GetMapping("/trades")
     @PreAuthorize("hasAuthority('PORTFOLIO_VIEW')")
     public ApiResponse<PageResponse<TradeDto>> listTrades(

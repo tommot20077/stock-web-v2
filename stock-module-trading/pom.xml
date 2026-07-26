@@ -15,6 +15,17 @@
             <artifactId>stock-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!--
+            本模組直接 import org.apache.commons.lang3.StringUtils(controller / service / domain),
+            故顯式宣告而不只依賴 stock-common 的傳遞。stock-common 內同一區塊的
+            spring-boot-starter-validation 與 jackson-databind 都標了 <optional>true</optional>;
+            commons-lang3 哪天比照辦理,本模組會在沒有任何本地訊號的情況下編譯失敗。
+            版本一樣由 spring-boot-starter-parent BOM 管理,不自行指定。
+        -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+        </dependency>
         <dependency>
             <groupId>dowob.xyz</groupId>
             <artifactId>stock-infrastructure</artifactId>

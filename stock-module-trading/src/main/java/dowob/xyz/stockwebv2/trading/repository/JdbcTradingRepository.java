@@ -18,6 +18,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * 交易與持倉的 JDBC 資料存取實作。
+ *
+ * <p>本類是唯一組裝交易模組 SQL 的地方。動態部分（WHERE 條件、ORDER BY）一律來自
+ * {@link TradeQuery} 內已通過白名單的型別化值：條件值走 JDBC 具名參數，排序片段取自 enum
+ * 的寫死常數，請求字串永遠不會成為 SQL 文字（code-standards「絕對禁止串接 SQL」硬規則）。</p>
+ *
+ * @author Yuan
+ * @version 1.1
+ */
 @Repository
 public class JdbcTradingRepository implements TradingRepository {
     private static final String TRANSACTION_COLUMNS = """
@@ -126,6 +136,16 @@ public class JdbcTradingRepository implements TradingRepository {
         return updated.orElseThrow(() -> new BusinessException(ErrorCode.TRADE_CONFLICT, ErrorCode.TRADE_CONFLICT.defaultMessage()));
     }
 
+    /**
+     * 依查詢條件取回一頁交易，並回報符合同一組條件的總筆數。
+     *
+     * <p>count 與 list 是兩道獨立述句，必須在<strong>同一個交易</strong>中執行才能共用快照，
+     * 否則併發寫入落在兩者之間時 {@code totalElements} 會與 {@code items} 漂移。呼叫端
+     * {@code TradingService#listTrades} 已標記為 {@code @Transactional(readOnly = true)}。</p>
+     *
+     * @param query 已通過白名單驗證的型別化查詢物件
+     * @return 該頁交易與符合條件的總筆數
+     */
     @Override
     public PageResponse<TradeTransaction> listTransactions(TradeQuery query) {
         Filter filter = buildFilter(query);
@@ -150,7 +170,12 @@ public class JdbcTradingRepository implements TradingRepository {
      *
      * <p>先前 list 與 count 各自持有一份重複的 WHERE 字串，任一邊新增篩選條件都會讓
      * {@code totalElements} 與 {@code items} 漂移；改由本方法統一產出後兩邊共用，
-     * 使兩者在型別上不可能不一致。所有值一律走具名參數，SQL 文字不含任何請求輸入。</p>
+     * 使兩者<strong>在條件定義上</strong>不可能分歧。所有值一律走具名參數，
+     * SQL 文字不含任何請求輸入。</p>
+     *
+     * <p>注意這只消除了「條件寫錯」這一種漂移來源。兩道述句仍是分別執行的，因此還需要
+     * 呼叫端以唯讀交易包住，才能讓兩者讀到同一個快照——見
+     * {@link #listTransactions(TradeQuery)}。</p>
      *
      * @param query 已驗證的查詢物件
      * @return WHERE 子句字串與其具名參數
