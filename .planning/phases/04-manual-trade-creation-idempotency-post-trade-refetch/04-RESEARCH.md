@@ -2528,7 +2528,7 @@ Recent: 3ea000e docs(lessons): 記錄 GSD phase.insert 與 state.add-roadmap-evo
 Untracked: .planning/phases/04.1-backend-data-gap-backfill/
 ```
 
-**建議**:後端從 `develop` 開新 branch(不要在 `docs/lessons-verification-traps` 上疊實作 commit —— 那個 branch 的語意是純文件)。若採 DP-1 的 (a)「等 PR #15」,則從 PR #15 合併後的 `develop` 開。
+**建議**:後端從 `develop` 開新 branch(不要在 `docs/lessons-verification-traps` 上疊實作 commit —— 那個 branch 的語意是純文件)。（DP-1 已決為 (c):**不等 PR #15**,直接從當前 `origin/develop`(`e89540e`)開。）
 
 ### judgment §8 的驗證清單(Phase 4 收尾必跑)
 
@@ -2627,7 +2627,7 @@ CONTEXT.md 引用的所有行號逐條核對結果:
 
 | # | 決策 | 我的建議 | 理由 | 需要問 Yuan? |
 |---|------|---------|------|-------------|
-| **DP-1** | PR #15 的處理:(a) 等它合併 / (b) 自己補 executedAt 驗證 / (c) 以 develop 為基準但範圍收斂成「只做冪等」 | **(c),但若 Yuan 能在近期推進 PR #15 到 merge 則優先 (a)** | (b) 會產生兩份未來時間驗證 + 兩個 time parser,直接踩 judgment §6。(c) 零重複實作,衝突面已量化為「`TradingService` 的一個 hunk + `GlobalExceptionHandler` 的一個位置」,兩者都有具體緩解措施。(a) 最乾淨但 PR #15 是 draft 且帶 V9 checksum 債 | **✅ 要問** — 這牽涉「一個 draft PR 的合併時程」,是 Yuan 的排程決定,不是技術決定。judgment §9 未直接涵蓋,但 model-dispatch 精神是「時程類決定歸 Yuan」 |
+| **DP-1** | PR #15 的處理:(a) 等它合併 / (b) 自己補 executedAt 驗證 / (c) 以 develop 為基準但範圍收斂成「只做冪等」 | **(c),但若 Yuan 能在近期推進 PR #15 到 merge 則優先 (a)** | (b) 會產生兩份未來時間驗證 + 兩個 time parser,直接踩 judgment §6。(c) 零重複實作,衝突面已量化為「`TradingService` 的一個 hunk + `GlobalExceptionHandler` 的一個位置」,兩者都有具體緩解措施。(a) 最乾淨但 PR #15 是 draft 且帶 V9 checksum 債 | **🔒 已決 — 2026-07-26 Yuan 裁定採 (c)**。以 `develop` 為基準,Phase 4 **只做冪等**:不動 `resolveExecutedAt`、不建 time parser、不改驗證順序;`executedAt` 未來時間驗證**不屬 Phase 4 範圍**,留給 PR #15,SUMMARY 須記錄此依賴。查證附記(主 session,已核實):PR #15 為 `OPEN` + `isDraft:true`,base `develop`,head `fix/pr13-review-followups`;`V9__trading_query_indexes.sql` 已存在於 `origin/develop`,而 PR #15 確實修改它(3 條 `CREATE INDEX` → `IF NOT EXISTS`、新增 `idx_transactions_user_asset_executed`、`DROP INDEX IF EXISTS idx_transactions_user_asset_created`),違反 `ai-docs/flyway-convention.md`「Never modify a migration that has already been applied」。planner **不得**再考慮 (a)/(b) 分支 |
 | **DP-2** | 冪等的交易機制:方案 A(insert-first + `ON CONFLICT DO NOTHING`)/ B(外層+內層兩個 bean)/ E(advisory lock) | **A**,並在「零列後重讀落空」時回 `TRADE_CONFLICT` 而非 500 | A 是單一交易、零 proxy 陷阱、零 ERROR log 噪音、程式碼最短。B 有 self-invocation 靜默失效的高風險(Pitfall 6),而且那種失效**只在錯誤路徑露出**。E 是零殘餘風險的備案,若 A 的併發 IT 偶發紅就切換 | **⚠️ 應知會** — A 的順序(insert 在 holdings **之前**)**與 CONTEXT.md `<code_context>` 給的步驟順序不同**(CONTEXT.md 是 holdings → insert → 衝突處理)。兩者滿足同一組不變量,但 planner 不應在不知情下偏離 CONTEXT.md 的指示。建議在 plan 中明確記錄這個偏離與理由,並在 SUMMARY 交代 |
 | **DP-3** | 是否加 `MissingRequestHeaderException` handler | **加**,但插在 `handleValidation` **之前**(避開 PR #15 的 hunk) | 不加也能得到 400 `VALIDATION_FAILED`(Q3.2 已驗證),但 `fields` 空、message 通用,前端無法區分「缺 header」與「body 欄位錯」。PR #15 為完全相同的理由加了 `handleTypeMismatch` —— 有前例 | 否 |
 | **DP-4** | `idempotency_key` 的 `VARCHAR(n)` 長度 | **128** | UUID 是 36,但 D-05 允許非瀏覽器 client 自產(可能是 `prefix-uuid` / base64 / ULID)。36 會讓合法 client 在 DB 層炸,而那個例外正好落在冪等的 catch 範圍內 → 誤判。`TEXT` 無界則是 DoS 面 + B-tree entry 上限 | 否(`[ASSUMED]`,planner 可調,但必須 > 36 且有上限) |
@@ -2651,7 +2651,7 @@ CONTEXT.md 引用的所有行號逐條核對結果:
 | Dependency | Required By | Available | Version | Fallback |
 |------------|------------|-----------|---------|----------|
 | Java + Maven wrapper | 後端全部 | ✓ | `mvnw` / `mvnw.cmd` 在 repo 根;Spring Framework **7.0.8**(`~/.m2` jar 實查) | — |
-| **Docker** | 所有 IT(Testcontainers) | **UNVERIFIED** | — | **無 fallback** — 冪等的核心驗收(併發、`ON CONFLICT` 推斷、partial index)**必須**真實 PostgreSQL。H2/記憶體 DB 不支援 partial index 的 `ON CONFLICT` 推斷 → 測了等於沒測。**planner 必須在第一個 task 前確認 `docker info` 可用** |
+| **Docker** | 所有 IT(Testcontainers) | **✅ VERIFIED — 2026-07-26 主 session 實跑 `docker info` → Server 29.5.3,可用** | — | 原標為 UNVERIFIED,現已排除。冪等的核心驗收(併發、`ON CONFLICT` 推斷、partial index)**必須**真實 PostgreSQL(H2/記憶體 DB 不支援 partial index 的 `ON CONFLICT` 推斷 → 測了等於沒測),而 Testcontainers 路徑確認可用,故**不再是 blocker**。planner 無需再設前置確認 task |
 | PostgreSQL 16(via TimescaleDB image) | IT | ✓(映像已在 `ContainerIT:16` 指定) | `timescale/timescaledb:2.17.2-pg16` | — |
 | Redis 7.4 | IT(`PortfolioCache`) | ✓(`ContainerIT:23`) | `redis:7.4-alpine` | — |
 | Kafka | IT(共用容器) | ✓(`ContainerIT:26-27`) | `confluentinc/cp-kafka:7.6.0` | 本階段不需要,但 `ContainerIT` 會啟它 → IT 啟動成本較高 |
@@ -2661,7 +2661,7 @@ CONTEXT.md 引用的所有行號逐條核對結果:
 | **`gsd-tools`** | GSD 的 research-plan / package-legitimacy / commit seam | **✗** | `gsd-tools: command not found`(本 session 實跑) | 已用直接工具替代(`javap`、`WebFetch` 官方文件、`git`、`gh`)。**影響**:package legitimacy gate 無法自動跑(但本階段零新增依賴,見 Package Legitimacy Audit);RESEARCH.md 的 git commit 需人工執行 |
 
 **Missing dependencies with no fallback:**
-- **Docker** — 若不可用,**Phase 4 的核心驗收(TRAD-03)完全無法證明**。這是 plan 的第一個 blocker,必須在 Wave 1 之前確認。
+- ~~**Docker** — 若不可用,**Phase 4 的核心驗收(TRAD-03)完全無法證明**。這是 plan 的第一個 blocker,必須在 Wave 1 之前確認。~~ → **已解除(2026-07-26)**:主 session 實跑 `docker info`,Server 29.5.3 正常。Testcontainers 路徑可用,TRAD-03 可用真實 PostgreSQL 驗證。
 
 **Missing dependencies with fallback:**
 - `gsd-tools` — 已用直接工具替代;`commit_docs: true` 需人工 `git add`/`git commit`

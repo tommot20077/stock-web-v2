@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 4 context gathered
-last_updated: "2026-07-26T08:20:32.736Z"
+last_updated: "2026-07-26T09:44:21.894Z"
 last_activity: 2026-07-26
 progress:
   total_phases: 6
@@ -84,7 +84,8 @@ Recent decisions affecting current work:
 - [2026-07-19 契約對齊]: 前端分頁改為與後端 PageResponse 同形的 page-number,移除 cursor ACL;Success/Error 信封改為 ApiResponse(meta.traceId),移除後端不送的 error.field/details。
 - [Phase 4]: Trading scope is manual executed trade creation only; broker/order lifecycle remains out of scope.
 - [Phase 5]: Cross-repo browser verification is required because backend and frontend green tests alone do not prove cookie/CORS/CSRF integration.
-- [Phase ?]: [Phase 4 discuss] 四條後端資料缺口提前處理,插入 Phase 04.1(排在 4 之後、5 之前;非緊急,(INSERTED) 僅為結構標記)。理由:Phase 5 跨 repo 瀏覽器驗證若在大量 API-mode 隱藏區塊上跑,證明力被削弱。
+- [Phase 4]: [Phase 4 discuss] 四條後端資料缺口提前處理,插入 Phase 04.1(排在 4 之後、5 之前;非緊急,(INSERTED) 僅為結構標記)。理由:Phase 5 跨 repo 瀏覽器驗證若在大量 API-mode 隱藏區塊上跑,證明力被削弱。
+- [Phase 4]: DP-1 裁定採 (c):以 develop 為基準,Phase 4 只做冪等,不等 PR #15。executedAt 未來時間驗證與 ApiTimeParser 不屬 Phase 4 範圍,留給 PR #15(仍為 OPEN draft)。理由:PR #15 修改了已在 origin/develop 的 V9 migration,違反 flyway-convention「Never modify an applied migration」,等它合併會把 checksum 債帶進 Phase 4 的時程。同時排除 Docker blocker:實跑 docker info → Server 29.5.3 可用,Testcontainers 路徑可行。
 
 ### Pending Todos
 
