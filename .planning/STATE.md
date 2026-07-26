@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 4 context gathered
-last_updated: "2026-07-26T08:17:01.074Z"
+last_updated: "2026-07-26T08:20:32.736Z"
 last_activity: 2026-07-26
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 3
   total_plans: 15
   completed_plans: 15
-  percent: 60
+  percent: 50
 ---
 
 # Project State
@@ -84,6 +84,7 @@ Recent decisions affecting current work:
 - [2026-07-19 契約對齊]: 前端分頁改為與後端 PageResponse 同形的 page-number,移除 cursor ACL;Success/Error 信封改為 ApiResponse(meta.traceId),移除後端不送的 error.field/details。
 - [Phase 4]: Trading scope is manual executed trade creation only; broker/order lifecycle remains out of scope.
 - [Phase 5]: Cross-repo browser verification is required because backend and frontend green tests alone do not prove cookie/CORS/CSRF integration.
+- [Phase ?]: [Phase 4 discuss] 四條後端資料缺口提前處理,插入 Phase 04.1(排在 4 之後、5 之前;非緊急,(INSERTED) 僅為結構標記)。理由:Phase 5 跨 repo 瀏覽器驗證若在大量 API-mode 隱藏區塊上跑,證明力被削弱。
 
 ### Pending Todos
 
