@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
+status: Ready to execute
 stopped_at: Phase 4 UI-SPEC approved
-last_updated: "2026-07-26T13:37:23.905Z"
-last_activity: 2026-07-26
+last_updated: "2026-07-26T15:34:07.481Z"
+last_activity: 2026-07-26 -- Phase 4 planning complete
 progress:
   total_phases: 6
   completed_phases: 3
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-05-30)
 ## Current Position
 
 Phase: 03 (Portfolio Read API Mode) — COMPLETE(5/5 plans executed,SUMMARY 齊備)
-Last activity: 2026-07-26
+Last activity: 2026-07-26 -- Phase 4 planning complete
 
 Progress(milestone v1.0):[████████████░░░░░░░░] 3/5 phases (60%)
 Progress(plan):15/15 plans executed(Phase 1-3 全部執行完畢)
@@ -135,6 +135,7 @@ Next action: Phase 4 前置文件齊備(CONTEXT / RESEARCH / VALIDATION / UI-SPE
 - 後端 commits(本 repo):`4b98759`、`2f15c33`、`e276de5`(Plan 01)。
 - 前端 commits(`../../vue/stock-v2`):`4bdb229`、`157f7d8`(02)、`309598f`(03)、`40a4f2b`、`587e84e`(04)、
   `ef1fb35`、`c4abd7e`(05)。
+
 - **兩個 repo 皆已 push 並 merge 進各自的 `develop`**(2026-07-26 以 `git branch -r --contains` 逐一查證:
   後端三個 commit 皆在 `origin/develop`;前端七個 commit 亦在 `origin/develop`,經 PR #8 合併,
   sibling repo 現處於 `develop @ a03e030`,工作樹乾淨)。舊記載「兩個 repo 皆未 push」已過時,故更正。

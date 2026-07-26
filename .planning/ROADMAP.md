@@ -106,7 +106,6 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. Trade validation、oversell、permission、CSRF、network 錯誤以使用者可理解的方式顯示，並保留 backend error code/request id。
 
 **Plans**: 13 plans（8 waves；後端 5 + 前端 7 + 收尾閘門 1）
-
 Plans:
 
 - [ ] `04-01-PLAN.md` — 契約基石：`TRADE_IDEMPOTENCY_KEY_REUSED`(409) + V10 migration（`idempotency_key` 欄位 + partial unique index）+ DB 層行為 IT（wave 1，backend）
