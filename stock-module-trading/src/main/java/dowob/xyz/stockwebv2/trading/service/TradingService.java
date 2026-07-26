@@ -12,16 +12,21 @@ import dowob.xyz.stockwebv2.trading.api.TradeDto;
 import dowob.xyz.stockwebv2.trading.domain.Holding;
 import dowob.xyz.stockwebv2.trading.domain.HoldingCalculator;
 import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
+import dowob.xyz.stockwebv2.trading.domain.SortDirection;
+import dowob.xyz.stockwebv2.trading.domain.TradeSortKey;
 import dowob.xyz.stockwebv2.trading.domain.TradeTransaction;
 import dowob.xyz.stockwebv2.trading.domain.TradeType;
 import dowob.xyz.stockwebv2.trading.repository.LatestAssetPrice;
+import dowob.xyz.stockwebv2.trading.repository.TradeQuery;
 import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -97,15 +102,80 @@ public class TradingService {
         return mapper.toTradeDto(saved);
     }
 
-    public PageResponse<TradeDto> listTrades(Long userId, String symbol, int page, int size) {
+    /**
+     * 查詢使用者的交易紀錄，支援標的、交易類型與成交時間區間篩選，以及白名單排序（D-05 / D-06 / D-07）。
+     *
+     * <p>本方法是 HTTP 原始字串進入資料層前的唯一驗證關卡：所有參數在此解析為型別化的
+     * {@link TradeQuery}，任何白名單外的值都以 {@link BusinessException} 中止，
+     * 不會抵達 repository，更不可能成為 SQL 文字。</p>
+     *
+     * @param userId    交易擁有者 id
+     * @param symbol    標的代號；null 或空白代表不依標的篩選
+     * @param type      交易類型 BUY / SELL，大小寫不敏感；null 或空白代表不篩選
+     * @param dateFrom  成交時間下界（含）的 ISO-8601 字串；null 或空白代表不設下界
+     * @param dateTo    成交時間上界（不含）的 ISO-8601 字串；null 或空白代表不設上界
+     * @param sort      排序鍵 executedAt / total / quantity；null 或空白代表預設 executedAt
+     * @param direction 排序方向 asc / desc；null 或空白代表預設 desc
+     * @param page      頁碼，超出範圍會被夾限至 0..10000
+     * @param size      每頁筆數，超出範圍會被夾限至 1..100
+     * @return 該頁交易 DTO 與符合篩選條件的總筆數
+     * @throws BusinessException 標的不存在、交易類型不支援、排序參數或日期格式非法時
+     */
+    public PageResponse<TradeDto> listTrades(
+        Long userId,
+        String symbol,
+        String type,
+        String dateFrom,
+        String dateTo,
+        String sort,
+        String direction,
+        int page,
+        int size
+    ) {
         Long assetId = null;
         if (symbol != null && !symbol.isBlank()) {
             assetId = resolveAsset(symbol).id();
         }
+        TradeType tradeType = StringUtils.isBlank(type) ? null : TradeType.fromApiValue(type);
+        OffsetDateTime from = parseTimestamp(dateFrom, "dateFrom");
+        OffsetDateTime to = parseTimestamp(dateTo, "dateTo");
         int safePage = Math.min(Math.max(0, page), MAX_PAGE);
         int safeSize = Math.max(1, Math.min(100, size));
-        PageResponse<TradeTransaction> trades = repository.listTransactions(userId, assetId, safePage, safeSize);
+        TradeQuery query = new TradeQuery(
+            userId,
+            assetId,
+            tradeType,
+            from,
+            to,
+            TradeSortKey.fromApiValue(sort),
+            SortDirection.fromApiValue(direction),
+            safePage,
+            safeSize
+        );
+        PageResponse<TradeTransaction> trades = repository.listTransactions(query);
         return PageResponse.of(trades.items().stream().map(mapper::toTradeDto).toList(), trades.page(), trades.size(), trades.totalElements());
+    }
+
+    /**
+     * 解析 ISO-8601 時間字串。
+     *
+     * <p>錯誤訊息只說明期望格式、刻意不回射原始輸入值，避免使用者可控字串被反射回應答
+     * （code-standards 錯誤訊息安全規則）。</p>
+     *
+     * @param value 原始字串；null 或空白代表未指定
+     * @param field 欄位名稱，用於組錯誤訊息
+     * @return 解析後的時間；未指定時回傳 null
+     * @throws BusinessException 格式無法解析時丟出 VALIDATION_FAILED
+     */
+    private OffsetDateTime parseTimestamp(String value, String field) {
+        if (StringUtils.isBlank(value)) {
+            return null;
+        }
+        try {
+            return OffsetDateTime.parse(value.trim());
+        } catch (DateTimeParseException exception) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, field + " must be an ISO-8601 timestamp");
+        }
     }
 
     public List<HoldingDto> listHoldings(Long userId) {
@@ -178,14 +248,14 @@ public class TradingService {
     }
 
     private String normalizeSymbol(String symbol) {
-        if (symbol == null || symbol.isBlank()) {
+        if (StringUtils.isBlank(symbol)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "symbol is required");
         }
         return symbol.trim().toUpperCase(Locale.ROOT);
     }
 
     private String cleanNote(String note) {
-        if (note == null || note.isBlank()) {
+        if (StringUtils.isBlank(note)) {
             return null;
         }
         return note.trim();

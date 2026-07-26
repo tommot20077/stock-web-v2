@@ -13,7 +13,9 @@ import org.springframework.stereotype.Repository;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Repository
@@ -125,28 +127,77 @@ public class JdbcTradingRepository implements TradingRepository {
     }
 
     @Override
-    public PageResponse<TradeTransaction> listTransactions(Long userId, Long assetId, int page, int size) {
-        boolean filterAsset = assetId != null;
-        long offset = (long) page * size;
-        String where = filterAsset ? "where t.user_id = :userId and t.asset_id = :assetId " : "where t.user_id = :userId ";
+    public PageResponse<TradeTransaction> listTransactions(TradeQuery query) {
+        Filter filter = buildFilter(query);
+        long offset = (long) query.page() * query.size();
         JdbcClient.StatementSpec listSpec = jdbcClient.sql("select " + TRANSACTION_COLUMNS + """
                 from transactions t
                 join assets a on a.id = t.asset_id
-                """ + where + """
-                order by t.created_at desc, t.id desc
+                """ + filter.whereClause() + orderByClause(query) + """
                 limit :limit offset :offset
                 """)
-            .param("userId", userId)
-            .param("limit", size)
+            .params(filter.params())
+            .param("limit", query.size())
             .param("offset", offset);
-        JdbcClient.StatementSpec countSpec = jdbcClient.sql("select count(*) from transactions t " + where)
-            .param("userId", userId);
-        if (filterAsset) {
-            listSpec = listSpec.param("assetId", assetId);
-            countSpec = countSpec.param("assetId", assetId);
-        }
+        JdbcClient.StatementSpec countSpec = jdbcClient.sql("select count(*) from transactions t " + filter.whereClause())
+            .params(filter.params());
         long total = countSpec.query(Long.class).single();
-        return PageResponse.of(listSpec.query(this::mapTransaction).list(), page, size, total);
+        return PageResponse.of(listSpec.query(this::mapTransaction).list(), query.page(), query.size(), total);
+    }
+
+    /**
+     * 組裝交易查詢的 WHERE 子句與對應具名參數，作為 list 與 count 的<strong>單一來源</strong>。
+     *
+     * <p>先前 list 與 count 各自持有一份重複的 WHERE 字串，任一邊新增篩選條件都會讓
+     * {@code totalElements} 與 {@code items} 漂移；改由本方法統一產出後兩邊共用，
+     * 使兩者在型別上不可能不一致。所有值一律走具名參數，SQL 文字不含任何請求輸入。</p>
+     *
+     * @param query 已驗證的查詢物件
+     * @return WHERE 子句字串與其具名參數
+     */
+    private Filter buildFilter(TradeQuery query) {
+        StringBuilder where = new StringBuilder("where t.user_id = :userId");
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("userId", query.userId());
+        if (query.assetId() != null) {
+            where.append(" and t.asset_id = :assetId");
+            params.put("assetId", query.assetId());
+        }
+        if (query.type() != null) {
+            where.append(" and t.type = :type");
+            params.put("type", query.type().name());
+        }
+        if (query.dateFrom() != null) {
+            where.append(" and t.executed_at >= :dateFrom");
+            params.put("dateFrom", query.dateFrom());
+        }
+        if (query.dateTo() != null) {
+            where.append(" and t.executed_at < :dateTo");
+            params.put("dateTo", query.dateTo());
+        }
+        return new Filter(where.append(' ').toString(), params);
+    }
+
+    /**
+     * 組裝 ORDER BY 子句。排序鍵與方向皆取自 enum 白名單的寫死片段，請求字串永不進入 SQL；
+     * 一律附加 {@code t.id} 作為 tie-breaker，確保排序值相同時分頁結果仍具決定性
+     * （否則翻頁可能重複或遺漏資料）。
+     *
+     * @param query 已驗證的查詢物件
+     * @return 完整的 ORDER BY 子句
+     */
+    private String orderByClause(TradeQuery query) {
+        String direction = query.direction().sqlKeyword();
+        return "order by " + query.sortKey().sqlFragment() + " " + direction + ", t.id " + direction + " ";
+    }
+
+    /**
+     * 動態 WHERE 的組裝結果。
+     *
+     * @param whereClause WHERE 子句字串（僅含寫死條件與具名參數佔位符）
+     * @param params      具名參數值
+     */
+    private record Filter(String whereClause, Map<String, Object> params) {
     }
 
     @Override

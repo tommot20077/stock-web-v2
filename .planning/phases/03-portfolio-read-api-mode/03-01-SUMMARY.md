@@ -1,0 +1,173 @@
+---
+phase: 03-portfolio-read-api-mode
+plan: 01
+subsystem: backend
+tags: [java, spring-boot, jdbcclient, postgresql, flyway, trading, pagination, sql-injection]
+
+# Dependency graph
+requires:
+  - phase: 02-browser-auth-api-mode
+    provides: Bearer token 驗證與 ApiResponse 信封（IT 以 register + Bearer 建立使用者的既有模式）
+provides:
+  - GET /api/v1/trades 的 type / dateFrom / dateTo / sort / direction 五個查詢參數
+  - TradeSortKey / SortDirection 排序白名單 enum（寫死 SQL 片段，ORDER BY 不可參數化下的合規做法）
+  - TradeQuery 型別化查詢物件（service → repository 的唯一入口）
+  - JdbcTradingRepository 的單一來源動態 WHERE（list 與 count 共用，totalElements 不再可能漂移）
+  - 預設排序 executed_at DESC, id DESC（取代 created_at）
+  - V9 索引：idx_transactions_user_executed、idx_transactions_user_amount
+affects: [03-05 Trades 頁改寫（前端依本 plan 鎖定的契約表實作）]
+
+# Tech tracking
+tech-stack:
+  added: []
+  patterns:
+    - "ORDER BY 白名單：使用者輸入只用於『挑選』enum 常數，SQL 片段永遠是寫死常數"
+    - "動態 WHERE 單一來源：private 方法同時產出 WHERE 字串與具名參數 Map，list 與 count 共用"
+    - "日期區間一律半開 [dateFrom, dateTo)，避免邊界重複計入"
+    - "排序一律附加 id tie-breaker，確保分頁決定性"
+
+key-files:
+  created:
+    - stock-db-migration/src/main/resources/db/migration/V9__trading_query_indexes.sql
+    - stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/domain/TradeSortKey.java
+    - stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/domain/SortDirection.java
+    - stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/repository/TradeQuery.java
+    - stock-module-trading/src/test/java/dowob/xyz/stockwebv2/trading/domain/TradeSortKeyTest.java
+    - stock-module-trading/src/test/java/dowob/xyz/stockwebv2/trading/service/TradingServiceTest.java
+  modified:
+    - stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/repository/TradingRepository.java
+    - stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/repository/JdbcTradingRepository.java
+    - stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/service/TradingService.java
+    - stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/api/TradingController.java
+    - stock-start/src/test/java/dowob/xyz/stockwebv2/start/TradingApiIT.java
+
+key-decisions:
+  - "不引入 commons-lang3：code-standards 建議的 StringUtils 需要該依賴，但全專案未宣告此依賴，改沿用 TradeType 既有的 value == null || value.isBlank() 寫法（consistency 優先於外部標準）"
+  - "sort=quantity 刻意不建索引：per-user 交易量小，三鍵全建索引寫入成本不成比例，取捨已寫進 V9 SQL 註解"
+  - "count 查詢不 join assets：共用的 WHERE 只引用 t.* 欄位，因此 count 可省下 join"
+  - "type 空白字串視為不篩選，而非非法值（TradeType.fromApiValue 對空白會丟 TRADE_UNSUPPORTED_TYPE，故 service 先行短路）"
+  - "日期解析錯誤訊息只說明期望格式、不回射原始輸入（T-03-03）"
+
+metrics:
+  duration: ~75 min
+  completed: 2026-07-25
+  tasks: 3
+  commits: 3
+---
+
+# Phase 3 Plan 01: 交易查詢篩選與排序 Summary
+
+`GET /api/v1/trades` 新增 type / 日期區間篩選與 executedAt / total / quantity 三鍵白名單排序，預設排序由 `created_at` 改為 `executed_at DESC, id DESC`，並以 V9 索引配套；list 與 count 改用單一來源 WHERE，消除 `totalElements` 與 `items` 漂移。
+
+## 完成內容
+
+| Task | 內容 | Commit |
+|------|------|--------|
+| 1 | `TradeSortKey` / `SortDirection` 白名單 enum 與 `TradeQuery` record | `4b98759` |
+| 2 | repository 動態 WHERE/ORDER 重構、service/controller 接線、V9 migration | `2f15c33` |
+| 3 | `TradingApiIT` 擴充：filter / sort / 一致性 / negative / 使用者隔離 | `e276de5` |
+
+## TDD 證據
+
+| Task | RED | GREEN |
+|------|-----|-------|
+| 1 | `TradeSortKeyTest` 編譯失敗：`cannot find symbol: class TradeSortKey`、`package SortDirection does not exist` | `Tests run: 16, Failures: 0, Errors: 0` |
+| 2 | `TradingServiceTest` 編譯失敗：`method listTrades in class TradingService cannot be applied to given types`、`TradeQuery cannot be converted to java.lang.Long` | 模組全跑 `Tests run: 34, Failures: 0, Errors: 0`（TradeSortKeyTest 16 + TradingServiceTest 12 + HoldingCalculatorTest 5 + TradingControllerTest 1） |
+| 3 | 將 `orderByClause` 暫時改回舊的 `order by t.created_at desc, t.id desc` 後重跑：`Tests run: 2, Failures: 2`（`defaultSortUsesExecutedAtInsteadOfCreatedAt`、`sortByTotalBreaksTiesDeterministicallyById` 皆在 `$.data.items[n].id` 斷言失敗）→ 還原後全綠 | `TradingApiIT` `Tests run: 13, Failures: 0`；出場閘門 `./mvnw -pl stock-start -am verify` → `Tests run: 80, Failures: 0, Errors: 0`、`BUILD SUCCESS`、exit 0 |
+
+Task 3 的 RED 為「事後反向驗證」而非「先寫測試再實作」——原因見下方〈偏離與風險〉。
+
+## （1）因 created_at → executed_at 切換而更新的既有 IT 斷言
+
+**沒有任何既有斷言需要更新。** `git diff --stat` 對 `TradingApiIT.java` 為 `226 insertions(+), 0 deletions(-)`，即純新增、零修改。
+
+逐一檢查結果：
+
+| 既有測試 | 是否受排序切換影響 | 理由 |
+|----------|-------------------|------|
+| `buyThenSellUpdatesHoldingsAndPortfolioSummary` | 否 | 斷言 `items[0].id` 時該使用者只有 1 筆交易，任何排序下結果相同；且未帶 `executedAt`，`executed_at` 由 service 填 `now()`，與 `created_at` 同序 |
+| `fullyClosedPositionStillCountsRealizedPnlInSummary` | 否 | 只斷言 summary，未查交易清單 |
+| `sellRejectsOversell` | 否 | 只斷言錯誤碼 |
+| `concurrentFirstBuysMergeWithoutUniqueViolation` | 否 | 只斷言 holdings 總量 |
+| `tradingEndpointsRequireAuthentication` | 否 | 未帶權杖，未進入查詢 |
+
+其他 IT（`TransactionsAppendOnlyIT`、`AuditLoggingIT` 等）與交易清單排序無關，全數維持綠燈（80/80）。
+
+## （2）V9 兩條索引的最終定義
+
+檔案：`stock-db-migration/src/main/resources/db/migration/V9__trading_query_indexes.sql`（V1..V8 未被修改，`git diff` 對 migration 目錄僅顯示新增 V9）
+
+```sql
+-- D-07：預設排序 executed_at DESC, id DESC 的配套索引
+CREATE INDEX idx_transactions_user_executed ON transactions (user_id, executed_at DESC, id DESC);
+
+-- D-06：金額（數量 × 單價）排序的 PostgreSQL 運算式索引；運算式必須加括號
+CREATE INDEX idx_transactions_user_amount ON transactions (user_id, (quantity * price) DESC, id DESC);
+```
+
+- 兩條索引皆以 `user_id` 開頭，對應恆存在的 `t.user_id = :userId` 條件。
+- `id DESC` 納入索引尾端，讓 tie-breaker 不需額外排序步驟。
+- **`sort=quantity` 刻意不建索引**：per-user 交易筆數量級小，`user_id` 過濾後的排序成本可忽略；三鍵全建會讓每筆交易寫入都要維護三份索引，寫入成本與收益不成比例。取捨已寫入 SQL 註解，日後單一使用者交易量顯著成長時再補建。
+- Flyway 於每次 IT 啟動時套用 V1..V9，80 個 IT 全綠即證明 V9 可乾淨套用、無 validate 錯誤。
+
+## （3）最終 API 契約表（前端 Plan 05 依此實作）
+
+`GET /api/v1/trades`
+
+| 參數 | 型態 | 預設 | 語意 | 非法值行為 |
+|------|------|------|------|-----------|
+| `symbol` | string | 無（不篩） | 標的代號，前後空白會被 trim、轉大寫 | 查無此標的 → 400 `ASSET_NOT_FOUND` |
+| `type` | string | 無（不篩） | `BUY` / `SELL`，大小寫不敏感；**空白字串等同不帶** | 400 `TRADE_UNSUPPORTED_TYPE` |
+| `dateFrom` | ISO-8601 OffsetDateTime | 無 | `executed_at >= dateFrom`（含） | 400 `VALIDATION_FAILED`，訊息 `dateFrom must be an ISO-8601 timestamp` |
+| `dateTo` | ISO-8601 OffsetDateTime | 無 | `executed_at < dateTo`（**不含**，半開區間 `[dateFrom, dateTo)`） | 400 `VALIDATION_FAILED`，訊息 `dateTo must be an ISO-8601 timestamp` |
+| `sort` | string | `executedAt` | 白名單 `executedAt` / `total` / `quantity`，大小寫不敏感；`total` 定義為 `quantity × price`（**不含 fee**） | 400 `VALIDATION_FAILED`，訊息 `sort must be one of executedAt, total, quantity` |
+| `direction` | string | `desc` | `asc` / `desc`，大小寫不敏感 | 400 `VALIDATION_FAILED`，訊息 `direction must be asc or desc` |
+| `page` | int | `0` | 夾限 0..10000（超出不報錯，直接夾限） | 非數字 → 400 `VALIDATION_FAILED`，訊息 `page must be a number` |
+| `size` | int | `20` | 夾限 1..100（超出不報錯，直接夾限） | 非數字 → 400 `VALIDATION_FAILED`，訊息 `size must be a number` |
+
+補充契約細節：
+
+- 所有排序一律附加 `, t.id {direction}` 作為決定性 tie-breaker；`sort=total&direction=desc` 下金額相同者，**後插入者（id 較大）在前**。
+- 日期篩選與排序皆以 `executed_at`（成交時間）為準，**非** `created_at`（入帳時間）。補登舊交易時兩者會分歧。
+- `totalElements` 與 `items` 套用完全相同的 WHERE（單一來源），帶篩選時兩者必定一致。
+- 篩選/排序的任何組合都不會跨使用者洩漏（`t.user_id = :userId` 恆在）。
+- 回應信封與分頁結構不變：`$.data.items[]` / `$.data.page` / `$.data.size` / `$.data.totalElements` / `$.data.totalPages`。
+- `TradeDto.id` 是 **uuid 字串**（非數字主鍵），排序 tie-breaker 用的是資料庫數字 id，兩者不同。
+
+## Deviations from Plan
+
+### 1. [Rule 3 - 阻擋問題] 未引入 commons-lang3
+
+- **發現於**：Task 1
+- **問題**：`ai-docs/code-standards.md` 建議以 `StringUtils.isBlank` 做空值檢查，我依此撰寫後發現全專案 `pom.xml` 皆未宣告 `commons-lang3`。
+- **處置**：不新增依賴（新增套件屬於需人工確認的範疇），改沿用同 package `TradeType.fromApiValue` 既有的 `value == null || value.isBlank()` 寫法。code-standards「Consistency: Follow existing local style over external standards」支持此選擇。
+- **影響檔案**：`TradeSortKey.java`、`SortDirection.java`
+- **Commit**：`4b98759`
+
+### 2. Task 3 的 TDD 順序為「事後反向驗證」
+
+- **實況**：Task 3 的 IT 在 Task 2 實作已存在的前提下撰寫，首次執行即 13/13 綠，未先觀察到自然的 RED。
+- **原因**：新參數在 Task 2 之前連 controller 都不存在，IT 會停在「參數被忽略」而非有意義的紅燈；plan 本身也將此 task 標為「Red/**確認** test」。
+- **補救**：為避免寫出「永遠會綠」的假斷言，我把 `orderByClause` 暫時改回舊的 `order by t.created_at desc, t.id desc` 重跑，確認 `defaultSortUsesExecutedAtInsteadOfCreatedAt` 與 `sortByTotalBreaksTiesDeterministicallyById` 兩個測試確實轉紅（`Tests run: 2, Failures: 2`），再還原。此為 Task 3 的 RED 證據。
+- **殘留風險**：其餘 6 個新 IT 方法（日期半開區間、type 篩選一致性、negative、使用者隔離）僅有綠燈證據，未逐一做反向驗證。
+
+## Known Stubs
+
+無。
+
+## Threat Flags
+
+無新增未列於 `<threat_model>` 的安全面。三項 `mitigate` 處置皆已落實：
+
+| Threat ID | 落實方式 | 測試證據 |
+|-----------|---------|---------|
+| T-03-01（ORDER BY 竄改） | 排序鍵/方向經 enum 白名單映射寫死片段；service 層擋非法值 | `TradeSortKeyTest` 注入字串 negative（5 個 `@ValueSource` 值含 `executed_at; drop table transactions`）、IT `invalidSortAndDirectionAreRejected` |
+| T-03-02（跨使用者洩漏） | WHERE 恆含 `t.user_id = :userId` | IT `filtersNeverLeakOtherUsersTrades`：5 種篩選排序組合皆斷言回應不含他人交易 id |
+| T-03-03（錯誤訊息回射） | 訊息只述期望格式，不含原始輸入與 SQL 片段 | `TradeSortKeyTest.rejectionMessageDoesNotEchoInput`、`TradingServiceTest.malformedDateFromIsRejected`（`hasMessageNotContaining`） |
+
+## Self-Check: PASSED
+
+- 6 個新建檔案全部存在於工作樹。
+- 3 個 commit 皆可由 `git log` 查得：`4b98759`、`2f15c33`、`e276de5`。
+- 出場閘門 `./mvnw -pl stock-start -am verify` exit 0、`BUILD SUCCESS`、`Tests run: 80, Failures: 0, Errors: 0`。
+- V1..V8 未被修改（`git diff --name-only -- stock-db-migration/` 於提交前為空，僅 V9 為新增檔）。

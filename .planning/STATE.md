@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 3 planned (5 plans, plan-checker PASS)
-last_updated: "2026-07-25T01:57:43.791Z"
-last_activity: 2026-07-19
+stopped_at: Phase 3 complete (5/5 plans executed)
+last_updated: "2026-07-26T01:10:00.000Z"
+last_activity: 2026-07-26
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 15
-  completed_plans: 10
-  percent: 40
+  completed_plans: 15
+  percent: 60
 ---
 
 # Project State
@@ -21,37 +21,39 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can safely sign in, inspect portfolio state, and record trades through one coherent frontend/backend flow.
-**Current focus:** Phase 03 — Portfolio Read API Mode(已規劃,待執行)
+**Current focus:** Phase 03 已完成;下一步是 Phase 04 — Manual Trade Creation(尚無 CONTEXT)
 
 ## Current Position
 
-Phase: 03 (Portfolio Read API Mode) — PLANNED(5 plans,plan-checker PASS),待執行
-Last activity: 2026-07-25
+Phase: 03 (Portfolio Read API Mode) — COMPLETE(5/5 plans executed,SUMMARY 齊備)
+Last activity: 2026-07-26
 
-Progress(milestone v1.0):[████████░░░░░░░░░░░░] 2/5 phases (40%)
-Progress(plan):10/15 plans executed(Phase 1-2 的 10 個已執行;Phase 3 的 5 個已規劃待執行)
+Progress(milestone v1.0):[████████████░░░░░░░░] 3/5 phases (60%)
+Progress(plan):15/15 plans executed(Phase 1-3 全部執行完畢)
 
-> ⚠️ 40% 是 milestone 真實進度(5 個 phase 完成 2 個)。Phase 3 已完成 discuss + plan
-> (CONTEXT 16 決策、5 個 PLAN、plan-checker goal-backward PASS),下一步是執行。
+> ⚠️ 60% 是 milestone 真實進度(5 個 phase 完成 3 個)。Phase 3 的後端(`./mvnw -pl stock-start -am verify`
+> 80/80 綠)與前端(`npm test` / `VITE_DATA_MODE=api npm test` 各 233/233、`npm run build` exit 0)
+> 兩邊各自綠,但**尚未跑過真實跨 repo 整合** —— 那是 Phase 5 的範圍(judgment §8)。
 > Phase 4、5 連 CONTEXT 都還沒有。
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 10
-- Average duration: 21min
-- Total execution time: ~1.9 hours
+- Total plans completed: 15
+- Average duration: 23min
+- Total execution time: ~3.1 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 02 | 5 | 111min | 22min |
+| 03 | 5 | 197min | 39min |
 
 **Recent Trend:**
 
-- Last 5 plans: Phase 02 plans 01-05 completed
+- Last 5 plans: Phase 03 plans 01-05 completed(01 後端 ~75min、02 service 25min、03 Overview 22min、04 Positions 35min、05 Trades 40min)
 - Trend: Phase 02 closed out. Plan 05 的實作其實於 2026-05-31 就完成(6 個 `02-05` commit),
   但當時 session 在最後一個 commit 後結束、未產出 SUMMARY,導致 Phase 02 長期顯示為 in_progress。
   已於 2026-07-19 依 commit 證據回溯補寫 `02-05-SUMMARY.md` 並重新驗證驗收條件(154/154 雙模式 + build 綠)。
@@ -87,9 +89,15 @@ Recent decisions affecting current work:
 
 *(註:原有一條「Phase 2 planning should consume browser-auth-contract.md and avoid frontend token storage」已於 2026-07-19 移除 —— Phase 2 已完成,該提醒已過時。)*
 
-- 4 pending — `/gsd-capture --list` to review
+- 5 pending — `/gsd-capture --list` to review
 
-四條皆為 Phase 3 discuss(2026-07-19)發現的「前端有 UI、後端無資料來源」缺口,API mode 一律**隱藏**該 UI 而非顯示假資料:
+**第 5 條(2026-07-26,Phase 3 收尾發現):**
+- **Chart/Markets 仍直連 mock store(watchlist 未 API 化)** — Phase 3 已讓 Overview/Positions/Trades
+  三頁脫離 mock store,但這兩頁仍直接 import。**性質澄清**:它們用的是 watchlist(`isWatched`/
+  `toggleWatch`/`watchlists`)而非 portfolio 讀取,屬 PORT-06(v2 deferred),**不是 Phase 3 的遺漏**。
+  記錄此條是為了讓未來 grep judgment §3 合規性的人知道這兩處為何存在。
+
+**前四條**皆為 Phase 3 discuss(2026-07-19)發現的「前端有 UI、後端無資料來源」缺口,API mode 一律**隱藏**該 UI 而非顯示假資料:
 
 - **後端支援 DIV(股利)交易類型** — 交易頁有「股利」篩選頁籤但後端 `TradeType` 只有 BUY/SELL。不是加個 enum 就好,股利會改變成本/損益計算語意。
 - **後端支援日級損益** — Overview「今日損益」KPI 目前是寫死字串;後端無時間維度,需日級持倉快照。
@@ -113,13 +121,15 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-25T01:57:43.769Z
-Stopped at: Phase 3 planned (5 plans, plan-checker PASS)
-Resume file: .planning/phases/03-portfolio-read-api-mode/03-01-PLAN.md
-Next action: Phase 3 已完成 plan(5 plans,plan-checker PASS)→ `/gsd-execute-phase 3`
+Last session: 2026-07-26T01:10:00.000Z
+Stopped at: Phase 3 complete (5/5 plans executed, 全部 SUMMARY 已產出)
+Resume file: None
+Next action: Phase 4 尚無 CONTEXT → `/gsd-discuss-phase 4`
 
-⚠️ 執行者注意:
-- Wave 1(可平行):03-01 後端 `/trades` 篩選/排序 + V9 索引、03-02 前端 service 地基。
-- Wave 2(依賴 Wave 1):03-03/04/05 三頁改寫,05 依賴 01 的後端契約 + 02 的介面。
-- Phase 3 **包含後端改動**(`GET /trades` 補篩選與排序參數),非純前端。
-- 03-01 是後端(`./mvnw`),03-02~05 是前端(`../../vue/stock-v2/vue-app`,`npm test`)。
+⚠️ Phase 3 收尾狀態:
+- 後端 commits(本 repo):`4b98759`、`2f15c33`、`e276de5`(Plan 01)。
+- 前端 commits(`../../vue/stock-v2`,branch `feature/phase-03-portfolio-read`):`4bdb229`、`157f7d8`(02)、
+  `309598f`(03)、`40a4f2b`、`587e84e`(04)、`ef1fb35`、`c4abd7e`(05)。**兩個 repo 皆未 push。**
+- 三個頁面都已不再 import mock store(PORT-04 / judgment §3),API mode 一律經 `getRuntimeApiClients()`。
+- 尚未驗證:前後端真實整合(Phase 5 範圍)。03-05-SUMMARY §(4) 有逐項契約對帳(16 PASS / 1 N/A / 0 FAIL),
+  但那是「前端送出的 URL」對「03-01-SUMMARY 記錄的契約」的紙面比對,不是跑起後端打真實請求。
