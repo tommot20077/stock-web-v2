@@ -1,10 +1,12 @@
 ---
 phase: 04
 slug: manual-trade-creation-idempotency-post-trade-refetch
-status: draft
+status: approved
+revision: 2
 shadcn_initialized: false
 preset: existing-stock-v2-shell
 created: 2026-07-26
+revised: 2026-07-26
 ---
 
 # Phase 04 — UI Design Contract
@@ -15,6 +17,13 @@ created: 2026-07-26
 > 上游決策來源:`04-CONTEXT.md`(D-01 ~ D-16)、`04-RESEARCH.md`(Q0 ~ Q12 / DP-1 ~ DP-14)、
 > `01-UI-SPEC.md` / `02-UI-SPEC.md`(既有設計系統基線)、Phase 3 的 D-11 ~ D-16(區塊狀態慣例)。
 > **本文件不重述上游已鎖定的決策,只把它們翻譯成可實作的視覺/互動契約,並補上上游未決的部分。**
+>
+> **Revision 2(2026-07-26)** — 針對 gsd-ui-checker 的 6 條 FLAG 修訂:
+> 字級/間距盤點改為實測全量清單並換成可自我驗證的規則(FLAG-D/A/B)、
+> spacing token 改名以消除與 `02-UI-SPEC.md` 的同名衝突(FLAG-C)、
+> 補 `✕` 的 accessible name(FLAG-E)、宣告 step 1 的視覺焦點(FLAG-F)、
+> U-08 措辭從「不衝突」改為「刻意覆寫」、U-16 升格為 Yuan 已裁定。
+> 所有既有 `file:line` 引用已由 checker 逐行查證命中,本次不變動;新增引用皆於本次 session 實跑驗證。
 
 ---
 
@@ -35,12 +44,13 @@ created: 2026-07-26
 | 事實 | 我實際跑過的驗證 |
 |------|-----------------|
 | 前端專案根 | `D:\end\workspace\vue\stock-v2\vue-app`(`ls vue-app` → `src/` `package.json` `vite.config.ts`) |
-| 目前分支 | `develop` @ `a03e030`(`git branch --show-current` / `git log --oneline -1`) |
+| 目前分支 | `develop` @ `a03e030`(`git branch --show-current` / `git log --oneline -1`,revision 2 重跑仍相同;工作樹乾淨) |
 | **無 shadcn / Tailwind / PostCSS** | `ls vue-app/components.json vue-app/tailwind.config.* vue-app/postcss.config.*` → 三者皆 `No such file or directory` |
 | 設計 token 唯一來源 | `src/styles.css`(31 行,全檔實讀):`--bg --surface --surface2 --fg --fg-dim --fg-mute --border --accent --up --dn --neg --radius` |
 | **前端沒有 asset / market adapter** | `grep -rn "api/v1/assets\|klines\|market/" src/` → **零命中**(我本 session 實跑) |
 | `Markets.vue` 仍讀本地假資料 | `sed -n '129p' src/pages/Markets.vue` → `import { SYMBOLS, CRYPTO, FX, BONDS, ... } from '../data';` |
 | `RuntimeApiClients` 現有欄位 | `pageApiClients.ts:9-17` 實讀 → `auth / aiAccess / backtest / ops / portfolio`(無 `trading`、無 `asset`、無 `market`) |
+| **`apiClient` 的實際路徑是 `src/services/`** | `find src -name "apiClient*.ts"` → `src/services/apiClient.ts` / `src/services/apiClient.test.ts`(**不是** `src/api/`;本文件後續一律寫完整路徑) |
 
 ### shadcn 初始化閘門(已執行,結論:不初始化)
 
@@ -55,58 +65,80 @@ Phase 4 是**改寫既有 SFC**(`OrderTicket.vue`),不是新建設計系統;導�
 
 | 介面 | 檔案 | 變動幅度 |
 |------|------|---------|
-| Order ticket(主戰場) | `src/components/OrderTicket.vue`(555 行,全檔實讀) | **API mode 幾近重建** |
+| Order ticket(主戰場) | `src/components/OrderTicket.vue`(555 行,全檔實讀) | **API mode 幾近重建;mock mode 亦需拆除假進度(U-16)** |
 | Positions 頁 | `src/pages/Positions.vue` | post-trade refetch + `fresh` 高亮接線(D-10/D-13) |
 | Trades 頁 | `src/pages/Trades.vue` | 同上 + 「不在目前檢視範圍」提示(D-11) |
 | Overview 頁 | `src/pages/Overview.vue` | post-trade refetch(D-10) |
 | 全域 toast | `src/components/Toast.vue` | 只改文案(不得出現「已成交」語意) |
 | 全域 session banner | `src/components/SessionBanner.vue` | **不改** — 邊界見 §錯誤分派 |
+| 既有 mock 測試 | `src/task4.test.ts` | **必改** — 3 個 case 依賴 placing 假進度,見 U-16 |
 
 ---
 
 ## Spacing Scale
 
+> **⚠️ 本段在 Phase 4 範圍內取代 `02-UI-SPEC.md:33-44` 的 t-shirt scale。**
+> Phase 2 定義 `md = 16px` / `lg = 24px` / `xl = 32px`;Phase 4 的 ticket 是密度更高的表單介面,需要一級 `12px`,
+> 沿用 t-shirt 名稱會讓整條 scale 位移一格,產生「同名不同值」的跨階段誤讀。
+> **因此 Phase 4 改用值鍵 token(`s-12` 永遠是 12px),與 Phase 2 的名稱空間不重疊、不可能混淆。**
+> Phase 1/2/3 已驗收的介面繼續適用 Phase 2 的 scale,不受本段影響;本段只約束 §「本契約涵蓋的畫面」列出的重建範圍。
+
 | Token | Value | Usage |
 |-------|-------|-------|
-| xs | 4px | 標籤與輸入框間距、診斷列 gap、`.seg` 內襯 |
-| sm | 8px | 控件內距(垂直)、side toggle gap、欄位錯誤與輸入框間距 |
-| md | 12px | 兩欄輸入 gap、控件內距(水平)、卡片列內距 |
-| lg | 16px | 卡片內距、header/footer 垂直內距、區段間距 |
-| xl | 24px | ticket 主體內距、two-col 欄距、header/footer 水平內距 |
-| 2xl | 32px | review / result 畫面的垂直內距 |
-| 3xl | 48px | 只用於 result 畫面上方留白;**禁止**用於 ticket 表單區 |
+| `s-4` | 4px | 標籤與輸入框間距、診斷列 gap、`.seg` 內襯、卡片內小標與數值的間距 |
+| `s-8` | 8px | 控件內距(垂直)、side toggle gap、欄位錯誤與輸入框間距 |
+| `s-12` | 12px | 兩欄輸入 gap、控件內距(水平)、卡片列內距 |
+| `s-16` | 16px | 卡片內距、header/footer 垂直內距、區段間距 |
+| `s-24` | 24px | ticket 主體內距、two-col 欄距、header/footer 水平內距 |
+| `s-32` | 32px | review / result 畫面的垂直內距 |
+| `s-48` | 48px | 只用於 result 畫面上方留白;**禁止**用於 ticket 表單區 |
 
-**Exceptions(允許不是 4 的倍數):**
+**Exceptions(重建範圍內唯一允許不是 4 的倍數的 5 類,其餘一律違規):**
 
 1. `1px` 邊框與 `1px 2px` 陰影偏移。
-2. 裝飾性 step dot:`6px` 圓點 / `20px` 展開膠囊(`OrderTicket.vue:434-435`)。
+2. 裝飾性 step dot:`.step-dots` 的 `gap: 6px`(`OrderTicket.vue:433`)、`6px` 圓點(`:434`)、`20px` 展開膠囊(`:435`)。這是圖形而非版面間距。
 3. 控件尺寸下限(沿用 `02-UI-SPEC.md:46`):input / 按鈕 `min-height: 36px`;`.inp.big` 與主要 CTA `min-height: 44px`;icon-only 關閉鈕觸控目標 `44px`。
-4. `.quote-empty` 的 `40px` 垂直內距(既有值,恰為 4 的倍數,保留)。
+4. `.quote-empty` 的 `40px` 垂直內距(`:485`,恰為 4 的倍數,保留原值)。
 5. 圓角 `8px / 10px / 14px` 與 `--radius: 12px` 屬 radius,不受 spacing scale 約束。
 
-### 必須遷移的既有值(重建範圍內,逐條 file:line)
+### 遷移規則(可自我驗證 —— **規則優先於下表**)
 
-現行 `OrderTicket.vue` 的 scoped CSS 有 11 處不是 4 的倍數。**重建這些區塊時一併改為下表右欄**;未列出的既有值已合規,不要動。
+**規則:重建範圍內任何 `padding` / `margin` / `gap` / 版面尺寸宣告(含 template 內的 inline `style`),只要有任何一個值不是 4 的倍數,就必須改成最接近的 scale 值;唯一允許的例外是上方 Exceptions 列舉的 5 類。**
 
-| 選擇器 | 現值(`OrderTicket.vue`) | 目標值 |
-|--------|------------------------|--------|
-| `.hd` | `padding: 16px 22px`(`:430`) | `16px 24px` |
-| `.hd-l` | `gap: 14px`(`:431`) | `gap: 12px` |
-| `.body` | `padding: 22px`(`:440`) | `24px` |
-| `.lab` | `margin: 14px 0 6px`(`:443`) | `16px 0 8px` |
-| `.inp` | `padding: 9px 12px`(`:448`) | `8px 12px` + `min-height: 36px` |
-| `.inp.big` | `padding: 11px 14px`(`:452`) | `12px 16px` + `min-height: 44px` |
-| `.sym-meta` / `.sym-tag` | `margin-top: 6px` / `padding: 1px 6px`(`:456-457`) | `8px` / `2px 8px` |
-| `.sym-row` | `padding: 10px 14px`(`:463`) | `12px 16px` |
-| `.side-toggle` / `.side-btn` | `gap: 6px` / `padding: 11px`(`:467-469`) | `8px` / `12px` |
-| `.seg` / `.seg-btn` | `padding: 3px; gap: 2px` / `padding: 7px 14px`(`:475-477`) | `4px; gap: 4px` / `8px 12px` |
-| `.quote-card` | `padding: 14px 16px`(`:484`) | `16px` |
-| 走勢圖容器 | `height: 90px; margin: 14px 0 10px`(`:107`) | `height: 96px; margin: 16px 0 8px` |
-| `.summary` | `margin-top: 14px; padding-top: 14px`(`:491`) | 兩者皆 `16px` |
-| `.form-error` | `padding: 8px 10px`(`:495`) | `8px 12px` |
-| `.rev-grid > div` | `padding: 13px 16px`(`:506`) | `12px 16px` |
-| `.ft` | `padding: 16px 22px`(`:547`) | `16px 24px` |
-| `.btn-accent` / `.btn-ghost` | `padding: 10px 22px` / `10px 18px`(`:548,553`) | `8px 24px` / `8px 16px`,兩者 `min-height: 44px` / `36px` |
+執行時請以下列指令複查,**不要只信下表**:
+
+```bash
+grep -nE '(padding|margin|gap)[^:]*:[^;]*[0-9]+px' src/components/OrderTicket.vue
+```
+
+下表是我在 `a03e030` 上逐條盤點的結果:**23 列必須遷移,外加 1 列隨 U-01 刪除**(舊版本寫「11 處」是錯的口徑,已作廢)。若 grep 找到表外的非 4 倍數值,**以規則為準一併改掉**,不得因為「表上沒列」而放過。
+
+| # | 選擇器 | 現值(`OrderTicket.vue`) | 目標值 |
+|---|--------|------------------------|--------|
+| 1 | `.hd` | `padding: 16px 22px`(`:430`) | `16px 24px` |
+| 2 | `.hd-l` | `gap: 14px`(`:431`) | `gap: 12px` |
+| 3 | `.body` | `padding: 22px`(`:440`) | `24px` |
+| 4 | `.lab` | `margin: 14px 0 6px`(`:443`) | `16px 0 8px` |
+| 5 | `.inp` | `padding: 9px 12px`(`:448`) | `8px 12px` + `min-height: 36px` |
+| 6 | `.inp.big` | `padding: 11px 14px`(`:452`) | `12px 16px` + `min-height: 44px` |
+| 7 | `.sym-meta` / `.sym-tag` | `margin-top: 6px` / `padding: 1px 6px`(`:456-457`) | `8px` / `2px 8px` |
+| 8 | `.sym-row` | `padding: 10px 14px`(`:463`) | `12px 16px` |
+| 9 | `.side-toggle` / `.side-btn` | `gap: 6px` / `padding: 11px`(`:467,469`) | `8px` / `12px` |
+| 10 | `.seg` / `.seg-btn` | `padding: 3px; gap: 2px` / `padding: 7px 14px`(`:475,477`) | `4px; gap: 4px` / `8px 12px` |
+| 11 | `.quote-card` | `padding: 14px 16px`(`:484`) | `16px` |
+| 12 | 報價卡最新價(inline) | `margin-top: 2px`(`:99`) | `4px` |
+| 13 | `.qm-v` | `margin-top: 2px`(`:489`) | `4px` |
+| 14 | 走勢圖容器(inline) | `height: 90px; margin: 14px 0 10px`(`:107`) | `height: 96px; margin: 16px 0 8px` |
+| 15 | `.summary` | `margin-top: 14px; padding-top: 14px`(`:491`) | 兩者皆 `16px` |
+| 16 | `.form-error` | `padding: 8px 10px`(`:495`) | `8px 12px` |
+| 17 | **`.big-side`** | `margin-bottom: 22px`(`:502`) | **`24px`**(FLAG-B 補入 —— 該選擇器原本只出現在 typography 表,間距被漏掉) |
+| 18 | `.rev-grid > div` | `padding: 13px 16px`(`:506`) | `12px 16px` |
+| 19 | **`.rev-grid`(result 步驟,inline)** | `margin-top: 18px`(`:170`) | **`16px`**(FLAG-B 同批補入) |
+| 20 | **`.check`** | `margin-bottom: 18px`(`:539`) | **`16px`**(FLAG-B 補入 —— `.check` 已被 §Color `:537` 與 §Accessibility 納入重建) |
+| 21 | **`.filled-sub`** | `margin-top: 6px`(`:544`) | **`8px`**(FLAG-B 同批補入) |
+| 22 | `.ft` | `padding: 16px 22px`(`:547`) | `16px 24px` |
+| 23 | `.btn-accent` / `.btn-ghost` | `padding: 10px 22px` / `10px 18px`(`:548,553`) | `8px 24px` / `8px 16px`,兩者 `min-height: 44px` / `36px` |
+| — | **`.placing-steps` / `.p-step` / `.p-mark`** | `gap: 10px` / `gap: 10px` / `18px` 方塊(`:525,526,529`) | **不遷移 —— 隨 U-01 移除 `placing` 步驟一併刪除整段 CSS(`:517-532`)。** 別花時間改它 |
 
 Positions / Trades / Overview 的既有版面**不在遷移範圍**(Phase 3 已驗收);本階段只新增 §Post-Trade Refetch 定義的 refresh 指示與 `fresh` 標記。
 
@@ -114,32 +146,85 @@ Positions / Trades / Overview 的既有版面**不在遷移範圍**(Phase 3 已�
 
 ## Typography
 
-新建與重建的 ticket 介面**只允許下列 4 個字級與 2 個字重**。
+新建與重建的 ticket 介面**只允許下列 4 個字級與 2 個字重,沒有任何例外**。
 
 | Role | Size | Weight | Line Height | 用在哪 |
 |------|------|--------|-------------|--------|
 | Label | 12px | 600 | 1.35 | 欄位標籤、報價卡小標、診斷列、`.sym-tag`、pill |
-| Body | 13px | 400 | 1.45 | 輸入值、下拉列、摘要列、錯誤文案、footer 按鈕 |
-| Heading | 16px | 600 | 1.35 | ticket 標題、review/result 標題 |
-| Display | 20px | 600 | 1.25 | 報價卡最新價、review 的「買進 10 AAPL」、result 的「交易已記錄」 |
+| Body | 13px | 400 | 1.45 | 表單輸入值(**symbol 輸入框除外** —— 它是 step 1 的視覺焦點,見 Display 列與 §視覺焦點)、下拉列、摘要列、錯誤文案、footer 按鈕 |
+| Heading | 16px | 600 | 1.35 | ticket 標題、review/result 標題、**報價卡最新價**、`.rev-grid` highlight 值 |
+| Display | 20px | 600 | 1.25 | **每一步恰好一個**(見下方 §視覺焦點):step 1 的 symbol 輸入框、review 的「買進 10 AAPL」、result 的「交易已記錄」 |
 
 **Constraints:**
 
-- `letter-spacing` 一律 `0`。現行 `.lab`(`:443` `letter-spacing:.5px` + `text-transform:uppercase`)與 `.qm-l`(`:488` `.4px`)在重建時取消 —— 表單必填標籤不該用全大寫微字級,那是最難掃讀的組合。
+- `letter-spacing` 一律 `0`。現行 `.lab`(`:443` `letter-spacing:.5px` + `text-transform:uppercase`)、`.qm-l`(`:488` `.4px`)、報價卡 `最新` 小標(`:98` `.4px` + uppercase)在重建時取消 —— 表單必填標籤不該用全大寫微字級,那是最難掃讀的組合。
 - 金額、數量、價格、交易編號一律加 `.num`(`styles.css:25` `font-variant-numeric: tabular-nums`),避免送出前後數字跳動。
 - 交易編號是 36 字元 UUID:必須 `overflow-wrap: anywhere`,**不得**截斷或以 `text-overflow: ellipsis` 隱藏尾段(它的唯一用途是除錯回報)。`error.code` 與 traceId 同規則(沿用 `Positions.vue:861` `.block-error .details span { overflow-wrap: anywhere; }`)。
+- `.hd-ttl` 維持 `<div>`(非 heading 語意),避免與 review/result 步驟內的 `<h2>` 標題重複朗讀。
 
-### 必須改掉的既有字級(重建範圍內)
+### 視覺焦點:每一步恰好一個 Display 級元素(FLAG-F)
 
-| 現值(`OrderTicket.vue`) | 目標 | 理由 |
-|------------------------|------|------|
-| `.hd-ttl` `15px/600`(`:432`) | `16px/600` | 併入 Heading |
-| `.lab` `11px/500` uppercase(`:443`) | `12px/600` 無 transform | 併入 Label,取消第 5 個字級 |
-| 報價卡最新價 `24px/600`(`:99`) | `20px/600` | 併入 Display |
-| `.qm-l` `10px`(`:488`) / `.sym-tag` `10px`(`:457`) / 下拉副標 `11px`(`:41,45`) | 全部 `12px` | 10-11px 在 13px 基準下屬不可掃讀微字 |
-| `.big-side` `28px`,`letter-spacing:-0.6px`(`:502`) | `20px`,`letter-spacing:0` | 併入 Display |
-| `.filled-ttl` `22px`,`-0.4px`(`:543`) | `20px`,`0` | 同上 |
-| `.seg-btn` `12px/500`(`:478`) / `.side-btn` `13px/600`(`:470`) | `12px/600` / `13px/600` | 字重收斂為 400/600 |
+| 步驟 | Display 級元素(唯一) | 該步驟其餘元素的最高層級 |
+|------|---------------------|------------------------|
+| `ticket` | **symbol 輸入框 `.inp.big`**(`OrderTicket.vue:23` `class="inp big"`;20px/600,`min-height: 44px`,ticket 開啟時取得焦點) | Heading 16px:`.hd-ttl` 標題、報價卡最新價 |
+| `review` | `.big-side` 的「買進 10 AAPL」(`:502`) | Heading 16px:`.hd-ttl` 標題、`.rev-grid > div.highlight b` |
+| `result` | `.filled-ttl` 的「交易已記錄」(`:543`) | Heading 16px:`.hd-ttl` 標題 |
+
+**為什麼 step 1 非宣告不可:** 720px 兩欄裡有表單 6 欄 + 報價卡 6 格 + 摘要 3 列,共約 15 個同級元素。沒有宣告主錨時,executor 只能自行猜測,而三個 executor 會猜出三種版面。
+
+**為什麼是 symbol 輸入框,不是報價卡最新價:**
+
+- 在選到標的之前,右欄只有 `selectSymbol` 空狀態 —— 畫面上根本沒有別的東西可以當焦點;symbol 輸入是整個流程的唯一入口。
+- 選到標的之後,使用者的下一個動作仍在左欄(數量 / 價格 / 手續費)。報價卡是參考資訊,不是行動起點。
+- `.inp.big` 是現況唯一被賦予「big」語意的控件(`:23` / `:452`),把它做成真正的焦點是最小驚訝原則。
+
+**連帶決定(與 FLAG-D 的 `.inp.big` 字級互鎖):**
+
+- `.inp.big` 從 `15px/500` 升為 **`20px/600`**(Display)。
+- **報價卡最新價從原先規劃的 Display 20px 降為 Heading 16px**(現值 `:99` 24px)。它仍是右欄最大的元素(右欄其餘皆 12/13px),但不與 step 1 的焦點競爭 —— **同一畫面出現兩個 Display 級元素等於沒有焦點**。
+
+### 遷移規則(可自我驗證 —— **規則優先於下表**)
+
+**規則:重建範圍內任何 `font-size` 只要不是 12 / 13 / 16 / 20,或任何 `font-weight` 只要不是 400 / 600,就必須改。含 template 內的 inline `style`。沒有例外條款。**
+
+執行時請以下列指令複查,**不要只信下表**:
+
+```bash
+grep -nE 'font-(size|weight)' src/components/OrderTicket.vue
+```
+
+**現況實測(`a03e030`,`awk 'NR>=420' … | grep -oE 'font-(size|weight): *[0-9]+' | sort | uniq -c`):**
+
+- scoped style block 內共 **10 個相異字級**:`10`(×2)、`11`(×2)、`12`(×5)、`13`(×10)、`14`(×1)、`15`(×2)、`16`(×2)、`22`(×1)、`28`(×1)、`30`(×1)。
+- template inline `style` 另有 `24px`(`:99`,報價卡最新價)、`11px`(`:41,45,98`)、`12px`(`:103`)。
+- **全檔合計 11 個相異字級**:10/11/12/13/14/15/16/22/24/28/30 → 收斂為 4 級。
+- 字重:style block `600` ×7、`500` ×6;template inline `600` ×2(`:40,129`)、`500` ×2(`:44,102`)。→ 收斂為 400/600。
+
+> 舊版本寫的「現有 10/11/13/15/22/24/28 共 7 級」是錯的:漏了 12、14、16、30,且把 inline 的 24px 與 style block 混為一談。以上為實測值。
+
+**必須改掉的既有宣告(18 列,已逐條 `sed -n` 確認):**
+
+| # | 現值(`OrderTicket.vue`) | 目標 | 理由 |
+|---|------------------------|------|------|
+| 1 | `.hd-ttl` `15px/600`(`:432`) | `16px/600` | 併入 Heading |
+| 2 | `.lab` `11px/500` uppercase `ls .5px`(`:443`) | `12px/600`,無 transform,`ls 0` | 併入 Label;全大寫微字級是最難掃讀的組合 |
+| 3 | **`.inp.big` `15px/500`(`:452`)** | **`20px/600` + `min-height: 44px`** | **15px 與 500 都不在 scale;且它是 step 1 的唯一 Display 焦點(見上)。這是本表最重要的一列** |
+| 4 | `.sym-tag` `10px`(`:457`) | `12px`(`ls 0`) | 10px 在 13px 基準下屬不可掃讀微字 |
+| 5 | `.seg-btn` `12px/500`(`:478`) | `12px/600` | 字重收斂 |
+| 6 | `.qm-l` `10px` uppercase `ls .4px`(`:488`) | `12px/600`,無 transform,`ls 0` | 同 #4 |
+| 7 | **`.form-error` `12px/500`(`:497`)** | `12px/600` | 500 不在 scale |
+| 8 | `.big-side` `28px/600` `ls -0.6px`(`:502`) | `20px/600`,`ls 0` | 併入 Display(review 的唯一焦點) |
+| 9 | **`.rev-grid > div.highlight` `14px`(`:510`)** | `13px` | 14px 是第 5 個字級;highlight 的強調由 `> b` 的 16px 與底色承擔 |
+| 10 | `.rev-grid > div.highlight b` `16px`(`:511`) | **保留 `16px/600`** | 已在 scale 內,列出以免被誤改 |
+| 11 | **`.check` `30px`(`:538`)** | **`20px`,圓標由 `64px` 縮為 `48px`** | 30px 是第 5 個字級;20px/48px 維持約 42% 的字符佔比(現況 47%),兩值都在 scale 內。`✓` 加 `aria-hidden="true"`,語意由 `.filled-ttl` 承擔,因此**不構成第二個 Display** |
+| 12 | `.filled-ttl` `22px/600` `ls -0.4px`(`:543`) | `20px/600`,`ls 0` | 併入 Display(result 的唯一焦點) |
+| 13 | **`.btn-ghost` `13px/500`(`:553`)** | `13px/600` | 13px 合規但 500 不合規;與 `.btn-accent`(`:548` 13px/600)一致,差異由底色承擔 |
+| 14 | `.side-btn` `13px/600`(`:470`) | **保留** | 已合規,列出以免被誤改 |
+| 15 | 下拉副標 inline `11px`(`:41,45`) | `12px` | 同 #4 |
+| 16 | 下拉價格 inline `font-weight:500`(`:44`) | `600` | 字重收斂 |
+| 17 | 報價卡 `最新` 小標 inline `11px` uppercase `ls .4px`(`:98`) | `12px/600`,無 transform,`ls 0` | 同 #2 |
+| 18 | 報價卡最新價 inline `24px/600`(`:99`) → **`16px/600`**;漲跌值 inline `font-weight:500`(`:102`) → `600` | 見左 | 降為 Heading 以免與 step 1 焦點競爭(見 §視覺焦點) |
+| — | `.p-step` `13px`(`:526`)、`.p-step.active` `500`(`:527`)、`.p-mark` `11px`(`:529`) | **不遷移 —— 隨 U-01 刪除整段 `placing` CSS** | 別花時間改它 |
 
 ---
 
@@ -196,11 +281,14 @@ Positions / Trades / Overview 的既有版面**不在遷移範圍**(Phase 3 已�
 | 返回編輯 | `← 返回修改` / `← Back to edit` | `backToEdit` |
 | 記錄下一筆 | `記錄下一筆` / `Record another` | `recordAnother` |
 | 查看持倉 | 既有 `viewPositions` | — |
-| 取消 | 既有 `cancel` | — |
+| 取消(footer 按鈕) | 既有 `cancel`(`i18n.ts:49` zh `取消` / `:187` en `Cancel`,本 session 實查) | — |
+| **`✕` 的 accessible name(FLAG-E)** | `關閉交易記錄視窗` / `Close trade ticket` | **`closeTicket`(必須新增)** |
 | **Destructive confirmation** | `記錄交易:寫入後無法修改或刪除,請確認上方內容。` / `Record trade: this cannot be edited or deleted once written. Check the details above.` | `tradeIrreversibleNote` |
 
+> **`closeTicket` 為什麼必須是新 key,不能複用:** 本 session 實跑 `grep -niE "cancel|close|取消|關閉" src/i18n.ts` → **`close` key 不存在**(`i18n.ts` 內 `close` 零命中);`cancel` 存在但已被 footer 的「取消」按鈕使用。同一個 dialog 內兩個不同控件用同一個 label,螺幕閱讀器會連續播報兩個「取消」,使用者無法分辨。故新增 `closeTicket`。
+
 > **禁止用語(judgment §1 + D-09)**:「下單 / place order」、「已成交 / filled」、「成交均價 / avg fill price」、「路由撮合 / routing」、「委託 / pending」、「取消委託 / cancel」、「有效期 / TIF」不得出現在 API mode 的任何文案、toast、測試斷言或 aria 標籤中。
-> 現有 i18n key `placeOrder`(`:59` 下單)、`filled`(`:57` 已成交)、`avgFillPx`(`:58` 成交均價)、`routingMatch`(`:57` 路由撮合)、`placing`(`:57` 送單中)**不得再被 `OrderTicket.vue` 引用**。刪除前 planner 必須 grep 是否有其他元件在用。
+> 現有 i18n key `placeOrder`(`:59` 下單)、`filled`(`:57` 已成交)、`avgFillPx`(`:58` 成交均價)、`routingMatch`(`:57` 路由撮合)、`placing`(`:57` 送單中)**不得再被 `OrderTicket.vue` 引用**。刪除前 planner 必須 grep 是否有其他元件在用(已知 `filled` 仍被 mock notification 文字使用,見 U-16 的範圍界定)。
 
 ### 欄位標籤與說明
 
@@ -287,16 +375,16 @@ Positions / Trades / Overview 的既有版面**不在遷移範圍**(Phase 3 已�
 - D-09 收斂的是「送出流程」的假進度(routing/match),不是 ticket → review。RESEARCH DP-9 明文同意這個區分。
 - review 同時是 D-14 `dirtySinceSubmit` 的自然邊界:review 畫面沒有可編輯欄位,所以「送出中的 payload」與「使用者看到的 payload」保證一致。
 
-| 步驟 | step dot | 標題 | 主要內容 | Footer |
-|------|---------|------|---------|--------|
-| `ticket` | 1/3 | `記錄交易` | 左:表單;右:報價卡 + 摘要 | `取消` / `確認內容 →`(`:disabled="!canSubmit"`) |
-| `review` | 2/3 | `確認內容` | Display 級「買進 10 AAPL」+ `rev-grid` 明細 + `tradeIrreversibleNote` | `← 返回修改` / `記錄交易`(送出中變 `記錄中…` 且 disabled) |
-| `result` | 3/3 | `交易已記錄` | `✓` 圓標 + 後端 `TradeDto` 明細 | `記錄下一筆` / `查看持倉 →` |
+| 步驟 | step dot | 標題 | 主要內容 | 唯一 Display 焦點 | Footer |
+|------|---------|------|---------|------------------|--------|
+| `ticket` | 1/3 | `記錄交易` | 左:表單;右:報價卡 + 摘要 | **symbol 輸入框 `.inp.big`**(開啟時取得焦點) | `取消` / `確認內容 →`(`:disabled="!canSubmit"`) |
+| `review` | 2/3 | `確認內容` | Display 級「買進 10 AAPL」+ `rev-grid` 明細 + `tradeIrreversibleNote` | `.big-side` | `← 返回修改` / `記錄交易`(送出中變 `記錄中…` 且 disabled) |
+| `result` | 3/3 | `交易已記錄` | `✓` 圓標(`aria-hidden`)+ 後端 `TradeDto` 明細 | `.filled-ttl` | `記錄下一筆` / `查看持倉 →` |
 
 - **step dots 從 4 顆改為 3 顆**(`OrderTicket.vue:8` 的 `v-for="(_, i) in 4"`)。
 - 送出中**不切換步驟**,仍停在 `review`(這是與現況最大的差異:現況 `step='placing'` 會讓 footer 整塊被替換,導致送出鈕從 DOM 消失 —— 那是 Q6.2 指出的「靠副作用擋連點」,TRAD-04 要求明確的 guard)。
 - `result` 畫面的 `rev-grid` 只能顯示後端回傳的 `TradeDto` 欄位:`id` / `type` / `quantity` / `price` / `fee` / `executedAt` / `symbol`。**不得**出現「成交均價」、「訂單號」、隨機 slippage、或任何前端計算的成交價。`estTotal` 可顯示,但必須標示為 `quantity × price`(不含 fee)且來源是回傳值而非表單值。
-- **mock mode 也走同一個三步機**(D-09 未區分模式,且 judgment §1 點名 routing 用語)。mock 保留的只有 D-04 明列的四樣:訂單類型、TIF、交易後現金,以及 mock 的通知推送。
+- **mock mode 也走同一個三步機**(U-16,Yuan 已裁定)。mock 保留的只有 D-04 明列的四樣:訂單類型、TIF、交易後現金,以及 mock 的通知推送。
 
 ### 2. Symbol typeahead(D-01 + DP-5 + DP-12)
 
@@ -312,7 +400,7 @@ Positions / Trades / Overview 的既有版面**不在遷移範圍**(Phase 3 已�
 | `filtered-empty` | 有結果但全部 `tradeable === false` | `symbolNoTradable`。**必須與 `empty` 分開**,否則使用者會以為打錯字 |
 | `error` | 4xx/5xx/斷線 | 下拉內顯示 `symbolSearchFailed` + 診斷列(`error.code` / `authRequestId` traceId)+ `authRetry` 按鈕。**不阻擋 ticket 其他欄位** |
 
-- Debounce **250ms**;並且只採用最後一次請求的結果(遞增 request id 或 `AbortController`;`ApiRequestOptions` 已支援 `signal`,`apiClient.ts:32`)。慢網路下 `AAP` 的回應覆蓋 `AAPL` 的是使用者可見的錯誤,不是理論風險。
+- Debounce **250ms**;並且只採用最後一次請求的結果(遞增 request id 或 `AbortController`;`ApiRequestOptions extends Omit<RequestInit, 'body'>` 因此已支援 `signal`,`src/services/apiClient.ts:32`)。慢網路下 `AAP` 的回應覆蓋 `AAPL` 的是使用者可見的錯誤,不是理論風險。
 - `preset`(從 Overview/Markets/Chart/Positions/Analytics 的 `@order` 帶入)在 API mode 必須用 `query=<sym>` 解析;解析中 symbol 欄位顯示 `loading` 態,解析失敗顯示 `symbolNoResults` 並保持欄位可編輯,**不得**靜默留空或回退 `data.ts`。
 - 只有「後端確認存在且 `tradeable`」的標的才能讓 `canSubmit` 成立(D-01)。
 
@@ -331,7 +419,7 @@ Positions / Trades / Overview 的既有版面**不在遷移範圍**(Phase 3 已�
 
 | 欄位 | 控件 | 預設 | 約束與提示 |
 |------|------|------|-----------|
-| 標的 | `.inp.big` + combobox 下拉 | 空 / `preset` | 見 §2 |
+| 標的 | `.inp.big`(20px/600,44px 高,**step 1 的視覺焦點**)+ combobox 下拉 | 空 / `preset` | 見 §2 |
 | 方向 | 既有 side toggle | `BUY` 或 `preset.side` | 文字 + `↗`/`↘`,不只顏色 |
 | 數量 | `type="number"` `inputmode="decimal"` | `0`(或 preset 預設值) | `min` 依 assetType 決定 step;上限提示走 `tradeErrQuantity` |
 | 價格 | `type="number"` `inputmode="decimal"` | `AssetDto.latestPrice`,**可編輯** | D-04 連帶效果:MKT 鎖價機制移除,一律預填可改 |
@@ -351,7 +439,7 @@ Positions / Trades / Overview 的既有版面**不在遷移範圍**(Phase 3 已�
 |------|--------------------------------------|
 | 送出鈕 | `:disabled="submitting"` **必須明確存在**(現況 `:185` 完全沒有 `:disabled`);標籤換成 `記錄中…`;`min-width` 固定,標籤變化不得造成版位跳動 |
 | 「返回修改」鈕 | `disabled` — 回到表單會讓 in-flight 的 payload 與畫面不一致 |
-| 關閉 `✕` 與遮罩點擊 | 不可關閉(沿用現況 `:344,348` 對 placing 的處理) |
+| 關閉 `✕` 與遮罩點擊 | 不可關閉(語意沿用現況 `:344,348` 對 placing 的處理,但守衛條件從 `step === 'placing'` 改為 `submitting`) |
 | 所有表單輸入 | `disabled`(即使當前在 review 步驟不可見,回退後也不得可編輯) |
 | ticket 容器 | `aria-busy="true"` |
 | 狀態播報 | 一個 `role="status" aria-live="polite"` 區域文字 `記錄中…`(**不得只有 spinner**) |
@@ -385,7 +473,21 @@ Positions / Trades / Overview 的既有版面**不在遷移範圍**(Phase 3 已�
 | `error.fields` 有 key | 對應輸入框**下方** 12px `--dn` 文字,`aria-describedby` 關聯,欄位 `aria-invalid="true"`。同時自動把 ticket 退回 `ticket` 步驟(否則使用者在 review 看不到出錯的欄位) |
 | 依 `error.code` 分派的其他錯誤 | ticket **底部**單一區域,`role="alert"`;沿用 `.form-error` 樣式(`rgba(220,38,38,0.10)` 底 + `--dn` 文字,8px 圓角,`8px 12px` 內距) |
 | 401 / refresh 失敗 | **不在 ticket 顯示**,走全域 `SessionBanner`(Phase 3 D-13 / Phase 2 D-14);`apiClient` 的 `onRefreshFailed` 已負責 |
-| CSRF 403 | **在 ticket 底部顯示**(D-16 明文)。這與 `02-UI-SPEC.md:144` 的「CSRF 失敗走全域 banner」不衝突,分界是:**app 啟動時的 CSRF bootstrap 失敗 → banner;單一 unsafe 請求被 CSRF 拒絕 → 該請求的發起處**。D-16 是更晚且更具體的決策,以它為準 |
+| CSRF 403 | **在 ticket 底部顯示**(D-16 明文)。見下方「刻意覆寫」說明 |
+
+**CSRF 403:刻意覆寫 `02-UI-SPEC.md:144`(依 D-16)**
+
+`02-UI-SPEC.md:144` 把 `AUTH_CSRF_TOKEN_INVALID` **無條件**列入全域 banner 清單。Phase 4 **不是「不衝突」,而是刻意收窄它**:
+
+> **app 啟動時的 CSRF bootstrap 失敗 → 全域 banner;單一 unsafe 請求被 CSRF 拒絕 → 該請求的發起處(即 ticket 底部)。**
+
+D-16 是更晚且更具體的決策,以它為準。這個實作邊界**已由既有 code 支撐**(本 session 逐行實讀驗證,不需改動 `apiClient`,只是決定 ticket 這個呼叫端怎麼呈現自己拿到的 typed error):
+
+| 證據 | 說明 |
+|------|------|
+| `src/services/apiClient.ts:212` | `ensureCsrfToken()` 在 bootstrap 後仍拿不到 cookie 時丟 `code: 'AUTH_CSRF_TOKEN_MISSING'`(`status: 0`)。**這才是全域性的失敗** —— 整個 app 的所有 unsafe 請求都不可能成功 |
+| `src/services/apiClient.ts:315` / `:323` | 全檔**唯二**呼叫 `sessionHandlers.onRefreshFailed?.()`(= 唯二會升級成全域 session banner)的位置,兩處都在 401 refresh / replay 路徑,與 CSRF 403 無關 |
+| `src/services/apiClient.test.ts:395` | `it('keeps CSRF 403 distinguishable as typed backend errors')` —— 既有測試已明鎖「CSRF 403 只 reject 成 typed `ApiClientError`,不進 session 升級路徑」 |
 
 **診斷資訊(SC 5)的呈現方式 —— 決定:常駐的低調單列,不用 `<details>`,不加複製按鈕。**
 
@@ -466,9 +568,9 @@ Phase 3 留下的兩條 TODO 註解必須清掉:`Positions.vue:264`、`Trades.vu
 | 訂單類型 / TIF / 交易後現金 | **保留**(D-04) | **隱藏**(不留空版位) |
 | 手續費 | 使用者輸入,預設 0(D-02 兩模式一致) | 同 |
 | 成交時間 | 使用者輸入,預設現在(兩模式一致) | 同 |
-| routing/match 三階段 | **移除**(D-09 未區分模式 + judgment §1) | 移除 |
-| 隨機成交價 / 亂數訂單號 | **移除** | 移除 |
-| 通知推送 | 由 `createMockTradingApi()` 負責 | **不推**(notifications 屬 PORT-06 v2) |
+| routing/match 三階段假進度 | **移除**(U-16,Yuan 已裁定) | 移除 |
+| `Math.random()` slippage / 亂數 orderId | **移除**(U-16,Yuan 已裁定) | 移除 |
+| 通知推送 | 由 `createMockTradingApi()` 負責(**保留**,D-04) | **不推**(notifications 屬 PORT-06 v2) |
 | revision 觸發重讀 | **不發網路請求**(早退) | 三頁重讀 |
 | `fresh` 高亮 | `live.lastFill` | `apiLastFill`(D-13) |
 
@@ -482,10 +584,11 @@ Phase 3 留下的兩條 TODO 註解必須清掉:`Positions.vue:264`、`Trades.vu
 |---------|--------------------|
 | Ticket 面板 | `width: 720px; max-width: 92vw`(既有);`border-radius: 14px`;`1px solid var(--border)`;`var(--surface)` 底 |
 | Ticket 遮罩 | `rgba(0,0,0,0.42)` + `backdrop-filter: blur(6px)`;`z-index: 200`(既有);`Teleport to body` |
-| Ticket header | 高度隨內容,`16px 24px` 內距,底部 `1px` 邊框;左:3 顆 step dot + 標題;右:`✕`(觸控目標 44px) |
-| Ticket body(step 1) | `two-col` grid `1fr 1fr`,`gap: 24px`;**`< 760px` 改單欄**,右欄(報價卡+摘要)排在表單**下方** |
-| Ticket body(step 2/3) | 單欄,`32px` 內距,置中 |
+| Ticket header | 高度隨內容,`16px 24px` 內距,底部 `1px` 邊框;左:3 顆 step dot + 標題(`<div>`,非 heading);右:`✕`(觸控目標 44px,`aria-label` 見 §Accessibility) |
+| Ticket body(step 1) | `two-col` grid `1fr 1fr`,`gap: 24px`;**`< 760px` 改單欄**,右欄(報價卡+摘要)排在表單**下方**。左欄頂端是唯一的 Display 級元素 `.inp.big`(20px/600,44px 高),右欄最大元素為 Heading 級的最新價(16px/600) |
+| Ticket body(step 2/3) | 單欄,`32px` 內距,置中;唯一 Display 元素置於 `✓` 圓標(step 3)之後 |
 | 報價卡 | `var(--surface2)` 底 + `1px` 邊框 + `10px` 圓角 + `16px` 內距;走勢圖區固定 `96px` 高 |
+| `✓` 成功圓標 | `48px` 圓形(由現況 `64px` 縮小),內含 `20px` 的 `✓`,`aria-hidden="true"`;下方 `16px` 間距接 `.filled-ttl` |
 | Symbol 下拉 | 絕對定位於輸入框下 `4px`,`max-height: 280px; overflow: auto`,`z-index: 10`(既有) |
 | 底部錯誤區 | ticket body 內、footer 之上,全寬,`8px` 圓角;長 traceId 換行不撐破面板 |
 | Footer | `16px 24px`,`var(--surface2)` 底,頂部 `1px` 邊框,左 ghost / 右 primary |
@@ -499,6 +602,7 @@ Phase 3 留下的兩條 TODO 註解必須清掉:`Positions.vue:264`、`Trades.vu
 - `< 760px`:ticket 單欄;送出鈕與取消鈕維持並排(不堆疊),兩者都 `min-height: 44px`。
 - 診斷列在 320px 寬度下必須換行完整顯示 code 與 traceId,不得水平滾動。
 - zh 與 en 文案都不得讓按鈕文字溢出;`記錄中…` / `Recording…` 與 `記錄交易` / `Record trade` 的最寬者決定送出鈕 `min-width`。
+- `.inp.big` 在 20px/600 下,`AAPL` 之類的短 symbol 與 `BRK.B`、`0700.HK` 之類的長 symbol 都必須單行不截斷;placeholder 亦同。
 
 ---
 
@@ -512,10 +616,24 @@ Phase 3 留下的兩條 TODO 註解必須清掉:`Positions.vue:264`、`Trades.vu
 - Ticket 底部錯誤區:`role="alert"`(一次只有一條,適合立即播報)。
 - Symbol combobox:輸入框 `role="combobox"` + `aria-expanded` + `aria-controls` + `aria-autocomplete="list"` + `aria-activedescendant`;下拉 `role="listbox"`,每列 `role="option"` + `aria-selected`。**必須支援鍵盤**:`↑`/`↓` 移動、`Enter` 選取、`Esc` 關閉。現況只綁了 `@mousedown`(`:37`),鍵盤使用者無法選標的。
 
+**Icon-only 控件的 accessible name(FLAG-E,現況缺口):**
+
+現行關閉鈕是 `<button class="x" @click="onClose">✕</button>`(`OrderTicket.vue:12`)—— **沒有 `aria-label`**。`✕` 是 U+2715 MULTIPLICATION X,螢幕閱讀器可能唸成「乘號」或整個跳過,使用者只會聽到「按鈕」。
+
+| 控件 | 契約 |
+|------|------|
+| `✕` 關閉鈕(`:12`) | `:aria-label="t(lang, 'closeTicket')"` → `關閉交易記錄視窗` / `Close trade ticket`。`✕` 字符本身加 `aria-hidden="true"`(避免 label 與字符雙重朗讀)。觸控目標 `44px`,可見 focus ring |
+| `✓` 成功圓標(`:167`) | `aria-hidden="true"` —— 它是純裝飾,成功語意由 `.filled-ttl` 的 `<h2>交易已記錄</h2>` 承擔。加了 label 會重複播報 |
+| `↗` / `↘` 方向字符(`:59`) | `aria-hidden="true"` —— 旁邊已有「買進」/「賣出」可讀文字 |
+| step dots(`:8`) | 整組 `aria-hidden="true"`(裝飾性進度指示),真正的步驟語意由標題文字承擔 |
+
+> **`closeTicket` 為什麼是新 key:** 本 session 實跑 `grep -niE "cancel|close|取消|關閉" src/i18n.ts` —— **`close` key 不存在**;`cancel`(`:49` / `:187`)已被 footer 的「取消」按鈕佔用。同一 dialog 內兩個按鈕共用同一 label 會讓螢幕閱讀器播報兩個無法分辨的「取消」。
+
 **送出與狀態播報:**
 
 - 送出中:ticket 容器 `aria-busy="true"`;一個 `role="status" aria-live="polite"` 節點文字 `記錄中…`。
 - 送出成功:焦點移到 result 標題(`<h2 tabindex="-1">`,沿用 `AuthPanel.vue:27` 的既有做法);標題本身即成功播報,`aria-live` 不重複播。
+- **Ticket 開啟時:焦點移到 symbol 輸入框 `.inp.big`**(step 1 的 Display 焦點,見 §Typography)。這同時滿足 modal 的「焦點必須進入對話框」與「焦點應落在主要動作起點」兩條要求。
 - 區塊 refetch:`aria-busy="true"` + `更新中…` 可見文字(`role="status"` 用 `polite`,不打斷使用者)。
 - refetch 失敗:`portfolioStaleAfterTrade` 節點 `role="status"`(**不用 `alert`** —— 交易已成功,這不是需要打斷的錯誤)。
 - 提交錯誤:`role="alert"`(需要打斷)。
@@ -557,6 +675,7 @@ Phase 3 留下的兩條 TODO 註解必須清掉:`Positions.vue:264`、`Trades.vu
 
 | testid | 用途 |
 |--------|------|
+| `ticket-close` | `✕` 關閉鈕(`aria-label` 斷言接點,FLAG-E) |
 | `ticket-symbol-input` / `ticket-symbol-options` / `ticket-symbol-option-{SYM}` | typeahead |
 | `ticket-symbol-loading` / `-empty` / `-no-tradable` / `-error` / `-error-code` / `-trace-id` / `-retry` / `-truncated` | typeahead 各態 |
 | `ticket-quote-chart-loading` / `-empty` / `-error` / `-retry` | 走勢圖三態 |
@@ -597,15 +716,43 @@ Phase 3 留下的兩條 TODO 註解必須清掉:`Positions.vue:264`、`Trades.vu
 | U-05 | refetch 用**新的 `refreshing` 旗標**保留舊值,不重用 Phase 3 的 `loading`(會清空表格) | D-12:交易後畫面「看起來像出錯」是最危險的失敗模式 |
 | U-06 | refetch 失敗**保留舊資料 + 明示「可能不是最新」**,不進 `status:'error'` | D-12「兩件事分開呈現」;但必須明確標示,避免把 stale 值當後端真相呈現 |
 | U-07 | 診斷資訊用**常駐低調單列**,不用 `<details>`,**不加複製按鈕** | Phase 2/3 已有一致慣例;複製按鈕是新機制(clipboard + 回饋 + 降級)且 code/traceId 可直接選取 |
-| U-08 | CSRF 403 顯示在 **ticket 底部**(不是全域 banner) | D-16 是更晚更具體的決策,勝過 `02-UI-SPEC.md:144`;分界為「bootstrap 失敗 → banner,單一請求被拒 → 發起處」 |
+| U-08 | CSRF 403 顯示在 **ticket 底部**(不是全域 banner)—— 這是**刻意覆寫 `02-UI-SPEC.md:144`**,依 D-16 | `02-UI-SPEC.md:144` 把 `AUTH_CSRF_TOKEN_INVALID` **無條件**列入 banner 清單,所以這是覆寫而非「不衝突」。分界為「bootstrap 失敗 → banner,單一請求被拒 → 發起處」,實作邊界已由 `src/services/apiClient.ts:212`(bootstrap 丟 `AUTH_CSRF_TOKEN_MISSING`)、`:315` / `:323`(唯二觸發 `onRefreshFailed` 的 401 路徑)與 `src/services/apiClient.test.ts:395`(`keeps CSRF 403 distinguishable as typed backend errors`)的既有行為支撐,**不需改動 `apiClient`** |
 | U-09 | typeahead **不做分頁/無限捲動**,改用「僅顯示前 10 筆」提示 | DP-5 帶來的分頁態需求;combobox 內分頁是新機制且無前例,縮小關鍵字更便宜 |
 | U-10 | `tradeable === false` 全被過濾時,用**專屬空狀態文案**(與「查無結果」分開) | 否則使用者以為自己打錯字 |
 | U-11 | 走勢圖 loading/empty/error **一律不阻擋送出**;需有測試鎖住 | Q6.5;走勢圖是輔助資訊,不是交易前提 |
 | U-12 | `fresh` 高亮加**文字 `新` pill**,並在 `prefers-reduced-motion` 下保留 pill、停用動畫;**不用計時器**清除 | D-13 + a11y「不只靠顏色」;計時器讓測試時間相依而 flaky,`v-if` 切頁卸載已界定壽命 |
-| U-13 | Primary CTA 定為 **`記錄交易` / `Record trade`**,並禁用既有 `placeOrder`/`filled`/`avgFillPx`/`routingMatch`/`placing` 五個 i18n key | judgment §1(不得出現下單/成交/撮合語意)+ D-09 |
+| U-13 | Primary CTA 定為 **`記錄交易` / `Record trade`**,並禁用既有 `placeOrder`/`filled`/`avgFillPx`/`routingMatch`/`placing` 五個 i18n key(在 `OrderTicket.vue` 內) | judgment §1(不得出現下單/成交/撮合語意)+ D-09 |
 | U-14 | 手續費與成交時間各給一條**常駐說明文字**(不是錯誤色) | D-02 的理由(fee 永久進 `avg_cost` 且改不回來)必須讓使用者知道,否則預設 0 只是換一種默默出錯 |
-| U-15 | 字級收斂為 12/13/16/20 四級、字重 400/600 兩種,並列出 7 處必改的既有宣告 | 模板要求 3-4 級 / 2 重;`OrderTicket.vue` 現有 10/11/13/15/22/24/28 共 7 級 |
-| U-16 | routing/match、隨機 slippage、亂數訂單號在 **mock mode 也移除**(D-04 的四樣則 mock 保留) | D-09 未區分模式(對比 D-04 明文「mock 保留」),且 judgment §1 明文點名 routing |
+| U-15 | 字級收斂為 **12/13/16/20 四級、字重 400/600 兩種**,並列出 **18 條**必改的既有宣告(見 §Typography 遷移表);間距列出 **23 條**(見 §Spacing 遷移表) | 模板要求 3-4 級 / 2 重。**實測現況**:`OrderTicket.vue` scoped style block 有 10 個相異字級(10/11/12/13/14/15/16/22/28/30),加上 template inline 的 24px 共 **11 級**;`font-weight: 500` 在 style block 出現 **6 次**、inline 2 次。舊版寫的「7 級」為誤算,已作廢 |
+| U-16 | routing/match 假進度、`Math.random()` slippage、亂數 orderId 在 **mock mode 也一併移除** | **Yuan 已裁定(2026-07-26)** —— 不再是從 D-09 的沉默推論。D-04 明列 mock 保留的四樣(訂單類型 / TIF / 交易後現金 / 通知推送)不含這三項;judgment §1 亦明文點名 routing。**實作範圍見下方展開** |
+| U-17 | **spacing token 改用值鍵命名**(`s-4` … `s-48`),不沿用 t-shirt 名 | `02-UI-SPEC.md:40` 的 `md = 16px`,Phase 4 需要 `12px` 一級 → 沿用 t-shirt 名會讓整條 scale 位移一格(`lg` 24→16、`xl` 32→24),同名不同值是跨階段誤讀來源。值鍵命名讓兩份文件的名稱空間永不重疊 |
+| U-18 | **每一步恰好一個 Display 級元素**;step 1 的焦點是 **symbol 輸入框 `.inp.big`**(20px/600),報價卡最新價**降為 Heading 16px** | step 1 是兩欄 720px 表單 + 報價卡 + 摘要,約 15 個同級元素,沒有宣告主錨時 executor 只能猜。選輸入框而非最新價:選到標的前右欄是空的,選到標的後下一個動作仍在左欄。降最新價是為了不讓兩個 Display 同框競爭 |
+
+### U-16 的實作範圍(Yuan 已授權的工作量,不是待確認項)
+
+planner 請直接把下列工作排進計畫,**不要再回頭確認**:
+
+| 位置 | 現況 | 動作 |
+|------|------|------|
+| `OrderTicket.vue:373` | `const slip = (Math.random() - 0.5) * 0.002;` | **刪除** |
+| `OrderTicket.vue:374` | `fillPx.value = +(px.value * (1 + slip)).toFixed(2);` | **刪除**,連同 `fillPx` ref 一併移除 |
+| `OrderTicket.vue:375` | `orderId.value = String(Math.floor(Math.random() * 90_000_000) + 10_000_000);` | **刪除**,連同 `orderId` ref 一併移除;mock 的 result 畫面改顯示 mock adapter 回傳的交易識別(或不顯示),**不得**再生成亂數 |
+| `OrderTicket.vue:358` | `if (placing.value \|\| step.value === 'placing') return;` | 改為 `if (submitting.value) return;`(明確 guard,U-02) |
+| `OrderTicket.vue:361-368` | `step.value = 'placing'` + `placeStage` 0→1→2 + `await wait(420/640/380)` 三段假進度 | **整段刪除**。送出中停留在 `review`,只切 `submitting` |
+| `OrderTicket.vue:344,348` | `onMaskClick` / `onClose` 的 `if (step.value === 'placing') return;` | 守衛條件改為 `if (submitting.value) return;`(行為不變,依據換掉) |
+| `OrderTicket.vue:154-163` | `<!-- STEP 3: Placing -->` 註解 + `<div v-else-if="step === 'placing'" class="body placing">` 整塊(spinner + `.placing-steps` + `.p-step` / `.p-mark`) | **整段刪除**;原 `STEP 4: Filled`(`:165`)遞補為第 3 步 |
+| `OrderTicket.vue:212,215,221,242` | `Step` 型別含 `'placing'`、`stepIdx` 的 4 元陣列、`stepTitle` 的 `case 'placing'`、`placeSteps` computed(引用 `placing`/`routingMatch`/`filled` 三個 i18n key) | **全部移除**;`Step` 收斂為 `'ticket' \| 'review' \| 'result'` |
+| `OrderTicket.vue:517-532` | `/* Placing */` 註解起,至 `@keyframes pulse`(`:532`)止:`.placing` / `.spinner` / `@keyframes spin` / `.placing-steps` / `.p-step` / `.p-mark` / `@keyframes pulse` | **整段刪除**(因此其中的 `gap: 10px` ×2 與 `18px` 不出現在 §Spacing 遷移表,`13px`/`500`/`11px` 不出現在 §Typography 遷移表) |
+
+**會動到的既有 mock 測試(本 session 實跑 `grep -n "advanceTimersByTimeAsync\|'Place order'\|'New order'" src/task4.test.ts` 確認,共 3 個 case):**
+
+| 測試 | 依賴什麼 | 需要的改寫 |
+|------|---------|-----------|
+| `src/task4.test.ts:178` `places filled orders through Pinia and adds an unread order notification` | `:197` `clickButtonByText(…, 'Place order')`、`:198` `advanceTimersByTimeAsync(1600)` | 按鈕文字改 `Record trade`;移除 1600ms 假進度等待(改為等 promise);測試名去掉 `filled` 語意 |
+| `src/task4.test.ts:375` `records only one order when place order is invoked twice while placing` | `:389` `buttonByText(…, 'Place order')`、`:392` `advanceTimersByTimeAsync(1600)` | 同上;斷言改為驗證 `:disabled` guard(U-02)而非「placing 期間」 |
+| `src/task4.test.ts:398` `resets side, order type, and TIF from the filled state when starting a new order` | `:415` `'Place order'`、`:416` `1600`、`:418` `'New order'` | 同上;`New order` → `Record another`;測試名去掉 `filled state` |
+
+> **U-16 的範圍界線:** 只涵蓋 `OrderTicket.vue` 內的假進度與亂數。mock store 的通知文字(`notifications[0].text` 含 `filled`,`src/task4.test.ts:210` 斷言)屬 D-04 明列「mock 保留通知推送」的範圍,**不在本階段改動**;若 planner 想順手改,必須另立決策。
 
 **明確不在本契約範圍(不要在 Phase 4 設計它):**
 
@@ -631,3 +778,4 @@ Phase 3 留下的兩條 TODO 註解必須清掉:`Positions.vue:264`、`Trades.vu
 
 *Phase: 4-manual-trade-creation-idempotency-post-trade-refetch*
 *UI spec drafted: 2026-07-26*
+*Revision 2 (FLAG fixes A–F + U-08/U-16 wording): 2026-07-26*
