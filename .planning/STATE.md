@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 4 context gathered
-last_updated: "2026-07-26T09:44:21.894Z"
+stopped_at: Phase 4 UI-SPEC approved
+last_updated: "2026-07-26T13:37:23.905Z"
 last_activity: 2026-07-26
 progress:
   total_phases: 6
@@ -21,7 +21,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can safely sign in, inspect portfolio state, and record trades through one coherent frontend/backend flow.
-**Current focus:** Phase 03 已完成;下一步是 Phase 04 — Manual Trade Creation(尚無 CONTEXT)
+**Current focus:** Phase 04 — Manual Trade Creation。前置文件已齊備(CONTEXT / RESEARCH / VALIDATION / UI-SPEC),下一步是 `/gsd-plan-phase 4`
 
 ## Current Position
 
@@ -34,7 +34,8 @@ Progress(plan):15/15 plans executed(Phase 1-3 全部執行完畢)
 > ⚠️ 60% 是 milestone 真實進度(5 個 phase 完成 3 個)。Phase 3 的後端(`./mvnw -pl stock-start -am verify`
 > 80/80 綠)與前端(`npm test` / `VITE_DATA_MODE=api npm test` 各 233/233、`npm run build` exit 0)
 > 兩邊各自綠,但**尚未跑過真實跨 repo 整合** —— 那是 Phase 5 的範圍(judgment §8)。
-> Phase 4、5 連 CONTEXT 都還沒有。
+> Phase 4 已備妥 CONTEXT / RESEARCH / VALIDATION / UI-SPEC(UI-SPEC 於 2026-07-26 通過 gsd-ui-checker
+> 6 維度驗證,0 BLOCK);**尚未 plan**。Phase 5 仍無 CONTEXT。
 
 ## Performance Metrics
 
@@ -124,16 +125,20 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-26T08:17:01.057Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-manual-trade-creation-idempotency-post-trade-refetch/04-CONTEXT.md
-Next action: Phase 4 尚無 CONTEXT → `/gsd-discuss-phase 4`
+Last session: 2026-07-26T13:37:23.891Z
+Stopped at: Phase 4 UI-SPEC approved
+Resume file: .planning/phases/04-manual-trade-creation-idempotency-post-trade-refetch/04-UI-SPEC.md
+Next action: Phase 4 前置文件齊備(CONTEXT / RESEARCH / VALIDATION / UI-SPEC 皆已 commit)→ `/gsd-plan-phase 4`
 
 ⚠️ Phase 3 收尾狀態:
 
 - 後端 commits(本 repo):`4b98759`、`2f15c33`、`e276de5`(Plan 01)。
-- 前端 commits(`../../vue/stock-v2`,branch `feature/phase-03-portfolio-read`):`4bdb229`、`157f7d8`(02)、
-  `309598f`(03)、`40a4f2b`、`587e84e`(04)、`ef1fb35`、`c4abd7e`(05)。**兩個 repo 皆未 push。**
+- 前端 commits(`../../vue/stock-v2`):`4bdb229`、`157f7d8`(02)、`309598f`(03)、`40a4f2b`、`587e84e`(04)、
+  `ef1fb35`、`c4abd7e`(05)。
+- **兩個 repo 皆已 push 並 merge 進各自的 `develop`**(2026-07-26 以 `git branch -r --contains` 逐一查證:
+  後端三個 commit 皆在 `origin/develop`;前端七個 commit 亦在 `origin/develop`,經 PR #8 合併,
+  sibling repo 現處於 `develop @ a03e030`,工作樹乾淨)。舊記載「兩個 repo 皆未 push」已過時,故更正。
+  → **Phase 4 的前端分支應從 sibling repo 的 `develop` 開,不要從 `feature/phase-03-portfolio-read` 開。**
 
 - 三個頁面都已不再 import mock store(PORT-04 / judgment §3),API mode 一律經 `getRuntimeApiClients()`。
 - 尚未驗證:前後端真實整合(Phase 5 範圍)。03-05-SUMMARY §(4) 有逐項契約對帳(16 PASS / 1 N/A / 0 FAIL),
