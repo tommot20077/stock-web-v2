@@ -153,6 +153,7 @@ DROP INDEX IF EXISTS idx_transactions_user_asset_created;
 - **`+` 必須百分比編碼成 `%2B`。** Servlet 對 query string 採 `application/x-www-form-urlencoded` 解碼規則，會把裸的 `+` 解成空白，`2026-01-01T00:00:00+08:00` 抵達服務層時會變成 `2026-01-01T00:00:00 08:00`。`encodeURIComponent()`、`URLSearchParams` 與 axios 的預設序列化都會正確編碼；手動字串拼接 URL 則不會。服務層雖已還原此種破壞（空白一律還原成 `+`），客戶端仍應正確編碼。
 - **純日期的上界涵蓋當天整日。** `dateTo=2026-01-31` 代表「到 01-31 這天結束為止」，等價於 `2026-02-01T00:00:00Z` 的排除上界；同一個邊界寫成時間戳 `2026-01-31T00:00:00Z` 則是嚴格小於，01-31 當天不會被納入。日期選擇器請直接送純日期。
 - **`dateFrom` 晚於 `dateTo` 回 400** `VALIDATION_FAILED`，訊息 `dateFrom must not be after dateTo`；兩者相等是合法的退化區間，回傳空頁。
+- **`GET /api/v1/market/{symbol}/klines` 的 `from` / `to` 套用完全相同的三種形式與 `%2B` 規則。** 這兩個參數原先宣告成型別化的 `Instant`，只接受帶偏移量的完整時間戳，且未編碼的 `+` 會在 Spring 型別轉換前就被 servlet 解成空白而遭拒；改走同一個 `ApiTimeParser` 後兩個模組不再有兩套答案。唯一的差異是 **`to` 的空值語意**：trading 的 `dateTo` 省略代表不設上界，klines 的 `to` 省略代表**取當前時間**（`KlineQueryService` 既有行為，未變動）；另外 klines 要求 `to` 嚴格晚於 `from`，不接受 trading 允許的相等退化區間。
 
 補充契約細節：
 

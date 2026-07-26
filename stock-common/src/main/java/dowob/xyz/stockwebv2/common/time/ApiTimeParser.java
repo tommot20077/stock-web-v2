@@ -39,6 +39,19 @@ public final class ApiTimeParser {
     }
 
     /**
+     * 未帶時區偏移的查詢參數所採用的基準偏移。
+     *
+     * <p>{@code dateFrom=2026-01-01} 這類值本身不含時區資訊，必須補一個基準才能比對
+     * {@code timestamptz} 欄位。固定為 UTC 並寫入 API 契約，讓同一組參數在任何部署環境
+     * 都得到相同結果；需要當地時間語意的客戶端請自行帶完整偏移量。</p>
+     *
+     * <p>這個常數刻意放在解析器而不是各模組：它是**跨模組的 API 契約**，不是哪一個服務的
+     * 實作選擇。先前只有 trading 有一份 private 的同名常數，market-data 接上本解析器時
+     * 若各自再宣告一次，就等於讓同一條契約在兩處被獨立決定——遲早分歧。</p>
+     */
+    public static final ZoneOffset DEFAULT_OFFSET = ZoneOffset.UTC;
+
+    /**
      * 區間端點的角色，決定純日期形式要取當日起點或隔日起點。
      */
     public enum RangeBound {
@@ -58,11 +71,28 @@ public final class ApiTimeParser {
      *
      * <ul>
      *   <li>{@code 2026-01-01T00:00:00Z} / {@code 2026-01-01T00:00:00+08:00} — 帶偏移量，即為該瞬間。</li>
-     *   <li>{@code 2026-01-01T00:00:00} — 未帶偏移量，補上 {@code defaultOffset}。</li>
+     *   <li>{@code 2026-01-01T00:00:00} — 未帶偏移量，補上 {@link #DEFAULT_OFFSET}。</li>
      *   <li>{@code 2026-01-01} — 純日期，視為<strong>整個當日</strong>：作為下界取當日 00:00，
      *       作為上界取隔日 00:00。半開區間 {@code [from, to)} 因此在純日期形式下會完整涵蓋
      *       上界當天，符合日期選擇器的直覺。</li>
      * </ul>
+     *
+     * @param rawValue 使用者傳入的原始字串；null 或空白代表未指定
+     * @param field    欄位名稱，用於組錯誤訊息
+     * @param bound    此端點是區間下界或上界
+     * @return 解析後的時間；未指定時回傳 null
+     * @throws BusinessException 三種格式皆無法解析時丟出 {@link ErrorCode#VALIDATION_FAILED}
+     */
+    public static OffsetDateTime parseRangeBound(String rawValue, String field, RangeBound bound) {
+        return parseRangeBound(rawValue, field, bound, DEFAULT_OFFSET);
+    }
+
+    /**
+     * 以指定基準偏移解析查詢區間端點。
+     *
+     * <p>刻意保持 private:目前所有端點都採 {@link #DEFAULT_OFFSET},沒有任何呼叫端需要
+     * 自訂偏移。若日後真有「以使用者所在時區解讀純日期」的需求,屆時再開放並補上該端點的
+     * 測試,而不是先留一個沒有人走、也沒有測試覆蓋的參數。</p>
      *
      * @param rawValue      使用者傳入的原始字串；null 或空白代表未指定
      * @param field         欄位名稱，用於組錯誤訊息
@@ -71,7 +101,7 @@ public final class ApiTimeParser {
      * @return 解析後的時間；未指定時回傳 null
      * @throws BusinessException 三種格式皆無法解析時丟出 {@link ErrorCode#VALIDATION_FAILED}
      */
-    public static OffsetDateTime parseRangeBound(
+    private static OffsetDateTime parseRangeBound(
         String rawValue,
         String field,
         RangeBound bound,
