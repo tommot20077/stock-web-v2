@@ -93,22 +93,33 @@ Task 3 的 RED 為「事後反向驗證」而非「先寫測試再實作」—�
 
 其他 IT（`TransactionsAppendOnlyIT`、`AuditLoggingIT` 等）與交易清單排序無關，全數維持綠燈（80/80）。
 
-## （2）V9 兩條索引的最終定義
+## （2）交易查詢索引的最終定義（V9 + V10）
 
-檔案：`stock-db-migration/src/main/resources/db/migration/V9__trading_query_indexes.sql`（V1..V8 未被修改，`git diff` 對 migration 目錄僅顯示新增 V9）
+> **索引分佈於兩個 migration，這是修正 convention 違規的結果。** 本節原先描述的「單一個 V9」
+> 一度成立，但那是因為 PR #15 直接修改了已隨 PR #13 合併的 V9，違反
+> `ai-docs/flyway-convention.md`「Never modify a migration that has already been applied」。
+> 實測 CRC32（Flyway checksum 的計算方式）：原始 V9 為 `1874006957`、被改後為 `2297068974`
+> —— 已套用舊 V9 的資料庫會在下次啟動 checksum mismatch 而失敗。
+> 現已把 V9 還原成 PR #13 的原始內容（checksum 回到 `1874006957`，不需任何手動 `flyway repair`），
+> PR #15 真正新增的兩道述句移入 `V10__trading_query_indexes_realign.sql`。
+> 最終 schema 與原本的意圖完全相同。
+
+`V9__trading_query_indexes.sql`（隨 PR #13，內容自此不可再改）：
 
 ```sql
 -- D-07：預設排序 executed_at DESC, id DESC 的配套索引
-CREATE INDEX IF NOT EXISTS idx_transactions_user_executed
-    ON transactions (user_id, executed_at DESC, id DESC);
+CREATE INDEX idx_transactions_user_executed ON transactions (user_id, executed_at DESC, id DESC);
 
+-- D-06：金額（數量 × 單價）排序的 PostgreSQL 運算式索引；運算式必須加括號
+CREATE INDEX idx_transactions_user_amount ON transactions (user_id, (quantity * price) DESC, id DESC);
+```
+
+`V10__trading_query_indexes_realign.sql`（補上 PR #15 的新增部分，述句皆可重複套用）：
+
+```sql
 -- D-05：symbol 篩選 + 預設排序的配套索引
 CREATE INDEX IF NOT EXISTS idx_transactions_user_asset_executed
     ON transactions (user_id, asset_id, executed_at DESC, id DESC);
-
--- D-06：金額（數量 × 單價）排序的 PostgreSQL 運算式索引；運算式必須加括號
-CREATE INDEX IF NOT EXISTS idx_transactions_user_amount
-    ON transactions (user_id, (quantity * price) DESC, id DESC);
 
 -- V7 的 (user_id, asset_id, created_at DESC, id DESC) 已無讀者
 DROP INDEX IF EXISTS idx_transactions_user_asset_created;
@@ -117,10 +128,10 @@ DROP INDEX IF EXISTS idx_transactions_user_asset_created;
 - 三條索引皆以 `user_id` 開頭，對應恆存在的 `t.user_id = :userId` 條件。
 - `id DESC` 納入索引尾端，讓 tie-breaker 不需額外排序步驟。
 - **刻意不使用 `CONCURRENTLY`——這點實測過。** 一般 `CREATE INDEX` 確實會對 `transactions` 取 ACCESS EXCLUSIVE 鎖、在啟動期擋住 INSERT，直覺解法是改用 `CREATE INDEX CONCURRENTLY`；但在 Flyway 底下這會**直接死鎖**。Flyway 套用 migration 時另有一條連線持有 schema history 的交易並停在 `idle in transaction`，而 `CONCURRENTLY` 必須等待所有並行交易的 virtualxid 釋放，兩者互等。實測 `TradingApiIT`（Postgres 16 + Flyway 11）：V9 已被正確判定為 `[non-transactional]` 並在交易外執行，仍卡死逾 1.5 小時，`pg_stat_activity` 顯示 `Lock/virtualxid` 等待對象即 Flyway 自己的連線。在 migration 內用 `CONCURRENTLY`，是把「短暫鎖表」惡化成「啟動永遠不會完成」。
-- **大表的正確做法是部署前手動建立**：先在線上以 `CREATE INDEX CONCURRENTLY` 建好（指令已完整寫入 V9 註解），本檔所有述句都帶 `IF NOT EXISTS` / `IF EXISTS`，屆時 migration 自然變成 no-op。現階段 `transactions` 資料量小，啟動期短暫鎖表可接受。
+- **大表的正確做法是部署前手動建立**：先在線上以 `CREATE INDEX CONCURRENTLY` 建好（指令已完整寫入 V10 註解），**V10** 的述句都帶 `IF NOT EXISTS` / `IF EXISTS`，屆時該 migration 自然變成 no-op。現階段 `transactions` 資料量小，啟動期短暫鎖表可接受。**一個誠實的限制**：V9 建立的兩條索引用的是不帶 `IF NOT EXISTS` 的 `CREATE INDEX`，而 V9 已不可再改，所以這個手法對那兩條索引不適用——尚未套用 V9 的大表只能承受該次鎖表。今後新增索引的 migration 請一開始就寫 `IF NOT EXISTS`。
 - **V7 的 `idx_transactions_user_asset_created` 一併移除**：本 phase 之後 `symbol` 篩選的排序改由 `idx_transactions_user_asset_executed` 承接，它已無任何讀者，留著只是讓每筆寫入多維護一份索引。同組的 `idx_transactions_user_created` 則**保留**——`sort=createdAt` 以它為配套索引。
 - **`sort=quantity` 刻意不建索引**：per-user 交易筆數量級小，`user_id` 過濾後的排序成本可忽略；每鍵全建會讓每筆交易寫入都要維護更多份索引，寫入成本與收益不成比例。取捨已寫入 SQL 註解，日後單一使用者交易量顯著成長時再補建。
-- Flyway 於每次 IT 啟動時套用 V1..V9，IT 全綠即證明 V9 可乾淨套用、無 validate 錯誤。
+- Flyway 於每次 IT 啟動時套用 V1..V10，IT 全綠即證明兩者可乾淨套用、無 validate 錯誤。**但要注意這證明不了 checksum 相容性**：IT 用 Testcontainers，每次都是全新資料庫、沒有既存的 schema history 可比對，所以「修改已套用的 migration」這類問題對 CI 與 IT 完全隱形——這正是本節開頭那個違規躲過所有綠燈的原因。
 
 ## （3）最終 API 契約表（前端 Plan 05 依此實作）
 
