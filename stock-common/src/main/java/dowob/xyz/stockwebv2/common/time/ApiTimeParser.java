@@ -91,10 +91,13 @@ public final class ApiTimeParser {
     /**
      * 還原被 servlet query string 解碼吃掉的 {@code '+'}。
      *
+     * <p>刻意保持 private：這是 {@link #parseRangeBound} 的實作細節，不是給呼叫端各自
+     * 套用的公用修補。若哪天真有第二個需要它的入口，屆時再開放並補上該入口的測試。</p>
+     *
      * @param value 已 trim 的原始字串
      * @return 空白全部還原成 {@code '+'} 的字串
      */
-    public static String restorePlusSign(String value) {
+    private static String restorePlusSign(String value) {
         return value.replace(' ', '+');
     }
 
