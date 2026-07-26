@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 3 complete (5/5 plans executed)
-last_updated: "2026-07-26T01:10:00.000Z"
+stopped_at: Phase 4 context gathered
+last_updated: "2026-07-26T08:17:01.074Z"
 last_activity: 2026-07-26
 progress:
   total_phases: 5
@@ -92,6 +92,7 @@ Recent decisions affecting current work:
 - 5 pending — `/gsd-capture --list` to review
 
 **第 5 條(2026-07-26,Phase 3 收尾發現):**
+
 - **Chart/Markets 仍直連 mock store(watchlist 未 API 化)** — Phase 3 已讓 Overview/Positions/Trades
   三頁脫離 mock store,但這兩頁仍直接 import。**性質澄清**:它們用的是 watchlist(`isWatched`/
   `toggleWatch`/`watchlists`)而非 portfolio 讀取,屬 PORT-06(v2 deferred),**不是 Phase 3 的遺漏**。
@@ -121,15 +122,17 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-26T01:10:00.000Z
-Stopped at: Phase 3 complete (5/5 plans executed, 全部 SUMMARY 已產出)
-Resume file: None
+Last session: 2026-07-26T08:17:01.057Z
+Stopped at: Phase 4 context gathered
+Resume file: .planning/phases/04-manual-trade-creation-idempotency-post-trade-refetch/04-CONTEXT.md
 Next action: Phase 4 尚無 CONTEXT → `/gsd-discuss-phase 4`
 
 ⚠️ Phase 3 收尾狀態:
+
 - 後端 commits(本 repo):`4b98759`、`2f15c33`、`e276de5`(Plan 01)。
 - 前端 commits(`../../vue/stock-v2`,branch `feature/phase-03-portfolio-read`):`4bdb229`、`157f7d8`(02)、
   `309598f`(03)、`40a4f2b`、`587e84e`(04)、`ef1fb35`、`c4abd7e`(05)。**兩個 repo 皆未 push。**
+
 - 三個頁面都已不再 import mock store(PORT-04 / judgment §3),API mode 一律經 `getRuntimeApiClients()`。
 - 尚未驗證:前後端真實整合(Phase 5 範圍)。03-05-SUMMARY §(4) 有逐項契約對帳(16 PASS / 1 N/A / 0 FAIL),
   但那是「前端送出的 URL」對「03-01-SUMMARY 記錄的契約」的紙面比對,不是跑起後端打真實請求。
