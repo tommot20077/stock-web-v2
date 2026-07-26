@@ -5,8 +5,6 @@ import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
-import org.apache.commons.lang3.ObjectUtils;
-import org.slf4j.MDC;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -37,7 +35,6 @@ public class AssetController {
     }
 
     private ApiMeta meta() {
-        String traceId = MDC.get(TraceIdFilter.TRACE_ID);
-        return new ApiMeta(ObjectUtils.defaultIfNull(traceId, "missing-trace-id"), OffsetDateTime.now());
+        return new ApiMeta(TraceIdFilter.currentTraceId(), OffsetDateTime.now());
     }
 }

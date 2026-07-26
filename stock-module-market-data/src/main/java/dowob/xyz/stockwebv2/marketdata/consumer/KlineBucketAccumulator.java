@@ -62,7 +62,7 @@ public class KlineBucketAccumulator {
                 } else {
                     BigDecimal newHigh = prev.high().max(price);
                     BigDecimal newLow = prev.low().min(price);
-                    BigDecimal prevVol = prev.volume() == null ? BigDecimal.ZERO : prev.volume();
+                    BigDecimal prevVol = Objects.requireNonNullElse(prev.volume(), BigDecimal.ZERO);
                     BigDecimal newVol = prevVol.add(vol);
                     return new KlineBucket(assetId, interval, bucketStart,
                             prev.open(), newHigh, newLow, price, newVol);

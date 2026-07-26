@@ -1,8 +1,8 @@
 package dowob.xyz.stockwebv2.backtest.engine;
 
 import dowob.xyz.stockwebv2.backtest.domain.BacktestPeriod;
-import org.apache.commons.lang3.StringUtils;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestStrategyId;
+import org.apache.commons.lang3.StringUtils;
 
 import java.math.BigDecimal;
 

@@ -7,10 +7,8 @@ import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.error.RateLimitExceededException;
 import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
-import org.apache.commons.lang3.ObjectUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -71,9 +69,8 @@ public class GlobalExceptionHandler {
         if (exception instanceof ErrorResponse errorResponse) {
             return handleErrorResponse(errorResponse);
         }
-        String traceId = MDC.get(TraceIdFilter.TRACE_ID);
         log.error("Unexpected exception while handling request, traceId={}",
-            ObjectUtils.defaultIfNull(traceId, "missing-trace-id"), exception);
+            TraceIdFilter.currentTraceId(), exception);
         ApiError error = ApiError.of(ErrorCode.INTERNAL_ERROR, ErrorCode.INTERNAL_ERROR.defaultMessage());
         return ResponseEntity.status(500).body(ApiResponse.failure(error, meta()));
     }
@@ -101,7 +98,6 @@ public class GlobalExceptionHandler {
     }
 
     private ApiMeta meta() {
-        String traceId = MDC.get(TraceIdFilter.TRACE_ID);
-        return new ApiMeta(ObjectUtils.defaultIfNull(traceId, "missing-trace-id"), OffsetDateTime.now());
+        return new ApiMeta(TraceIdFilter.currentTraceId(), OffsetDateTime.now());
     }
 }

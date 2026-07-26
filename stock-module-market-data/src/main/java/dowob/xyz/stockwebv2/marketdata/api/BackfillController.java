@@ -8,8 +8,6 @@ import dowob.xyz.stockwebv2.common.model.KlineInterval;
 import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
 import dowob.xyz.stockwebv2.marketdata.batch.BackfillJobLauncher;
 import jakarta.validation.Valid;
-import org.apache.commons.lang3.ObjectUtils;
-import org.slf4j.MDC;
 import org.springframework.batch.core.job.JobExecution;
 import org.springframework.batch.core.repository.explore.JobExplorer;
 import org.springframework.http.HttpStatus;
@@ -205,8 +203,7 @@ public class BackfillController {
      * @return ApiMeta
      */
     private ApiMeta meta() {
-        String traceId = MDC.get(TraceIdFilter.TRACE_ID);
-        return new ApiMeta(ObjectUtils.defaultIfNull(traceId, "missing-trace-id"), OffsetDateTime.now());
+        return new ApiMeta(TraceIdFilter.currentTraceId(), OffsetDateTime.now());
     }
 
     /**

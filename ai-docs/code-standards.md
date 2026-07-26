@@ -17,8 +17,12 @@ Prefer the following utility classes for null/empty checks to improve readabilit
 
 *   `ObjectUtils.isEmpty(obj)` — replaces `obj == null` and empty checks for collections, arrays, strings
 *   `ObjectUtils.isNotEmpty(obj)` — replaces `obj != null` and non-empty checks
-*   `ObjectUtils.defaultIfNull(obj, defaultValue)` — replaces `obj != null ? obj : defaultValue`
 *   `ObjectUtils.requireNonEmpty(obj, message)` — precondition check
+
+> **Do NOT use `ObjectUtils.defaultIfNull(obj, defaultValue)`.** It is deprecated as of
+> commons-lang3 3.19.0 (the version this project resolves) and will be removed in 4.0.
+> For a pure null default use `Objects.requireNonNullElse` / `requireNonNullElseGet` below;
+> the decision table at the end of this section already routes pure null checks to `Objects`.
 
 ### `StringUtils` (`org.apache.commons.lang3.StringUtils`) — String checks
 
@@ -31,6 +35,8 @@ Prefer the following utility classes for null/empty checks to improve readabilit
 *   `Objects.equals(a, b)` — null-safe equality comparison
 *   `Objects.nonNull(obj)` / `Objects.isNull(obj)` — for Stream filter and method reference scenarios
 *   `Objects.requireNonNull(obj, message)` — parameter precondition check (use when checking pure null without "empty" semantics)
+*   `Objects.requireNonNullElse(obj, defaultValue)` — replaces `obj != null ? obj : defaultValue` (constant / already-built default)
+*   `Objects.requireNonNullElseGet(obj, supplier)` — same, but the supplier is only evaluated when `obj` is null (use when the default must be constructed)
 
 ### When to use which
 

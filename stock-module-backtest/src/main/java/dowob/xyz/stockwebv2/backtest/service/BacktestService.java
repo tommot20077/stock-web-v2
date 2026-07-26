@@ -1,7 +1,6 @@
 package dowob.xyz.stockwebv2.backtest.service;
 
 import dowob.xyz.stockwebv2.backtest.api.BacktestResultDto;
-import org.apache.commons.lang3.StringUtils;
 import dowob.xyz.stockwebv2.backtest.api.BacktestRunDto;
 import dowob.xyz.stockwebv2.backtest.api.CreateBacktestRunRequest;
 import dowob.xyz.stockwebv2.backtest.api.StrategyValidationDto;
@@ -20,6 +19,7 @@ import dowob.xyz.stockwebv2.backtest.repository.BacktestRepository;
 import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -150,7 +150,7 @@ public class BacktestService {
     public PageResponse<BacktestRunDto> listRuns(Long userId, String symbol, int page, int size) {
         int safePage = Math.min(Math.max(0, page), MAX_PAGE);
         int safeSize = Math.max(1, Math.min(100, size));
-        String safeSymbol = StringUtils.isBlank(symbol) ? null : symbol.trim();
+        String safeSymbol = StringUtils.trimToNull(symbol);
         PageResponse<BacktestRun> runs = repository.listRuns(userId, safeSymbol, safePage, safeSize);
         return PageResponse.of(
             runs.items().stream().map(mapper::toRunDto).toList(),

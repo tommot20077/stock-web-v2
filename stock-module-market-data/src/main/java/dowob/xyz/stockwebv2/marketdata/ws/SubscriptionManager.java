@@ -1,6 +1,5 @@
 package dowob.xyz.stockwebv2.marketdata.ws;
 
-import org.apache.commons.lang3.ObjectUtils;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -159,7 +158,7 @@ public class SubscriptionManager {
     public Set<String> channelsOf(String sessionId) {
         Set<String> channels = sessionToChannels.get(sessionId);
         // sessionToChannels 內的 value 已是 Set.copyOf（不可變），可直接回傳
-        return ObjectUtils.defaultIfNull(channels, Set.of());
+        return Objects.requireNonNullElse(channels, Set.of());
     }
 
     /**

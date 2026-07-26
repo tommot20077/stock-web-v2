@@ -1,9 +1,9 @@
 package dowob.xyz.stockwebv2.infrastructure.security;
 
-import org.apache.commons.lang3.ObjectUtils;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.util.Objects;
 
 /**
  * 認證端點限流與帳號鎖定的可設定參數（security.md §15）。預設值即憲法規定值；
@@ -27,13 +27,13 @@ public record RateLimitProperties(
 ) {
 
     public RateLimitProperties {
-        // 常數預設用 defaultIfNull;需要 new 的預設一律用 getIfNull(supplier),
-        // 避免 defaultIfNull 的急切求值在值已存在時仍白建物件。
-        enabled = ObjectUtils.defaultIfNull(enabled, Boolean.TRUE);
-        login = ObjectUtils.getIfNull(login, () -> new Rule(10, Duration.ofMinutes(1)));
-        register = ObjectUtils.getIfNull(register, () -> new Rule(5, Duration.ofHours(1)));
-        refresh = ObjectUtils.getIfNull(refresh, () -> new Rule(5, Duration.ofMinutes(1)));
-        lockout = ObjectUtils.getIfNull(lockout, () -> new Lockout(5, Duration.ofMinutes(15)));
+        // 常數預設用 requireNonNullElse;需要 new 的預設用 requireNonNullElseGet,
+        // 後者的 supplier 僅在值為 null 時才求值,避免值已存在時仍白建物件。
+        enabled = Objects.requireNonNullElse(enabled, Boolean.TRUE);
+        login = Objects.requireNonNullElseGet(login, () -> new Rule(10, Duration.ofMinutes(1)));
+        register = Objects.requireNonNullElseGet(register, () -> new Rule(5, Duration.ofHours(1)));
+        refresh = Objects.requireNonNullElseGet(refresh, () -> new Rule(5, Duration.ofMinutes(1)));
+        lockout = Objects.requireNonNullElseGet(lockout, () -> new Lockout(5, Duration.ofMinutes(15)));
     }
 
     /**
@@ -51,8 +51,8 @@ public record RateLimitProperties(
      */
     public record Rule(Integer limit, Duration window) {
         public Rule {
-            limit = ObjectUtils.defaultIfNull(limit, Integer.MAX_VALUE);
-            window = ObjectUtils.getIfNull(window, () -> Duration.ofMinutes(1));
+            limit = Objects.requireNonNullElse(limit, Integer.MAX_VALUE);
+            window = Objects.requireNonNullElseGet(window, () -> Duration.ofMinutes(1));
         }
     }
 
@@ -64,8 +64,8 @@ public record RateLimitProperties(
      */
     public record Lockout(Integer threshold, Duration duration) {
         public Lockout {
-            threshold = ObjectUtils.defaultIfNull(threshold, 5);
-            duration = ObjectUtils.getIfNull(duration, () -> Duration.ofMinutes(15));
+            threshold = Objects.requireNonNullElse(threshold, 5);
+            duration = Objects.requireNonNullElseGet(duration, () -> Duration.ofMinutes(15));
         }
     }
 }
