@@ -28,3 +28,13 @@ TBD。這是**新增領域模型**,不是加欄位:
 - 注意 judgment §1:本專案的交易是「已成交紀錄」而非下單系統,加入現金餘額
   可能讓語意往「帳戶系統」偏移,需要先確認是否符合 PROJECT.md 的範圍
 - 規模上應該自己一個 phase
+
+## Scheduling
+
+**已排入 Phase 04.1**(2026-07-26,Phase 4 discuss 時 Yuan 決定)。見 `.planning/ROADMAP.md` 的
+`### Phase 04.1: Backend Data Gap Backfill (INSERTED)`。四條裡**最貴**的一條 —— 上方「是否符合
+PROJECT.md 範圍(judgment §1)」的疑問**仍未解決**,`/gsd-discuss-phase 04.1` 應該先處理它,
+必要時把這條退回 backlog 而不是硬做。
+
+另:2026-07-26 已複查確認後端仍完全沒有現金概念(`available_cash|cash_balance|balance|wallet`
+全 repo 排除 target 後**零命中**)。Phase 4 的 OrderTicket 依 D-04 隱藏「交易後現金」那一格。

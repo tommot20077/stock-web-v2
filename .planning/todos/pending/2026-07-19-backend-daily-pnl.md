@@ -29,3 +29,9 @@ TBD。難點在於這需要**日級歷史快照**,不是加個欄位:
   (`V4__market_data_hypertable.sql`、`V5__market_data_continuous_aggregates.sql`),
   可能可以沿用,但持倉快照是 trading 模組的責任
 - 規模上很可能值得自己一個 phase,而非塞進既有 phase
+
+## Scheduling
+
+**已排入 Phase 04.1**(2026-07-26,Phase 4 discuss 時 Yuan 決定)。見 `.planning/ROADMAP.md` 的
+`### Phase 04.1: Backend Data Gap Backfill (INSERTED)`。上方「『今日』的定義」與「持倉快照歸屬」
+兩個疑問**仍未解決**,是 `/gsd-discuss-phase 04.1` 的必問項。
