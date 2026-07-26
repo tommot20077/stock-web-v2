@@ -96,6 +96,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Goal**: 使用者可以在 API mode 記錄 manual executed buy/sell trade，且 retry/double-click 不會造成重複交易或 stale portfolio state。
 **Depends on**: Phase 3
 **Requirements**: TRAD-01, TRAD-02, TRAD-03, TRAD-04, TRAD-05, TRAD-06
+**Scope note**（2026-07-26 planning）: 本階段**橫跨兩個 git repository**（後端 `stock-web-v2` + sibling 前端 `vue/stock-v2`），且**包含後端改動三處**（V10 migration、必填 `Idempotency-Key` header 與 server-side 冪等、新 409 error code）。前端分支從 sibling repo 的 `develop @ a03e030` 開，後端分支從 `origin/develop` 開。DP-1 已裁定為 (c)：以 develop 為基準、只做冪等，`executedAt` 未來時間驗證與 `ApiTimeParser` **明確排除**在本階段範圍外（留給 draft PR #15）。
 **Success Criteria** (what must be TRUE):
 
   1. 使用者在 API mode order ticket 送出的交易會明確建立 manual executed buy/sell trade，不傳送 pending order、cancel、time-in-force 等未支援欄位。
@@ -104,7 +105,24 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. 交易成功後，Vue API mode 會重新讀取 portfolio summary、holdings/positions、trade history，畫面反映 backend truth。
   5. Trade validation、oversell、permission、CSRF、network 錯誤以使用者可理解的方式顯示，並保留 backend error code/request id。
 
-**Plans**: TBD
+**Plans**: 13 plans（8 waves；後端 5 + 前端 7 + 收尾閘門 1）
+
+Plans:
+
+- [ ] `04-01-PLAN.md` — 契約基石：`TRADE_IDEMPOTENCY_KEY_REUSED`(409) + V10 migration（`idempotency_key` 欄位 + partial unique index）+ DB 層行為 IT（wave 1，backend）
+- [ ] `04-06-PLAN.md` — `marketApi.ts` 三件組 + `AssetDto`/`KlineDto` 型別（D-01 的必要新 adapter，CONTEXT.md 未列）（wave 1，frontend）
+- [ ] `04-02-PLAN.md` — `TradeTransaction.idempotencyKey` + repository 的 key 查詢與 `ON CONFLICT DO NOTHING` 冪等 insert（wave 2，backend）
+- [ ] `04-07-PLAN.md` — `tradingApi.ts` 三件組 + `portfolioRevision.ts`（revision / lastFill / lastCreatedTradeId）（wave 2，frontend）
+- [ ] `04-03-PLAN.md` — `TradePayloadMatcher` 純函式 + `TradingService.createTrade` 改為 insert-first 冪等流程（wave 3，backend）
+- [ ] `04-08-PLAN.md` — `pageApiClients` 註冊 trading/market + 不回退 mock 的防線 + 42 個 i18n key（wave 3，frontend）
+- [ ] `04-04-PLAN.md` — 必填 `Idempotency-Key` header + `MissingRequestHeaderException` handler + `@WebMvcTest` 基礎設施（wave 4，backend）
+- [ ] `04-09-PLAN.md` — `OrderTicket.vue` 骨架重建：三步驟、假進度與亂數移除、fee/executedAt 欄位、D-04 隱藏、a11y（wave 4，frontend）
+- [ ] `04-05-PLAN.md` — `TradingApiIT` 端到端驗收：序列/併發冪等、跨使用者隔離、rollback 不燒 key、不回射 key（wave 5，backend）
+- [ ] `04-10-PLAN.md` — OrderTicket 真實資料：symbol typeahead 七態 + debounce/競態、報價卡、走勢圖三態（wave 5，frontend）
+- [ ] `04-11-PLAN.md` — OrderTicket 送出路徑：重複送出阻擋、D-14 key 生命週期、D-15 SELL 預檢、D-16 錯誤分派（wave 6，frontend）
+- [ ] `04-12-PLAN.md` — 三頁 post-trade 重讀、D-11 篩選保留與提示、D-12 分開呈現、D-13 fresh 高亮（含 DP-10 測試反轉）（wave 7，frontend）
+- [ ] `04-13-PLAN.md` — 收尾閘門：judgment §8 跨 repo 四項驗證 + 需求證據對照 + over-claim 稽核 + 人工確認（wave 8，checkpoint）
+
 **UI hint**: yes
 
 ### Phase 04.1: Backend Data Gap Backfill (INSERTED)
@@ -150,6 +168,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 4.1 -> 5
 | 1. Browser Auth Contract & Backend Security Foundation | 5/5 | Completed | 2026-05-30 |
 | 2. Frontend Session & API Client Foundation | 5/5 | Completed | 2026-05-31 |
 | 3. Portfolio Read API Mode | 5/5 | Completed | 2026-07-26 |
-| 4. Manual Trade Creation, Idempotency & Post-Trade Refetch | 0/TBD | Not started | - |
+| 4. Manual Trade Creation, Idempotency & Post-Trade Refetch | 0/13 | Not started | - |
 | 04.1 Backend Data Gap Backfill (INSERTED) | 0/TBD | Not started | - |
 | 5. Cross-Repo Browser Flow Verification & Contract Hardening | 0/TBD | Not started | - |
