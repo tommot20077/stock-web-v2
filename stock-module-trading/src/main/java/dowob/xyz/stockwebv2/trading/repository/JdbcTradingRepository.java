@@ -177,6 +177,14 @@ public class JdbcTradingRepository implements TradingRepository {
      * 呼叫端以唯讀交易包住，才能讓兩者讀到同一個快照——見
      * {@link #listTransactions(TradeQuery)}。</p>
      *
+     * <p><strong>不變量：本方法產出的條件只能引用 {@code t.*}。</strong>list 的 FROM 多一個
+     * {@code join assets a}（為了 SELECT 出 {@code a.symbol}），count 則刻意不 join——
+     * {@code transactions.asset_id} 是 {@code NOT NULL REFERENCES assets(id)}，inner join
+     * 不可能改變列數，替 count 加上 join 只是讓它白白變慢。代價是這裡若加入一條引用
+     * {@code a.*} 的條件，count 會在執行期炸 {@code missing FROM-clause entry for table "a"}。
+     * 需要按資產屬性篩選時，請比照現有 {@code symbol}：在 service 層先解析成
+     * {@code asset_id} 再進來，而不是在此 join。</p>
+     *
      * @param query 已驗證的查詢物件
      * @return WHERE 子句字串與其具名參數
      */
