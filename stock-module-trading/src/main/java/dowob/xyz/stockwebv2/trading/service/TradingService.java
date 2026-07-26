@@ -29,7 +29,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -40,15 +39,6 @@ import java.util.UUID;
 public class TradingService {
     private static final int MAX_PAGE = 10_000;
     private static final int MONEY_SCALE = 8;
-
-    /**
-     * 未帶時區偏移的查詢日期所採用的基準時區。
-     *
-     * <p>{@code dateFrom=2026-01-01} 這類值本身不含時區資訊，必須補一個基準才能比對
-     * {@code timestamptz} 欄位。此處固定為 UTC 並寫入 API 契約，讓同一組參數在任何部署
-     * 環境都得到相同結果；需要當地時間語意的客戶端請自行帶完整偏移量。</p>
-     */
-    private static final ZoneOffset QUERY_DEFAULT_OFFSET = ZoneOffset.UTC;
 
     /**
      * {@code executedAt} 容許超前伺服器時鐘的幅度。
@@ -167,8 +157,8 @@ public class TradingService {
         TradeType tradeType = TradeType.fromFilterValue(type);
         TradeSortKey sortKey = TradeSortKey.fromApiValue(sort);
         SortDirection sortDirection = SortDirection.fromApiValue(direction);
-        OffsetDateTime from = ApiTimeParser.parseRangeBound(dateFrom, "dateFrom", RangeBound.LOWER, QUERY_DEFAULT_OFFSET);
-        OffsetDateTime to = ApiTimeParser.parseRangeBound(dateTo, "dateTo", RangeBound.UPPER, QUERY_DEFAULT_OFFSET);
+        OffsetDateTime from = ApiTimeParser.parseRangeBound(dateFrom, "dateFrom", RangeBound.LOWER);
+        OffsetDateTime to = ApiTimeParser.parseRangeBound(dateTo, "dateTo", RangeBound.UPPER);
         if (from != null && to != null && from.isAfter(to)) {
             // 顛倒的區間會產生恆為空的 WHERE，靜默回傳空頁會讓「日期選反」看起來像「資料不見了」。
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "dateFrom must not be after dateTo");

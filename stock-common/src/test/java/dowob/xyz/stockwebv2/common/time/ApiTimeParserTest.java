@@ -45,13 +45,16 @@ class ApiTimeParserTest {
     }
 
     @Test
-    @DisplayName("未帶偏移量的時間戳補上指定的基準偏移")
+    @DisplayName("未帶偏移量的時間戳補上 DEFAULT_OFFSET")
     void offsetLessTimestampFallsBackToDefaultOffset() {
         assertThat(parseFrom("2026-01-01T09:30:00"))
             .isEqualTo(OffsetDateTime.parse("2026-01-01T09:30:00Z"));
-        assertThat(ApiTimeParser.parseRangeBound(
-            "2026-01-01T09:30:00", "dateFrom", RangeBound.LOWER, ZoneOffset.ofHours(8)))
-            .isEqualTo(OffsetDateTime.parse("2026-01-01T09:30:00+08:00"));
+    }
+
+    @Test
+    @DisplayName("DEFAULT_OFFSET 固定為 UTC:同一組參數在任何部署環境都得到相同結果")
+    void defaultOffsetIsUtc() {
+        assertThat(ApiTimeParser.DEFAULT_OFFSET).isEqualTo(ZoneOffset.UTC);
     }
 
     @Test
@@ -92,10 +95,10 @@ class ApiTimeParserTest {
     }
 
     private OffsetDateTime parseFrom(String value) {
-        return ApiTimeParser.parseRangeBound(value, "dateFrom", RangeBound.LOWER, ZoneOffset.UTC);
+        return ApiTimeParser.parseRangeBound(value, "dateFrom", RangeBound.LOWER);
     }
 
     private OffsetDateTime parseTo(String value) {
-        return ApiTimeParser.parseRangeBound(value, "dateTo", RangeBound.UPPER, ZoneOffset.UTC);
+        return ApiTimeParser.parseRangeBound(value, "dateTo", RangeBound.UPPER);
     }
 }
