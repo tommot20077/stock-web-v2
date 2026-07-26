@@ -1,5 +1,6 @@
 package dowob.xyz.stockwebv2.trading.api;
 
+import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
@@ -11,12 +12,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.security.core.Authentication;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -64,5 +68,53 @@ class TradingControllerTest {
         verify(auditLogger).log(
             eq(42L), eq("trade_create"), eq("trade"),
             eq("failure:" + ErrorCode.ASSET_NOT_FOUND.name()), eq("10.0.0.1"));
+    }
+
+    @Test
+    @DisplayName("六個查詢參數原樣轉交 service，controller 層不做任何解析或正規化")
+    void listTradesForwardsEveryQueryParameterUnchanged() {
+        when(tradingService.listTrades(
+            eq(42L), any(), any(), any(), any(), any(), any(), anyInt(), anyInt()))
+            .thenReturn(PageResponse.<TradeDto>of(List.of(), 3, 50, 0L));
+
+        controller.listTrades(
+            " aapl ", "buy", "2026-01-01", "2026-01-31", "createdAt", "asc", "3", "50", authentication);
+
+        /*
+         * 刻意逐一比對而非用 any()：所有白名單與格式驗證都在 service 層，controller 只要少
+         * trim 一次或吞掉一個參數，驗證關卡就會看到與客戶端不同的輸入。
+         */
+        verify(tradingService).listTrades(
+            42L, " aapl ", "buy", "2026-01-01", "2026-01-31", "createdAt", "asc", 3, 50);
+    }
+
+    @Test
+    @DisplayName("省略的查詢參數以 null 轉交，代表「不篩選」而非空字串")
+    void omittedQueryParametersArriveAsNull() {
+        when(tradingService.listTrades(
+            eq(42L), any(), any(), any(), any(), any(), any(), anyInt(), anyInt()))
+            .thenReturn(PageResponse.<TradeDto>of(List.of(), 0, 20, 0L));
+
+        controller.listTrades(null, null, null, null, null, null, "0", "20", authentication);
+
+        verify(tradingService).listTrades(42L, null, null, null, null, null, null, 0, 20);
+    }
+
+    @Test
+    @DisplayName("非數字的 page / size 回 VALIDATION_FAILED，且不觸及 service")
+    void nonNumericPagingIsRejectedBeforeService() {
+        assertThatThrownBy(() -> controller.listTrades(
+            null, null, null, null, null, null, "abc", "20", authentication))
+            .isInstanceOf(BusinessException.class)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.VALIDATION_FAILED);
+
+        assertThatThrownBy(() -> controller.listTrades(
+            null, null, null, null, null, null, "0", "xyz", authentication))
+            .isInstanceOf(BusinessException.class)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.VALIDATION_FAILED);
+
+        verifyNoInteractions(tradingService);
     }
 }
