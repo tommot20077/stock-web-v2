@@ -6,6 +6,7 @@ import dowob.xyz.stockwebv2.backtest.domain.BacktestRun;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestRunStatus;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestStrategyId;
 import dowob.xyz.stockwebv2.common.api.PageResponse;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -181,7 +182,7 @@ public class JdbcBacktestRepository implements BacktestRepository {
 
     @Override
     public PageResponse<BacktestRun> listRuns(Long userId, String symbol, int page, int size) {
-        boolean filterSymbol = symbol != null && !symbol.isBlank();
+        boolean filterSymbol = StringUtils.isNotBlank(symbol);
         long offset = (long) page * size;
         String where = filterSymbol ? "where user_id = :userId and symbol = :symbol " : "where user_id = :userId ";
         JdbcClient.StatementSpec listSpec = jdbcClient.sql("select " + RUN_COLUMNS + """

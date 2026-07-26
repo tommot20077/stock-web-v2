@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.user.service;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Service;
@@ -82,7 +83,7 @@ public class BrowserAuthCookieService {
             .sameSite(properties.sameSite())
             .path(properties.path())
             .maxAge(maxAge);
-        if (properties.domain() != null && !properties.domain().isBlank()) {
+        if (StringUtils.isNotBlank(properties.domain())) {
             builder.domain(properties.domain().trim());
         }
         response.addHeader(HttpHeaders.SET_COOKIE, builder.build().toString());
@@ -94,7 +95,7 @@ public class BrowserAuthCookieService {
             return null;
         }
         for (Cookie cookie : cookies) {
-            if (name.equals(cookie.getName()) && cookie.getValue() != null && !cookie.getValue().isBlank()) {
+            if (name.equals(cookie.getName()) && StringUtils.isNotBlank(cookie.getValue())) {
                 return cookie.getValue();
             }
         }

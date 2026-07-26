@@ -1,5 +1,6 @@
 package dowob.xyz.stockwebv2.user.service;
 
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
@@ -30,18 +31,10 @@ public record BrowserAuthCookieProperties(
     Duration refreshTokenTtl
 ) {
     public BrowserAuthCookieProperties {
-        if (isBlank(accessName)) {
-            accessName = "stock_access";
-        }
-        if (isBlank(refreshName)) {
-            refreshName = "stock_refresh";
-        }
-        if (isBlank(path)) {
-            path = "/";
-        }
-        if (isBlank(sameSite)) {
-            sameSite = "Lax";
-        }
+        accessName = StringUtils.defaultIfBlank(accessName, "stock_access");
+        refreshName = StringUtils.defaultIfBlank(refreshName, "stock_refresh");
+        path = StringUtils.defaultIfBlank(path, "/");
+        sameSite = StringUtils.defaultIfBlank(sameSite, "Lax");
         if (accessTokenTtl == null || accessTokenTtl.isZero() || accessTokenTtl.isNegative()) {
             accessTokenTtl = Duration.ofMinutes(15);
         }
@@ -51,9 +44,5 @@ public record BrowserAuthCookieProperties(
         if ("None".equalsIgnoreCase(sameSite) && !secure) {
             throw new IllegalArgumentException("SameSite=None auth cookies require secure=true");
         }
-    }
-
-    private static boolean isBlank(String value) {
-        return value == null || value.isBlank();
     }
 }

@@ -1,17 +1,13 @@
 package dowob.xyz.stockwebv2.asset.api;
 
 import dowob.xyz.stockwebv2.asset.service.AssetQueryService;
-import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.api.PageResponse;
-import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
-import org.slf4j.MDC;
+import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.time.OffsetDateTime;
 
 @RestController
 @RequestMapping("/api/v1/assets")
@@ -32,11 +28,6 @@ public class AssetController {
     ) {
         int safePage = Math.min(Math.max(0, page), MAX_PAGE);
         int safeSize = Math.min(Math.max(1, size), 100);
-        return ApiResponse.success(assetQueryService.search(query, safePage, safeSize), meta());
-    }
-
-    private ApiMeta meta() {
-        String traceId = MDC.get(TraceIdFilter.TRACE_ID);
-        return new ApiMeta(traceId == null ? "missing-trace-id" : traceId, OffsetDateTime.now());
+        return ApiResponse.success(assetQueryService.search(query, safePage, safeSize), ApiMetaFactory.current());
     }
 }

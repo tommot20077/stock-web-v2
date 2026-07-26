@@ -1,15 +1,14 @@
 package dowob.xyz.stockwebv2.start.error;
 
 import dowob.xyz.stockwebv2.common.api.ApiError;
-import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.error.RateLimitExceededException;
+import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
 import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -19,7 +18,6 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
-import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -46,14 +44,14 @@ public class GlobalExceptionHandler {
         ApiError error = ApiError.of(code, exception.getMessage());
         return ResponseEntity.status(code.httpStatus())
             .header("Retry-After", String.valueOf(exception.retryAfterSeconds()))
-            .body(ApiResponse.failure(error, meta()));
+            .body(ApiResponse.failure(error, ApiMetaFactory.current()));
     }
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException exception) {
         ErrorCode code = exception.errorCode();
         ApiError error = ApiError.of(code, exception.getMessage());
-        return ResponseEntity.status(code.httpStatus()).body(ApiResponse.failure(error, meta()));
+        return ResponseEntity.status(code.httpStatus()).body(ApiResponse.failure(error, ApiMetaFactory.current()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -63,7 +61,7 @@ public class GlobalExceptionHandler {
             fields.put(error.getField(), error.getDefaultMessage())
         );
         ApiError error = ApiError.of(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage(), fields);
-        return ResponseEntity.badRequest().body(ApiResponse.failure(error, meta()));
+        return ResponseEntity.badRequest().body(ApiResponse.failure(error, ApiMetaFactory.current()));
     }
 
     /**
@@ -87,7 +85,7 @@ public class GlobalExceptionHandler {
         Map<String, String> fields = new LinkedHashMap<>();
         fields.put(exception.getName(), "invalid format");
         ApiError error = ApiError.of(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage(), fields);
-        return ResponseEntity.badRequest().body(ApiResponse.failure(error, meta()));
+        return ResponseEntity.badRequest().body(ApiResponse.failure(error, ApiMetaFactory.current()));
     }
 
     @ExceptionHandler(Exception.class)
@@ -95,17 +93,16 @@ public class GlobalExceptionHandler {
         if (exception instanceof ErrorResponse errorResponse) {
             return handleErrorResponse(errorResponse);
         }
-        String traceId = MDC.get(TraceIdFilter.TRACE_ID);
         log.error("Unexpected exception while handling request, traceId={}",
-            traceId == null ? "missing-trace-id" : traceId, exception);
+            TraceIdFilter.currentTraceId(), exception);
         ApiError error = ApiError.of(ErrorCode.INTERNAL_ERROR, ErrorCode.INTERNAL_ERROR.defaultMessage());
-        return ResponseEntity.status(500).body(ApiResponse.failure(error, meta()));
+        return ResponseEntity.status(500).body(ApiResponse.failure(error, ApiMetaFactory.current()));
     }
 
     private ResponseEntity<ApiResponse<Void>> handleErrorResponse(ErrorResponse errorResponse) {
         ErrorCode code = codeForStatus(errorResponse.getStatusCode().value());
         ApiError error = ApiError.of(code, code.defaultMessage());
-        return ResponseEntity.status(errorResponse.getStatusCode()).body(ApiResponse.failure(error, meta()));
+        return ResponseEntity.status(errorResponse.getStatusCode()).body(ApiResponse.failure(error, ApiMetaFactory.current()));
     }
 
     private ErrorCode codeForStatus(int status) {
@@ -122,10 +119,5 @@ public class GlobalExceptionHandler {
             return ErrorCode.AUTH_INVALID_CREDENTIALS;
         }
         return ErrorCode.INTERNAL_ERROR;
-    }
-
-    private ApiMeta meta() {
-        String traceId = MDC.get(TraceIdFilter.TRACE_ID);
-        return new ApiMeta(traceId == null ? "missing-trace-id" : traceId, OffsetDateTime.now());
     }
 }

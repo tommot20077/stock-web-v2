@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.infrastructure.web;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.server.ServerHttpRequest;
 
 import java.net.InetSocketAddress;
@@ -24,8 +25,11 @@ public final class ClientIpResolver {
 
     /**
      * 無法判定對端位址時的回退值。
+     *
+     * <p>對外公開,供以 IP 為計數維度的呼叫端（per-IP 限流 / WS 連線上限）共用同一個回退桶;
+     * 若兩邊各自硬編字面值而不一致,無法解析來源的流量會被拆散到不同桶,使上限形同放寬。</p>
      */
-    private static final String UNKNOWN = "unknown";
+    public static final String UNKNOWN = "unknown";
 
     private ClientIpResolver() {
     }
@@ -38,7 +42,7 @@ public final class ClientIpResolver {
      */
     public static String resolve(HttpServletRequest request) {
         String remoteAddr = request.getRemoteAddr();
-        return remoteAddr == null || remoteAddr.isBlank() ? UNKNOWN : remoteAddr;
+        return StringUtils.defaultIfBlank(remoteAddr, UNKNOWN);
     }
 
     /**

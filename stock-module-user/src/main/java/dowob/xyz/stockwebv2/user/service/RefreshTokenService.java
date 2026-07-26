@@ -4,6 +4,8 @@ import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.infrastructure.security.JwtProperties;
 import dowob.xyz.stockwebv2.user.domain.User;
+import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -71,7 +73,7 @@ public class RefreshTokenService {
      * @return 擁有者使用者 id；token 不存在時回 {@code null}
      */
     public Long findOwner(String token) {
-        if (token == null || token.isBlank()) {
+        if (StringUtils.isBlank(token)) {
             return null;
         }
         Object userId = redisTemplate.opsForHash().get("user:refresh:" + token, "userId");
@@ -94,13 +96,13 @@ public class RefreshTokenService {
     }
 
     public RefreshSession consumeForRotation(String token) {
-        if (token == null || token.isBlank()) {
+        if (StringUtils.isBlank(token)) {
             throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID, ErrorCode.AUTH_REFRESH_TOKEN_INVALID.defaultMessage());
         }
 
         String refreshKey = "user:refresh:" + token;
         Map<Object, Object> refreshEntries = redisTemplate.opsForHash().entries(refreshKey);
-        if (refreshEntries == null || refreshEntries.isEmpty()) {
+        if (ObjectUtils.isEmpty(refreshEntries)) {
             revokeFamilyIfReplayed(token);
             throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID, ErrorCode.AUTH_REFRESH_TOKEN_INVALID.defaultMessage());
         }
@@ -109,7 +111,7 @@ public class RefreshTokenService {
         String tokenVersion = String.valueOf(refreshEntries.get("tokenVersion"));
         Long userId = parseUserId(userIdText);
         Map<Object, Object> authEntries = redisTemplate.opsForHash().entries("user:auth:" + userId);
-        if (authEntries == null || authEntries.isEmpty()) {
+        if (ObjectUtils.isEmpty(authEntries)) {
             revoke(token);
             throw new BusinessException(ErrorCode.AUTH_REFRESH_TOKEN_INVALID, ErrorCode.AUTH_REFRESH_TOKEN_INVALID.defaultMessage());
         }
@@ -189,7 +191,7 @@ public class RefreshTokenService {
     }
 
     private String normalizeDeviceInfo(String deviceInfo) {
-        if (deviceInfo == null || deviceInfo.isBlank()) {
+        if (StringUtils.isBlank(deviceInfo)) {
             return "unknown";
         }
 

@@ -32,6 +32,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -85,7 +86,7 @@ public class TradingService {
         OffsetDateTime now = OffsetDateTime.now();
         AssetSummary asset = resolveTradeableAsset(request.symbol());
         TradeType type = TradeType.fromApiValue(request.type());
-        BigDecimal fee = request.fee() == null ? BigDecimal.ZERO : request.fee();
+        BigDecimal fee = Objects.requireNonNullElse(request.fee(), BigDecimal.ZERO);
         OffsetDateTime executedAt = resolveExecutedAt(request.executedAt(), now);
         Optional<Holding> current = repository.findHoldingForUpdate(userId, asset.id());
         Holding next = switch (type) {

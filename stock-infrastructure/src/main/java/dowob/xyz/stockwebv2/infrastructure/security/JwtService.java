@@ -6,6 +6,7 @@ import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
 import com.nimbusds.jose.proc.SecurityContext;
 import dowob.xyz.stockwebv2.common.model.Role;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
@@ -102,7 +103,7 @@ public class JwtService {
 
     private Long parseSubject(Jwt jwt) {
         String subject = jwt.getSubject();
-        if (subject == null || subject.isBlank()) {
+        if (StringUtils.isBlank(subject)) {
             throw new BadJwtException("JWT sub claim is required");
         }
         try {
@@ -114,7 +115,7 @@ public class JwtService {
 
     private Role parseRole(Jwt jwt) {
         String role = jwt.getClaimAsString("role");
-        if (role == null || role.isBlank()) {
+        if (StringUtils.isBlank(role)) {
             throw new BadJwtException("JWT role claim is required");
         }
         try {
@@ -133,7 +134,7 @@ public class JwtService {
     }
 
     private ECKey resolveKey(String privateKeyPem, Environment environment) {
-        if (privateKeyPem == null || privateKeyPem.isBlank()) {
+        if (StringUtils.isBlank(privateKeyPem)) {
             if (!environment.acceptsProfiles(Profiles.of("dev", "test", "e2e", "e2e-browser"))) {
                 throw new IllegalStateException("STOCK_JWT_PRIVATE_KEY must be configured outside dev/test/e2e/e2e-browser profiles");
             }

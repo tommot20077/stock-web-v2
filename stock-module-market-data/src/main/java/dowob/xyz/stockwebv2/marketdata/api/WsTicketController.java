@@ -1,16 +1,16 @@
 package dowob.xyz.stockwebv2.marketdata.api;
 
-import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
+import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
 import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
-import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
 import dowob.xyz.stockwebv2.marketdata.ws.WsTicketService;
+import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.core.Authentication;
@@ -18,7 +18,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.OffsetDateTime;
 import java.util.Map;
 
 /**
@@ -87,7 +86,7 @@ public class WsTicketController {
             WsTicketService.DEFAULT_TTL.getSeconds(),
             WS_URL
         );
-        return ApiResponse.success(body, meta());
+        return ApiResponse.success(body, ApiMetaFactory.current());
     }
 
     /**
@@ -98,7 +97,7 @@ public class WsTicketController {
      * @throws BusinessException 若 authentication 無效
      */
     private Long resolveUserId(Authentication authentication) {
-        if (authentication == null || authentication.getName() == null || authentication.getName().isBlank()) {
+        if (authentication == null || StringUtils.isBlank(authentication.getName())) {
             throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
         }
         try {
@@ -125,7 +124,7 @@ public class WsTicketController {
      */
     private Integer resolveTokenVersion(Long userId) {
         Map<Object, Object> entries = redisTemplate.opsForHash().entries(AUTH_KEY_PREFIX + userId);
-        if (entries == null || entries.isEmpty()) {
+        if (ObjectUtils.isEmpty(entries)) {
             log.warn("resolveTokenVersion: Redis auth state missing for userId={}", userId);
             throw new BusinessException(ErrorCode.AUTH_REDIS_UNAVAILABLE,
                 ErrorCode.AUTH_REDIS_UNAVAILABLE.defaultMessage());
@@ -143,15 +142,5 @@ public class WsTicketController {
             throw new BusinessException(ErrorCode.AUTH_REDIS_UNAVAILABLE,
                 ErrorCode.AUTH_REDIS_UNAVAILABLE.defaultMessage());
         }
-    }
-
-    /**
-     * 建立 {@link ApiMeta}，traceId 來自 MDC（由 {@code TraceIdFilter} 寫入）。
-     *
-     * @return ApiMeta
-     */
-    private ApiMeta meta() {
-        String traceId = MDC.get(TraceIdFilter.TRACE_ID);
-        return new ApiMeta(traceId == null ? "missing-trace-id" : traceId, OffsetDateTime.now());
     }
 }
