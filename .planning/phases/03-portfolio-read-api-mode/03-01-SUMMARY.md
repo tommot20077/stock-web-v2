@@ -99,16 +99,28 @@ Task 3 的 RED 為「事後反向驗證」而非「先寫測試再實作」—�
 
 ```sql
 -- D-07：預設排序 executed_at DESC, id DESC 的配套索引
-CREATE INDEX idx_transactions_user_executed ON transactions (user_id, executed_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_transactions_user_executed
+    ON transactions (user_id, executed_at DESC, id DESC);
+
+-- D-05：symbol 篩選 + 預設排序的配套索引
+CREATE INDEX IF NOT EXISTS idx_transactions_user_asset_executed
+    ON transactions (user_id, asset_id, executed_at DESC, id DESC);
 
 -- D-06：金額（數量 × 單價）排序的 PostgreSQL 運算式索引；運算式必須加括號
-CREATE INDEX idx_transactions_user_amount ON transactions (user_id, (quantity * price) DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_transactions_user_amount
+    ON transactions (user_id, (quantity * price) DESC, id DESC);
+
+-- V7 的 (user_id, asset_id, created_at DESC, id DESC) 已無讀者
+DROP INDEX IF EXISTS idx_transactions_user_asset_created;
 ```
 
-- 兩條索引皆以 `user_id` 開頭，對應恆存在的 `t.user_id = :userId` 條件。
+- 三條索引皆以 `user_id` 開頭，對應恆存在的 `t.user_id = :userId` 條件。
 - `id DESC` 納入索引尾端，讓 tie-breaker 不需額外排序步驟。
-- **`sort=quantity` 刻意不建索引**：per-user 交易筆數量級小，`user_id` 過濾後的排序成本可忽略；三鍵全建會讓每筆交易寫入都要維護三份索引，寫入成本與收益不成比例。取捨已寫入 SQL 註解，日後單一使用者交易量顯著成長時再補建。
-- Flyway 於每次 IT 啟動時套用 V1..V9，80 個 IT 全綠即證明 V9 可乾淨套用、無 validate 錯誤。
+- **刻意不使用 `CONCURRENTLY`——這點實測過。** 一般 `CREATE INDEX` 確實會對 `transactions` 取 ACCESS EXCLUSIVE 鎖、在啟動期擋住 INSERT，直覺解法是改用 `CREATE INDEX CONCURRENTLY`；但在 Flyway 底下這會**直接死鎖**。Flyway 套用 migration 時另有一條連線持有 schema history 的交易並停在 `idle in transaction`，而 `CONCURRENTLY` 必須等待所有並行交易的 virtualxid 釋放，兩者互等。實測 `TradingApiIT`（Postgres 16 + Flyway 11）：V9 已被正確判定為 `[non-transactional]` 並在交易外執行，仍卡死逾 1.5 小時，`pg_stat_activity` 顯示 `Lock/virtualxid` 等待對象即 Flyway 自己的連線。在 migration 內用 `CONCURRENTLY`，是把「短暫鎖表」惡化成「啟動永遠不會完成」。
+- **大表的正確做法是部署前手動建立**：先在線上以 `CREATE INDEX CONCURRENTLY` 建好（指令已完整寫入 V9 註解），本檔所有述句都帶 `IF NOT EXISTS` / `IF EXISTS`，屆時 migration 自然變成 no-op。現階段 `transactions` 資料量小，啟動期短暫鎖表可接受。
+- **V7 的 `idx_transactions_user_asset_created` 一併移除**：本 phase 之後 `symbol` 篩選的排序改由 `idx_transactions_user_asset_executed` 承接，它已無任何讀者，留著只是讓每筆寫入多維護一份索引。同組的 `idx_transactions_user_created` 則**保留**——`sort=createdAt` 以它為配套索引。
+- **`sort=quantity` 刻意不建索引**：per-user 交易筆數量級小，`user_id` 過濾後的排序成本可忽略；每鍵全建會讓每筆交易寫入都要維護更多份索引，寫入成本與收益不成比例。取捨已寫入 SQL 註解，日後單一使用者交易量顯著成長時再補建。
+- Flyway 於每次 IT 啟動時套用 V1..V9，IT 全綠即證明 V9 可乾淨套用、無 validate 錯誤。
 
 ## （3）最終 API 契約表（前端 Plan 05 依此實作）
 
@@ -116,20 +128,39 @@ CREATE INDEX idx_transactions_user_amount ON transactions (user_id, (quantity * 
 
 | 參數 | 型態 | 預設 | 語意 | 非法值行為 |
 |------|------|------|------|-----------|
-| `symbol` | string | 無（不篩） | 標的代號，前後空白會被 trim、轉大寫 | 查無此標的 → 400 `ASSET_NOT_FOUND` |
+| `symbol` | string | 無（不篩） | 標的代號，前後空白會被 trim、轉大寫 | 查無此標的 → **404** `ASSET_NOT_FOUND` |
 | `type` | string | 無（不篩） | `BUY` / `SELL`，大小寫不敏感；**空白字串等同不帶** | 400 `TRADE_UNSUPPORTED_TYPE` |
-| `dateFrom` | ISO-8601 OffsetDateTime | 無 | `executed_at >= dateFrom`（含） | 400 `VALIDATION_FAILED`，訊息 `dateFrom must be an ISO-8601 timestamp` |
-| `dateTo` | ISO-8601 OffsetDateTime | 無 | `executed_at < dateTo`（**不含**，半開區間 `[dateFrom, dateTo)`） | 400 `VALIDATION_FAILED`，訊息 `dateTo must be an ISO-8601 timestamp` |
-| `sort` | string | `executedAt` | 白名單 `executedAt` / `total` / `quantity`，大小寫不敏感；`total` 定義為 `quantity × price`（**不含 fee**） | 400 `VALIDATION_FAILED`，訊息 `sort must be one of executedAt, total, quantity` |
+| `dateFrom` | ISO-8601 日期或時間戳 | 無 | `executed_at >= dateFrom`（含） | 400 `VALIDATION_FAILED`，訊息 `dateFrom must be an ISO-8601 date or timestamp` |
+| `dateTo` | ISO-8601 日期或時間戳 | 無 | `executed_at < dateTo`（**不含**，半開區間 `[dateFrom, dateTo)`） | 400 `VALIDATION_FAILED`，訊息 `dateTo must be an ISO-8601 date or timestamp` |
+| `sort` | string | `executedAt` | 白名單 `executedAt` / `createdAt` / `total` / `quantity`，大小寫不敏感；`total` 定義為 `quantity × price`（**不含 fee**） | 400 `VALIDATION_FAILED`，訊息 `sort must be one of executedAt, createdAt, total, quantity` |
 | `direction` | string | `desc` | `asc` / `desc`，大小寫不敏感 | 400 `VALIDATION_FAILED`，訊息 `direction must be asc or desc` |
 | `page` | int | `0` | 夾限 0..10000（超出不報錯，直接夾限） | 非數字 → 400 `VALIDATION_FAILED`，訊息 `page must be a number` |
 | `size` | int | `20` | 夾限 1..100（超出不報錯，直接夾限） | 非數字 → 400 `VALIDATION_FAILED`，訊息 `size must be a number` |
 
+`symbol` 查無標的是 **404 不是 400**：`ErrorCode.ASSET_NOT_FOUND` 宣告為 `ASSET_NOT_FOUND(404, "Asset not found")`，本表先前誤植為 400。依此表實作的前端若以狀態碼 400 分支處理此情形，需改為 404。
+
+### 日期參數的傳送與接收格式
+
+接收端（`ApiTimeParser.parseRangeBound`）接受三種形式，一律正規化成 `OffsetDateTime`：
+
+| 客戶端送出 | 解析結果 | 說明 |
+|-----------|---------|------|
+| `2026-01-01T00:00:00Z` | 該瞬間 | **建議格式**；JS `new Date().toISOString()` 的原生輸出 |
+| `2026-01-01T00:00:00%2B08:00` | 該瞬間 | 帶偏移量，`+` **必須**編碼成 `%2B`（見下） |
+| `2026-01-01T00:00:00` | 補 UTC | 未帶偏移量時以 UTC 為基準 |
+| `2026-01-01` | 整個當日 | 作為 `dateFrom` 取當日 00:00Z；作為 `dateTo` 取**隔日** 00:00Z |
+
+- **`+` 必須百分比編碼成 `%2B`。** Servlet 對 query string 採 `application/x-www-form-urlencoded` 解碼規則，會把裸的 `+` 解成空白，`2026-01-01T00:00:00+08:00` 抵達服務層時會變成 `2026-01-01T00:00:00 08:00`。`encodeURIComponent()`、`URLSearchParams` 與 axios 的預設序列化都會正確編碼；手動字串拼接 URL 則不會。服務層雖已還原此種破壞（空白一律還原成 `+`），客戶端仍應正確編碼。
+- **純日期的上界涵蓋當天整日。** `dateTo=2026-01-31` 代表「到 01-31 這天結束為止」，等價於 `2026-02-01T00:00:00Z` 的排除上界；同一個邊界寫成時間戳 `2026-01-31T00:00:00Z` 則是嚴格小於，01-31 當天不會被納入。日期選擇器請直接送純日期。
+- **`dateFrom` 晚於 `dateTo` 回 400** `VALIDATION_FAILED`，訊息 `dateFrom must not be after dateTo`；兩者相等是合法的退化區間，回傳空頁。
+
 補充契約細節：
 
 - 所有排序一律附加 `, t.id {direction}` 作為決定性 tie-breaker；`sort=total&direction=desc` 下金額相同者，**後插入者（id 較大）在前**。
-- 日期篩選與排序皆以 `executed_at`（成交時間）為準，**非** `created_at`（入帳時間）。補登舊交易時兩者會分歧。
-- `totalElements` 與 `items` 套用完全相同的 WHERE（單一來源），帶篩選時兩者必定一致。
+- 日期篩選與**預設**排序以 `executed_at`（成交時間）為準，**非** `created_at`（入帳時間）。補登舊交易時兩者會分歧。`executed_at` 由提交者填寫，`created_at` 由資料庫產生並受 V8 append-only trigger 保護；需要防竄改順序時請用 `sort=createdAt`。
+- `executedAt` 建立交易時**不得為未來時間**（容忍 5 分鐘時鐘偏移），否則 400 `VALIDATION_FAILED`；**不設下界**，補登舊交易是明確支援的情境。
+- **多個參數同時非法時的錯誤優先序**：`GET /trades` 與 `POST /trades` 都是零 I/O 的白名單比對與時間檢查先行、需查資料庫的 `symbol` 解析最後。因此「`type` 打錯 + `symbol` 也不存在」回的是 `TRADE_UNSUPPORTED_TYPE`（非 `ASSET_NOT_FOUND`），且不會為必定被拒的請求付一次資產查詢。前端若要顯示單一錯誤，請以回應的 `error.code` 為準，不要假設優先序。
+- `totalElements` 與 `items` 套用完全相同的 WHERE（單一來源），且 `listTrades` 標記為 `@Transactional(readOnly = true)` 讓 count 與 list 讀到同一個快照，因此帶篩選或併發寫入時兩者都一致。
 - 篩選/排序的任何組合都不會跨使用者洩漏（`t.user_id = :userId` 恆在）。
 - 回應信封與分頁結構不變：`$.data.items[]` / `$.data.page` / `$.data.size` / `$.data.totalElements` / `$.data.totalPages`。
 - `TradeDto.id` 是 **uuid 字串**（非數字主鍵），排序 tie-breaker 用的是資料庫數字 id，兩者不同。

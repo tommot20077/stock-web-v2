@@ -254,6 +254,130 @@ class TradingApiIT extends ContainerIT {
     }
 
     @Test
+    @DisplayName("只給 dateFrom：下界為含，且同時作用於 items 與 totalElements")
+    void dateFromOnlyAppliesInclusiveLowerBound() throws Exception {
+        AuthTokens tokens = register("trading-datefrom@example.com", "tradingdatefrom", "Password1");
+        TradeFixture fixture = seedThreeTrades(tokens);
+
+        /*
+         * 只給單邊時，另一邊的謂詞必須完全不出現。若 buildFilter 誤把兩個邊界綁在一起，
+         * 或把 >= 寫成 >，這裡會分別看到 0 筆或 1 筆。totalElements 一併斷言，
+         * 讓日期分支也有與 type 分支同等的一致性保護。
+         */
+        mockMvc.perform(get("/api/v1/trades")
+                .param("dateFrom", EXECUTED_AT_MIDDLE)
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(2)))
+            .andExpect(jsonPath("$.data.items.length()", equalTo(2)))
+            .andExpect(jsonPath("$.data.items[0].id", equalTo(fixture.sellId())))
+            .andExpect(jsonPath("$.data.items[1].id", equalTo(fixture.buyId())));
+    }
+
+    @Test
+    @DisplayName("只給 dateTo：上界為不含，且同時作用於 items 與 totalElements")
+    void dateToOnlyAppliesExclusiveUpperBound() throws Exception {
+        AuthTokens tokens = register("trading-dateto@example.com", "tradingdateto", "Password1");
+        TradeFixture fixture = seedThreeTrades(tokens);
+
+        mockMvc.perform(get("/api/v1/trades")
+                .param("dateTo", EXECUTED_AT_MIDDLE)
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(1)))
+            .andExpect(jsonPath("$.data.items.length()", equalTo(1)))
+            .andExpect(jsonPath("$.data.items[0].id", equalTo(fixture.backfillBuyId())));
+    }
+
+    @Test
+    @DisplayName("純日期形式的 dateTo 涵蓋當天整日，時間戳形式則維持不含")
+    void dateOnlyUpperBoundCoversTheWholeDay() throws Exception {
+        AuthTokens tokens = register("trading-dateonly@example.com", "tradingdateonly", "Password1");
+        seedThreeTrades(tokens);
+
+        /*
+         * 三筆交易的 executed_at 分別是 01-10 / 02-10 / 03-10（皆為當日 00:00Z）。
+         * dateTo=2026-03-10 是純日期，代表「到 03-10 這天結束為止」，故 03-10 那筆要被納入；
+         * 同一個邊界寫成時間戳 2026-03-10T00:00:00Z 則是嚴格小於，該筆要被排除。
+         * 兩個斷言合起來鎖定「純日期＝整天、時間戳＝該瞬間」的契約。
+         */
+        mockMvc.perform(get("/api/v1/trades")
+                .param("dateFrom", "2026-01-10")
+                .param("dateTo", "2026-03-10")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(3)))
+            .andExpect(jsonPath("$.data.items.length()", equalTo(3)));
+
+        mockMvc.perform(get("/api/v1/trades")
+                .param("dateFrom", "2026-01-10")
+                .param("dateTo", EXECUTED_AT_NEWEST)
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(2)))
+            .andExpect(jsonPath("$.data.items.length()", equalTo(2)));
+    }
+
+    @Test
+    @DisplayName("顛倒的日期區間回 400，而非靜默回傳空頁")
+    void invertedDateRangeIsRejected() throws Exception {
+        AuthTokens tokens = register("trading-inverted@example.com", "tradinginverted", "Password1");
+        seedThreeTrades(tokens);
+
+        mockMvc.perform(get("/api/v1/trades")
+                .param("dateFrom", EXECUTED_AT_NEWEST)
+                .param("dateTo", EXECUTED_AT_OLDEST)
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")));
+    }
+
+    @Test
+    @DisplayName("sort=createdAt 取回入帳順序，與 executed_at 排序明確不同")
+    void sortByCreatedAtRestoresInsertionOrder() throws Exception {
+        AuthTokens tokens = register("trading-sortcreated@example.com", "tradingsortcreated", "Password1");
+        TradeFixture fixture = seedThreeTrades(tokens);
+
+        /*
+         * created_at 由資料庫在寫入當下產生並受 V8 append-only trigger 保護，是帳本唯一
+         * 防竄改的時間軸；executed_at 則由提交者填寫。三筆交易的兩種順序刻意不同，
+         * 因此本斷言同時證明 sort=createdAt 生效、且走的不是 executed_at。
+         */
+        mockMvc.perform(get("/api/v1/trades")
+                .param("sort", "createdAt")
+                .param("direction", "asc")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(3)))
+            .andExpect(jsonPath("$.data.items[0].id", equalTo(fixture.buyId())))
+            .andExpect(jsonPath("$.data.items[1].id", equalTo(fixture.sellId())))
+            .andExpect(jsonPath("$.data.items[2].id", equalTo(fixture.backfillBuyId())));
+    }
+
+    @Test
+    @DisplayName("未來的 executedAt 建立交易被拒，補登舊交易仍可建立")
+    void futureExecutedAtIsRejectedButBackfillIsAllowed() throws Exception {
+        AuthTokens tokens = register("trading-futuredate@example.com", "tradingfuturedate", "Password1");
+
+        mockMvc.perform(post("/api/v1/trades")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + tokens.accessToken())
+                .content("""
+                    {"symbol":"AAPL","type":"BUY","quantity":1,"price":100,"fee":0,"executedAt":"2099-01-01T00:00:00Z"}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")));
+
+        mockMvc.perform(post("/api/v1/trades")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + tokens.accessToken())
+                .content("""
+                    {"symbol":"AAPL","type":"BUY","quantity":1,"price":100,"fee":0,"executedAt":"2020-01-01T00:00:00Z"}
+                    """))
+            .andExpect(status().isOk());
+    }
+
+    @Test
     @DisplayName("sort=total 降冪，金額平手時以 id 降冪決定順序")
     void sortByTotalBreaksTiesDeterministicallyById() throws Exception {
         AuthTokens tokens = register("trading-sorttotal@example.com", "tradingsorttotal", "Password1");

@@ -3,6 +3,8 @@ package dowob.xyz.stockwebv2.trading.service;
 import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.common.time.ApiTimeParser;
+import dowob.xyz.stockwebv2.common.time.ApiTimeParser.RangeBound;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 import dowob.xyz.stockwebv2.trading.api.CreateTradeRequest;
@@ -25,8 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.OffsetDateTime;
-import java.time.format.DateTimeParseException;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -37,6 +40,24 @@ import java.util.UUID;
 public class TradingService {
     private static final int MAX_PAGE = 10_000;
     private static final int MONEY_SCALE = 8;
+
+    /**
+     * 未帶時區偏移的查詢日期所採用的基準時區。
+     *
+     * <p>{@code dateFrom=2026-01-01} 這類值本身不含時區資訊，必須補一個基準才能比對
+     * {@code timestamptz} 欄位。此處固定為 UTC 並寫入 API 契約，讓同一組參數在任何部署
+     * 環境都得到相同結果；需要當地時間語意的客戶端請自行帶完整偏移量。</p>
+     */
+    private static final ZoneOffset QUERY_DEFAULT_OFFSET = ZoneOffset.UTC;
+
+    /**
+     * {@code executedAt} 容許超前伺服器時鐘的幅度。
+     *
+     * <p>成交時間由提交者填寫，補登舊交易是明確支援的情境，故<strong>不設下界</strong>；
+     * 但未來時間沒有合理用途，且會讓該筆交易落在任何「至今為止」的區間查詢之外。
+     * 保留數分鐘容忍度是為了吸收客戶端與伺服器之間正常的時鐘偏移，避免誤殺合法請求。</p>
+     */
+    private static final Duration EXECUTED_AT_FUTURE_TOLERANCE = Duration.ofMinutes(5);
 
     private final TradingRepository repository;
     private final AssetFacade assetFacade;
@@ -62,14 +83,17 @@ public class TradingService {
         if (request == null) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "request is required");
         }
-        AssetSummary asset = resolveTradeableAsset(request.symbol());
+        OffsetDateTime now = OffsetDateTime.now();
+        // 驗證順序與 listTrades 一致：零 I/O 的白名單比對與時間檢查先行，需查資料庫的 symbol
+        // 解析最後。必定會被拒絕的請求因此不必先付一次資產查詢，也不會在交易內做無謂的工作。
         TradeType type = TradeType.fromApiValue(request.type());
         BigDecimal fee = Objects.requireNonNullElse(request.fee(), BigDecimal.ZERO);
-        OffsetDateTime executedAt = Objects.requireNonNullElseGet(request.executedAt(), OffsetDateTime::now);
+        OffsetDateTime executedAt = resolveExecutedAt(request.executedAt(), now);
+        AssetSummary asset = resolveTradeableAsset(request.symbol());
         Optional<Holding> current = repository.findHoldingForUpdate(userId, asset.id());
         Holding next = switch (type) {
-            case BUY -> calculator.applyBuy(current.orElse(null), userId, asset.id(), request.quantity(), request.price(), fee, OffsetDateTime.now());
-            case SELL -> calculator.applySell(current.orElse(null), request.quantity(), request.price(), fee, OffsetDateTime.now());
+            case BUY -> calculator.applyBuy(current.orElse(null), userId, asset.id(), request.quantity(), request.price(), fee, now);
+            case SELL -> calculator.applySell(current.orElse(null), request.quantity(), request.price(), fee, now);
         };
         if (next.id() == null) {
             // 首次建倉（僅 BUY 會走到此；SELL 於空持倉已在 applySell 拋 INSUFFICIENT）。併發下另一交易
@@ -79,7 +103,7 @@ public class TradingService {
                 Holding existing = repository.findHoldingForUpdate(userId, asset.id())
                     .orElseThrow(() -> new BusinessException(ErrorCode.TRADE_CONFLICT, ErrorCode.TRADE_CONFLICT.defaultMessage()));
                 repository.updateHolding(
-                    calculator.applyBuy(existing, userId, asset.id(), request.quantity(), request.price(), fee, OffsetDateTime.now())
+                    calculator.applyBuy(existing, userId, asset.id(), request.quantity(), request.price(), fee, now)
                 );
             }
         } else {
@@ -108,20 +132,27 @@ public class TradingService {
      *
      * <p>本方法是 HTTP 原始字串進入資料層前的唯一驗證關卡：所有參數在此解析為型別化的
      * {@link TradeQuery}，任何白名單外的值都以 {@link BusinessException} 中止，
-     * 不會抵達 repository，更不可能成為 SQL 文字。</p>
+     * 不會抵達 repository，更不可能成為 SQL 文字。驗證順序刻意由「零 I/O 的白名單比對」
+     * 排到「需查資料庫的 symbol 解析」，讓必定會被拒絕的請求不必先付一次查詢成本。</p>
+     *
+     * <p>標記為唯讀交易：repository 內 count 與 list 是兩道獨立述句，若不共用同一個交易
+     * 快照，併發寫入落在兩者之間時 {@code totalElements} 會與 {@code items} 漂移，
+     * 客戶端算出的 {@code totalPages} 隨之失準。</p>
      *
      * @param userId    交易擁有者 id
      * @param symbol    標的代號；null 或空白代表不依標的篩選
      * @param type      交易類型 BUY / SELL，大小寫不敏感；null 或空白代表不篩選
-     * @param dateFrom  成交時間下界（含）的 ISO-8601 字串；null 或空白代表不設下界
-     * @param dateTo    成交時間上界（不含）的 ISO-8601 字串；null 或空白代表不設上界
-     * @param sort      排序鍵 executedAt / total / quantity；null 或空白代表預設 executedAt
+     * @param dateFrom  成交時間下界（含）；接受的格式見 {@link ApiTimeParser#parseRangeBound}；null 或空白代表不設下界
+     * @param dateTo    成交時間上界（不含）；接受的格式見 {@link ApiTimeParser#parseRangeBound}；null 或空白代表不設上界
+     * @param sort      排序鍵 executedAt / createdAt / total / quantity；null 或空白代表預設 executedAt
      * @param direction 排序方向 asc / desc；null 或空白代表預設 desc
      * @param page      頁碼，超出範圍會被夾限至 0..10000
      * @param size      每頁筆數，超出範圍會被夾限至 1..100
      * @return 該頁交易 DTO 與符合篩選條件的總筆數
-     * @throws BusinessException 標的不存在、交易類型不支援、排序參數或日期格式非法時
+     * @throws BusinessException 標的不存在、交易類型不支援、排序參數非法、日期格式非法，
+     *                           或 dateFrom 晚於 dateTo 時
      */
+    @Transactional(readOnly = true)
     public PageResponse<TradeDto> listTrades(
         Long userId,
         String symbol,
@@ -133,23 +164,26 @@ public class TradingService {
         int page,
         int size
     ) {
-        Long assetId = null;
-        if (StringUtils.isNotBlank(symbol)) {
-            assetId = resolveAsset(symbol).id();
+        TradeType tradeType = TradeType.fromFilterValue(type);
+        TradeSortKey sortKey = TradeSortKey.fromApiValue(sort);
+        SortDirection sortDirection = SortDirection.fromApiValue(direction);
+        OffsetDateTime from = ApiTimeParser.parseRangeBound(dateFrom, "dateFrom", RangeBound.LOWER, QUERY_DEFAULT_OFFSET);
+        OffsetDateTime to = ApiTimeParser.parseRangeBound(dateTo, "dateTo", RangeBound.UPPER, QUERY_DEFAULT_OFFSET);
+        if (from != null && to != null && from.isAfter(to)) {
+            // 顛倒的區間會產生恆為空的 WHERE，靜默回傳空頁會讓「日期選反」看起來像「資料不見了」。
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "dateFrom must not be after dateTo");
         }
-        TradeType tradeType = StringUtils.isBlank(type) ? null : TradeType.fromApiValue(type);
-        OffsetDateTime from = parseTimestamp(dateFrom, "dateFrom");
-        OffsetDateTime to = parseTimestamp(dateTo, "dateTo");
         int safePage = Math.min(Math.max(0, page), MAX_PAGE);
         int safeSize = Math.max(1, Math.min(100, size));
+        Long assetId = StringUtils.isBlank(symbol) ? null : resolveAsset(symbol).id();
         TradeQuery query = new TradeQuery(
             userId,
             assetId,
             tradeType,
             from,
             to,
-            TradeSortKey.fromApiValue(sort),
-            SortDirection.fromApiValue(direction),
+            sortKey,
+            sortDirection,
             safePage,
             safeSize
         );
@@ -158,25 +192,24 @@ public class TradingService {
     }
 
     /**
-     * 解析 ISO-8601 時間字串。
+     * 決定交易的成交時間，並擋下明顯超前伺服器時鐘的值。
      *
-     * <p>錯誤訊息只說明期望格式、刻意不回射原始輸入值，避免使用者可控字串被反射回應答
-     * （code-standards 錯誤訊息安全規則）。</p>
+     * <p>刻意不設下界：補登舊交易是本帳本明確支援的情境。上界則保留
+     * {@link #EXECUTED_AT_FUTURE_TOLERANCE} 的時鐘偏移容忍度。</p>
      *
-     * @param value 原始字串；null 或空白代表未指定
-     * @param field 欄位名稱，用於組錯誤訊息
-     * @return 解析後的時間；未指定時回傳 null
-     * @throws BusinessException 格式無法解析時丟出 VALIDATION_FAILED
+     * @param requested 請求帶入的成交時間；null 代表以現在時間入帳
+     * @param now       本次交易的基準時間
+     * @return 實際採用的成交時間
+     * @throws BusinessException 成交時間超前基準時間逾容忍度時丟出 VALIDATION_FAILED
      */
-    private OffsetDateTime parseTimestamp(String value, String field) {
-        if (StringUtils.isBlank(value)) {
-            return null;
+    private OffsetDateTime resolveExecutedAt(OffsetDateTime requested, OffsetDateTime now) {
+        if (requested == null) {
+            return now;
         }
-        try {
-            return OffsetDateTime.parse(value.trim());
-        } catch (DateTimeParseException exception) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, field + " must be an ISO-8601 timestamp");
+        if (requested.isAfter(now.plus(EXECUTED_AT_FUTURE_TOLERANCE))) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "executedAt must not be in the future");
         }
+        return requested;
     }
 
     public List<HoldingDto> listHoldings(Long userId) {

@@ -14,7 +14,9 @@
             code-standards.md 要求字串判空一律用 StringUtils.isBlank/isNotBlank。
             版本由 spring-boot-starter-parent BOM 管理,不自行指定。
             置於 stock-common 使所有下游模組(asset/backtest/market-data/trading/user/start
-            與 infrastructure)無須各自宣告即可使用。
+            與 infrastructure)無須各自宣告即可使用;stock-common 自己的 ApiTimeParser 亦直接使用。
+            刻意不標 <optional>true</optional>——下游確實依賴其傳遞;但直接 import 的模組
+            仍應各自顯式宣告(參見 stock-module-trading/pom.xml),以免此處一改就遠端炸開。
         -->
         <dependency>
             <groupId>org.apache.commons</groupId>
