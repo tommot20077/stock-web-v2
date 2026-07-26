@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.asset.repository;
 import dowob.xyz.stockwebv2.asset.domain.Asset;
 import dowob.xyz.stockwebv2.common.model.AssetType;
 import dowob.xyz.stockwebv2.common.model.CurrencyCode;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -20,7 +21,7 @@ public class AssetRepository {
     }
 
     public List<Asset> search(String query, int page, int size) {
-        String like = "%" + (query == null ? "" : query.trim()) + "%";
+        String like = "%" + StringUtils.trimToEmpty(query) + "%";
         long offset = (long) page * size;
         return jdbcClient.sql("""
                 select a.*, p.price latest_price, p.change, p.change_percent, p.volume_text, p.high, p.low
@@ -39,7 +40,7 @@ public class AssetRepository {
     }
 
     public long count(String query) {
-        String like = "%" + (query == null ? "" : query.trim()) + "%";
+        String like = "%" + StringUtils.trimToEmpty(query) + "%";
         Long count = jdbcClient.sql("""
                 select count(*)
                 from assets a

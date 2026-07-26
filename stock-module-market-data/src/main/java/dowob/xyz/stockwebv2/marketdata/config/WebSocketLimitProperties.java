@@ -2,6 +2,8 @@ package dowob.xyz.stockwebv2.marketdata.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.Objects;
+
 /**
  * WebSocket 連線數上限的可設定參數（security.md §18）。預設值即憲法規定值。
  *
@@ -19,8 +21,8 @@ public record WebSocketLimitProperties(
 ) {
 
     public WebSocketLimitProperties {
-        maxConnectionsGlobal = maxConnectionsGlobal == null ? 1000 : maxConnectionsGlobal;
-        maxConnectionsPerIp = maxConnectionsPerIp == null ? 5 : maxConnectionsPerIp;
-        maxConnectionsPerAccount = maxConnectionsPerAccount == null ? 2 : maxConnectionsPerAccount;
+        maxConnectionsGlobal = Objects.requireNonNullElse(maxConnectionsGlobal, 1000);
+        maxConnectionsPerIp = Objects.requireNonNullElse(maxConnectionsPerIp, 5);
+        maxConnectionsPerAccount = Objects.requireNonNullElse(maxConnectionsPerAccount, 2);
     }
 }

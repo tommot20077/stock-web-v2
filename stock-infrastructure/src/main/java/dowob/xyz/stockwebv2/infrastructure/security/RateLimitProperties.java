@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.infrastructure.security;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.util.Objects;
 
 /**
  * 認證端點限流與帳號鎖定的可設定參數（security.md §15）。預設值即憲法規定值；
@@ -26,11 +27,13 @@ public record RateLimitProperties(
 ) {
 
     public RateLimitProperties {
-        enabled = enabled == null ? Boolean.TRUE : enabled;
-        login = login == null ? new Rule(10, Duration.ofMinutes(1)) : login;
-        register = register == null ? new Rule(5, Duration.ofHours(1)) : register;
-        refresh = refresh == null ? new Rule(5, Duration.ofMinutes(1)) : refresh;
-        lockout = lockout == null ? new Lockout(5, Duration.ofMinutes(15)) : lockout;
+        // 常數預設用 requireNonNullElse;需要 new 的預設用 requireNonNullElseGet,
+        // 後者的 supplier 僅在值為 null 時才求值,避免值已存在時仍白建物件。
+        enabled = Objects.requireNonNullElse(enabled, Boolean.TRUE);
+        login = Objects.requireNonNullElseGet(login, () -> new Rule(10, Duration.ofMinutes(1)));
+        register = Objects.requireNonNullElseGet(register, () -> new Rule(5, Duration.ofHours(1)));
+        refresh = Objects.requireNonNullElseGet(refresh, () -> new Rule(5, Duration.ofMinutes(1)));
+        lockout = Objects.requireNonNullElseGet(lockout, () -> new Lockout(5, Duration.ofMinutes(15)));
     }
 
     /**
@@ -48,8 +51,8 @@ public record RateLimitProperties(
      */
     public record Rule(Integer limit, Duration window) {
         public Rule {
-            limit = limit == null ? Integer.MAX_VALUE : limit;
-            window = window == null ? Duration.ofMinutes(1) : window;
+            limit = Objects.requireNonNullElse(limit, Integer.MAX_VALUE);
+            window = Objects.requireNonNullElseGet(window, () -> Duration.ofMinutes(1));
         }
     }
 
@@ -61,8 +64,8 @@ public record RateLimitProperties(
      */
     public record Lockout(Integer threshold, Duration duration) {
         public Lockout {
-            threshold = threshold == null ? 5 : threshold;
-            duration = duration == null ? Duration.ofMinutes(15) : duration;
+            threshold = Objects.requireNonNullElse(threshold, 5);
+            duration = Objects.requireNonNullElseGet(duration, () -> Duration.ofMinutes(15));
         }
     }
 }

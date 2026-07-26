@@ -1,5 +1,6 @@
 package dowob.xyz.stockwebv2.marketdata.ws;
 
+import org.apache.commons.lang3.ObjectUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -103,7 +104,7 @@ public class WebSocketAuthValidator {
             return "redis_unavailable";
         }
         Map<Object, Object> authState = auth.state();
-        if (authState == null || authState.isEmpty()) {
+        if (ObjectUtils.isEmpty(authState)) {
             return "token_revoked";
         }
         Object currentVersion = authState.get("tokenVersion");

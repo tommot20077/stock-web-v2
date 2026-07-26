@@ -1,19 +1,20 @@
 package dowob.xyz.stockwebv2.start.config;
 
 import dowob.xyz.stockwebv2.common.api.ApiError;
-import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.model.Permission;
 import dowob.xyz.stockwebv2.infrastructure.security.JwtService;
 import dowob.xyz.stockwebv2.infrastructure.security.JwtService.JwtClaims;
+import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
 import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
 import dowob.xyz.stockwebv2.user.service.BrowserAuthCookieService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.slf4j.MDC;
+import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.dao.DataAccessException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -41,7 +42,6 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
-import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
@@ -189,7 +189,7 @@ public class SecurityConfig {
                 transport = null;
             }
 
-            if (token == null || token.isBlank()) {
+            if (StringUtils.isBlank(token)) {
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -248,7 +248,7 @@ public class SecurityConfig {
 
         private AuthState readAuthState(Long userId) {
             Map<Object, Object> entries = redisTemplate.opsForHash().entries("user:auth:" + userId);
-            if (entries == null || entries.isEmpty()) {
+            if (ObjectUtils.isEmpty(entries)) {
                 return null;
             }
             return new AuthState((String) entries.get("tokenVersion"), (String) entries.get("status"));
@@ -362,13 +362,8 @@ public class SecurityConfig {
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
             objectMapper.writeValue(response.getOutputStream(), ApiResponse.failure(
                 ApiError.of(code, code.defaultMessage()),
-                meta()
+                ApiMetaFactory.current()
             ));
-        }
-
-        private ApiMeta meta() {
-            String traceId = MDC.get(TraceIdFilter.TRACE_ID);
-            return new ApiMeta(traceId == null ? "missing-trace-id" : traceId, OffsetDateTime.now());
         }
     }
 }

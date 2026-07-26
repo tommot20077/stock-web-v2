@@ -29,6 +29,7 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -63,8 +64,8 @@ public class TradingService {
         }
         AssetSummary asset = resolveTradeableAsset(request.symbol());
         TradeType type = TradeType.fromApiValue(request.type());
-        BigDecimal fee = request.fee() == null ? BigDecimal.ZERO : request.fee();
-        OffsetDateTime executedAt = request.executedAt() == null ? OffsetDateTime.now() : request.executedAt();
+        BigDecimal fee = Objects.requireNonNullElse(request.fee(), BigDecimal.ZERO);
+        OffsetDateTime executedAt = Objects.requireNonNullElseGet(request.executedAt(), OffsetDateTime::now);
         Optional<Holding> current = repository.findHoldingForUpdate(userId, asset.id());
         Holding next = switch (type) {
             case BUY -> calculator.applyBuy(current.orElse(null), userId, asset.id(), request.quantity(), request.price(), fee, OffsetDateTime.now());
@@ -133,7 +134,7 @@ public class TradingService {
         int size
     ) {
         Long assetId = null;
-        if (symbol != null && !symbol.isBlank()) {
+        if (StringUtils.isNotBlank(symbol)) {
             assetId = resolveAsset(symbol).id();
         }
         TradeType tradeType = StringUtils.isBlank(type) ? null : TradeType.fromApiValue(type);

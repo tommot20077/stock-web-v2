@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.backtest.engine;
 
 import dowob.xyz.stockwebv2.backtest.api.StrategyValidationDto;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -11,7 +12,7 @@ public class StrategyValidator {
     private static final Pattern STRATEGY_FUNCTION = Pattern.compile("\\bfunction\\s+strategy\\s*\\(");
 
     public StrategyValidationDto validate(String code) {
-        String source = code == null ? "" : code.trim();
+        String source = StringUtils.trimToEmpty(code);
         if (source.isBlank()) {
             throw new IllegalArgumentException("strategyCode is required");
         }

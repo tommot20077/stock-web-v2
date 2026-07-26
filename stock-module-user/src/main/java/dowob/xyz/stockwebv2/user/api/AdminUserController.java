@@ -1,18 +1,15 @@
 package dowob.xyz.stockwebv2.user.api;
 
-import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.api.EmptyResponse;
-import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
+import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
 import dowob.xyz.stockwebv2.user.service.AuthService;
-import org.slf4j.MDC;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.OffsetDateTime;
 import java.util.UUID;
 
 /**
@@ -42,16 +39,6 @@ public class AdminUserController {
     @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<EmptyResponse> unlock(@PathVariable UUID uuid) {
         authService.unlockByUuid(uuid);
-        return ApiResponse.empty(meta());
-    }
-
-    /**
-     * 建構回應中繼資料（trace id 與時間戳）。
-     *
-     * @return API 中繼資料
-     */
-    private ApiMeta meta() {
-        String traceId = MDC.get(TraceIdFilter.TRACE_ID);
-        return new ApiMeta(traceId == null ? "missing-trace-id" : traceId, OffsetDateTime.now());
+        return ApiResponse.empty(ApiMetaFactory.current());
     }
 }

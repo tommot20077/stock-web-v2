@@ -1,6 +1,5 @@
 package dowob.xyz.stockwebv2.user.api;
 
-import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.api.EmptyResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
@@ -9,8 +8,8 @@ import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
 import dowob.xyz.stockwebv2.infrastructure.security.JwtService;
 import dowob.xyz.stockwebv2.infrastructure.security.RateLimitProperties;
 import dowob.xyz.stockwebv2.infrastructure.security.RateLimitService;
+import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
 import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
-import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
 import dowob.xyz.stockwebv2.user.domain.User;
 import dowob.xyz.stockwebv2.user.service.AuthService;
 import dowob.xyz.stockwebv2.user.service.BrowserAuthCookieService;
@@ -18,7 +17,7 @@ import dowob.xyz.stockwebv2.user.service.RefreshTokenService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
-import org.slf4j.MDC;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -67,7 +66,7 @@ public class AuthController {
         rateLimitService.enforce("register", ip, rateLimitProperties.register());
         User user = authService.register(request);
         auditLogger.log(user.id(), "register", "user", "success", ip);
-        return ApiResponse.success(browserSession(user, servletRequest, servletResponse), meta());
+        return ApiResponse.success(browserSession(user, servletRequest, servletResponse), ApiMetaFactory.current());
     }
 
     @PostMapping("/auth/login")
@@ -79,7 +78,7 @@ public class AuthController {
         String ip = ClientIpResolver.resolve(servletRequest);
         rateLimitService.enforce("login", ip, rateLimitProperties.login());
         User user = authenticate(request, ip);
-        return ApiResponse.success(browserSession(user, servletRequest, servletResponse), meta());
+        return ApiResponse.success(browserSession(user, servletRequest, servletResponse), ApiMetaFactory.current());
     }
 
     @PostMapping("/auth/token")
@@ -87,7 +86,7 @@ public class AuthController {
         String ip = ClientIpResolver.resolve(servletRequest);
         rateLimitService.enforce("login", ip, rateLimitProperties.login());
         User user = authenticate(request, ip);
-        return ApiResponse.success(tokenResponse(user, servletRequest), meta());
+        return ApiResponse.success(tokenResponse(user, servletRequest), ApiMetaFactory.current());
     }
 
     /**
@@ -119,7 +118,7 @@ public class AuthController {
             RefreshTokenService.RefreshSession session = refreshTokenService.consumeForRotation(refreshToken);
             User user = authService.requireById(session.userId());
             auditLogger.log(user.id(), "refresh", "session", "success", ClientIpResolver.resolve(servletRequest));
-            return ApiResponse.success(browserSession(user, servletRequest, servletResponse), meta());
+            return ApiResponse.success(browserSession(user, servletRequest, servletResponse), ApiMetaFactory.current());
         } catch (BusinessException exception) {
             auditLogger.log(refreshOwner, "refresh", "session", "failure:" + exception.errorCode().name(),
                 ClientIpResolver.resolve(servletRequest));
@@ -132,7 +131,7 @@ public class AuthController {
     public ApiResponse<MeResponse> me(Authentication authentication) {
         Long userId = authenticatedUserId(authentication);
         User user = authService.requireById(userId);
-        return ApiResponse.success(user.toMeResponse(), meta());
+        return ApiResponse.success(user.toMeResponse(), ApiMetaFactory.current());
     }
 
     @PostMapping("/auth/logout")
@@ -152,18 +151,18 @@ public class AuthController {
             }
             cookieService.clearAuthCookies(servletResponse);
             auditLogger.log(owner, "logout", "session", "success", ip);
-            return ApiResponse.empty(meta());
+            return ApiResponse.empty(ApiMetaFactory.current());
         }
 
         Long userId = authenticatedUserId(authentication);
         String refreshToken = request == null ? null : request.refreshToken();
-        if (refreshToken == null || refreshToken.isBlank()) {
+        if (StringUtils.isBlank(refreshToken)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage());
         }
         refreshTokenService.revoke(refreshToken, userId);
         authService.logout(userId);
         auditLogger.log(userId, "logout", "session", "success", ip);
-        return ApiResponse.empty(meta());
+        return ApiResponse.empty(ApiMetaFactory.current());
     }
 
     private BrowserSessionResponse browserSession(User user, HttpServletRequest servletRequest, HttpServletResponse servletResponse) {
@@ -185,7 +184,7 @@ public class AuthController {
     }
 
     private Long authenticatedUserId(Authentication authentication) {
-        if (authentication == null || authentication.getName() == null || authentication.getName().isBlank()) {
+        if (authentication == null || StringUtils.isBlank(authentication.getName())) {
             throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
         }
         try {
@@ -193,10 +192,5 @@ public class AuthController {
         } catch (NumberFormatException exception) {
             throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
         }
-    }
-
-    private ApiMeta meta() {
-        String traceId = MDC.get(TraceIdFilter.TRACE_ID);
-        return new ApiMeta(traceId == null ? "missing-trace-id" : traceId, OffsetDateTime.now());
     }
 }
