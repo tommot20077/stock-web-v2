@@ -1,6 +1,5 @@
 package dowob.xyz.stockwebv2.user.api;
 
-import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.api.EmptyResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
@@ -9,8 +8,8 @@ import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
 import dowob.xyz.stockwebv2.infrastructure.security.JwtService;
 import dowob.xyz.stockwebv2.infrastructure.security.RateLimitProperties;
 import dowob.xyz.stockwebv2.infrastructure.security.RateLimitService;
+import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
 import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
-import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
 import dowob.xyz.stockwebv2.user.domain.User;
 import dowob.xyz.stockwebv2.user.service.AuthService;
 import dowob.xyz.stockwebv2.user.service.BrowserAuthCookieService;
@@ -67,7 +66,7 @@ public class AuthController {
         rateLimitService.enforce("register", ip, rateLimitProperties.register());
         User user = authService.register(request);
         auditLogger.log(user.id(), "register", "user", "success", ip);
-        return ApiResponse.success(browserSession(user, servletRequest, servletResponse), meta());
+        return ApiResponse.success(browserSession(user, servletRequest, servletResponse), ApiMetaFactory.current());
     }
 
     @PostMapping("/auth/login")
@@ -79,7 +78,7 @@ public class AuthController {
         String ip = ClientIpResolver.resolve(servletRequest);
         rateLimitService.enforce("login", ip, rateLimitProperties.login());
         User user = authenticate(request, ip);
-        return ApiResponse.success(browserSession(user, servletRequest, servletResponse), meta());
+        return ApiResponse.success(browserSession(user, servletRequest, servletResponse), ApiMetaFactory.current());
     }
 
     @PostMapping("/auth/token")
@@ -87,7 +86,7 @@ public class AuthController {
         String ip = ClientIpResolver.resolve(servletRequest);
         rateLimitService.enforce("login", ip, rateLimitProperties.login());
         User user = authenticate(request, ip);
-        return ApiResponse.success(tokenResponse(user, servletRequest), meta());
+        return ApiResponse.success(tokenResponse(user, servletRequest), ApiMetaFactory.current());
     }
 
     /**
@@ -119,7 +118,7 @@ public class AuthController {
             RefreshTokenService.RefreshSession session = refreshTokenService.consumeForRotation(refreshToken);
             User user = authService.requireById(session.userId());
             auditLogger.log(user.id(), "refresh", "session", "success", ClientIpResolver.resolve(servletRequest));
-            return ApiResponse.success(browserSession(user, servletRequest, servletResponse), meta());
+            return ApiResponse.success(browserSession(user, servletRequest, servletResponse), ApiMetaFactory.current());
         } catch (BusinessException exception) {
             auditLogger.log(refreshOwner, "refresh", "session", "failure:" + exception.errorCode().name(),
                 ClientIpResolver.resolve(servletRequest));
@@ -132,7 +131,7 @@ public class AuthController {
     public ApiResponse<MeResponse> me(Authentication authentication) {
         Long userId = authenticatedUserId(authentication);
         User user = authService.requireById(userId);
-        return ApiResponse.success(user.toMeResponse(), meta());
+        return ApiResponse.success(user.toMeResponse(), ApiMetaFactory.current());
     }
 
     @PostMapping("/auth/logout")
@@ -152,7 +151,7 @@ public class AuthController {
             }
             cookieService.clearAuthCookies(servletResponse);
             auditLogger.log(owner, "logout", "session", "success", ip);
-            return ApiResponse.empty(meta());
+            return ApiResponse.empty(ApiMetaFactory.current());
         }
 
         Long userId = authenticatedUserId(authentication);
@@ -163,7 +162,7 @@ public class AuthController {
         refreshTokenService.revoke(refreshToken, userId);
         authService.logout(userId);
         auditLogger.log(userId, "logout", "session", "success", ip);
-        return ApiResponse.empty(meta());
+        return ApiResponse.empty(ApiMetaFactory.current());
     }
 
     private BrowserSessionResponse browserSession(User user, HttpServletRequest servletRequest, HttpServletResponse servletResponse) {
@@ -193,9 +192,5 @@ public class AuthController {
         } catch (NumberFormatException exception) {
             throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
         }
-    }
-
-    private ApiMeta meta() {
-        return new ApiMeta(TraceIdFilter.currentTraceId(), OffsetDateTime.now());
     }
 }

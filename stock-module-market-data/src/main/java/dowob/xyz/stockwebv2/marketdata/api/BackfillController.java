@@ -1,11 +1,10 @@
 package dowob.xyz.stockwebv2.marketdata.api;
 
-import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.model.KlineInterval;
-import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
+import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
 import dowob.xyz.stockwebv2.marketdata.batch.BackfillJobLauncher;
 import jakarta.validation.Valid;
 import org.springframework.batch.core.job.JobExecution;
@@ -24,7 +23,6 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 
 /**
@@ -111,7 +109,7 @@ public class BackfillController {
         BackfillTriggerResponse body = new BackfillTriggerResponse(
             execution.getId(), execution.getStatus().toString());
         return ResponseEntity.status(HttpStatus.ACCEPTED)
-            .body(ApiResponse.success(body, meta()));
+            .body(ApiResponse.success(body, ApiMetaFactory.current()));
     }
 
     /**
@@ -151,7 +149,7 @@ public class BackfillController {
             writeCount,
             failureMessage
         );
-        return ApiResponse.success(body, meta());
+        return ApiResponse.success(body, ApiMetaFactory.current());
     }
 
     /**
@@ -195,15 +193,6 @@ public class BackfillController {
      */
     private static Instant toInstant(LocalDateTime ldt) {
         return ldt == null ? null : ldt.toInstant(ZoneOffset.UTC);
-    }
-
-    /**
-     * 建立 {@link ApiMeta}，traceId 來自 MDC（由 {@code TraceIdFilter} 寫入）。
-     *
-     * @return ApiMeta
-     */
-    private ApiMeta meta() {
-        return new ApiMeta(TraceIdFilter.currentTraceId(), OffsetDateTime.now());
     }
 
     /**

@@ -1,12 +1,12 @@
 package dowob.xyz.stockwebv2.start.config;
 
 import dowob.xyz.stockwebv2.common.api.ApiError;
-import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.model.Permission;
 import dowob.xyz.stockwebv2.infrastructure.security.JwtService;
 import dowob.xyz.stockwebv2.infrastructure.security.JwtService.JwtClaims;
+import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
 import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
 import dowob.xyz.stockwebv2.user.service.BrowserAuthCookieService;
 import jakarta.servlet.FilterChain;
@@ -42,7 +42,6 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
-import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
@@ -363,12 +362,8 @@ public class SecurityConfig {
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
             objectMapper.writeValue(response.getOutputStream(), ApiResponse.failure(
                 ApiError.of(code, code.defaultMessage()),
-                meta()
+                ApiMetaFactory.current()
             ));
-        }
-
-        private ApiMeta meta() {
-            return new ApiMeta(TraceIdFilter.currentTraceId(), OffsetDateTime.now());
         }
     }
 }

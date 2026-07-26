@@ -1,12 +1,11 @@
 package dowob.xyz.stockwebv2.marketdata.api;
 
-import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
+import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
 import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
-import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
 import dowob.xyz.stockwebv2.marketdata.ws.WsTicketService;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -19,7 +18,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.OffsetDateTime;
 import java.util.Map;
 
 /**
@@ -88,7 +86,7 @@ public class WsTicketController {
             WsTicketService.DEFAULT_TTL.getSeconds(),
             WS_URL
         );
-        return ApiResponse.success(body, meta());
+        return ApiResponse.success(body, ApiMetaFactory.current());
     }
 
     /**
@@ -144,14 +142,5 @@ public class WsTicketController {
             throw new BusinessException(ErrorCode.AUTH_REDIS_UNAVAILABLE,
                 ErrorCode.AUTH_REDIS_UNAVAILABLE.defaultMessage());
         }
-    }
-
-    /**
-     * 建立 {@link ApiMeta}，traceId 來自 MDC（由 {@code TraceIdFilter} 寫入）。
-     *
-     * @return ApiMeta
-     */
-    private ApiMeta meta() {
-        return new ApiMeta(TraceIdFilter.currentTraceId(), OffsetDateTime.now());
     }
 }

@@ -1,11 +1,10 @@
 package dowob.xyz.stockwebv2.marketdata.api;
 
-import dowob.xyz.stockwebv2.common.api.ApiMeta;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.model.KlineInterval;
-import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
+import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -13,7 +12,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -67,7 +65,7 @@ public class MarketController {
         if (dto.isEmpty()) {
             throw new BusinessException(ErrorCode.ASSET_NOT_FOUND, "No price data for symbol: " + symbol);
         }
-        return ApiResponse.success(dto.get(), meta());
+        return ApiResponse.success(dto.get(), ApiMetaFactory.current());
     }
 
     /**
@@ -78,7 +76,7 @@ public class MarketController {
      */
     @GetMapping("/latest")
     public ApiResponse<List<LatestPriceDto>> latestBatch(@RequestParam("symbols") List<String> symbols) {
-        return ApiResponse.success(latestService.findLatestBatch(symbols), meta());
+        return ApiResponse.success(latestService.findLatestBatch(symbols), ApiMetaFactory.current());
     }
 
     /**
@@ -110,15 +108,6 @@ public class MarketController {
             throw new BusinessException(ErrorCode.KLINE_INTERVAL_INVALID,
                 "Invalid interval: " + intervalCode + " (valid: 1m/5m/15m/1h/1d)");
         }
-        return ApiResponse.success(klineQueryService.findKlines(symbol, interval, from, to, limit), meta());
-    }
-
-    /**
-     * 建立 {@link ApiMeta}，traceId 來自 MDC（由 {@code TraceIdFilter} 寫入）。
-     *
-     * @return ApiMeta
-     */
-    private ApiMeta meta() {
-        return new ApiMeta(TraceIdFilter.currentTraceId(), OffsetDateTime.now());
+        return ApiResponse.success(klineQueryService.findKlines(symbol, interval, from, to, limit), ApiMetaFactory.current());
     }
 }
