@@ -302,6 +302,36 @@ class TradingServiceTest {
         assertThat(captor.getValue().executedAt()).isEqualTo(backdated);
     }
 
+    @Test
+    @DisplayName("建立交易的零 I/O 驗證先於 symbol 解析：非法 type 不會浪費一次資產查詢")
+    void createTradeValidatesWhitelistBeforeAssetLookup() {
+        CreateTradeRequest request = new CreateTradeRequest(
+            "AAPL", "DIV", BigDecimal.ONE, BigDecimal.TEN, null, null, null);
+
+        assertThatThrownBy(() -> service.createTrade(7L, request))
+            .isInstanceOf(BusinessException.class)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.TRADE_UNSUPPORTED_TYPE);
+
+        verifyNoInteractions(assetFacade);
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    @DisplayName("建立交易的未來 executedAt 檢查同樣先於 symbol 解析")
+    void createTradeRejectsFutureExecutedAtBeforeAssetLookup() {
+        CreateTradeRequest request = new CreateTradeRequest(
+            "AAPL", "BUY", BigDecimal.ONE, BigDecimal.TEN, null, null, OffsetDateTime.now().plusDays(1));
+
+        assertThatThrownBy(() -> service.createTrade(7L, request))
+            .isInstanceOf(BusinessException.class)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.VALIDATION_FAILED);
+
+        verifyNoInteractions(assetFacade);
+        verifyNoInteractions(repository);
+    }
+
     private TradeQuery captureQuery() {
         ArgumentCaptor<TradeQuery> captor = ArgumentCaptor.forClass(TradeQuery.class);
         verify(repository, org.mockito.Mockito.atLeastOnce()).listTransactions(captor.capture());

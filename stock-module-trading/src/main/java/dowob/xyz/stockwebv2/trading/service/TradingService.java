@@ -84,10 +84,12 @@ public class TradingService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "request is required");
         }
         OffsetDateTime now = OffsetDateTime.now();
-        AssetSummary asset = resolveTradeableAsset(request.symbol());
+        // 驗證順序與 listTrades 一致：零 I/O 的白名單比對與時間檢查先行，需查資料庫的 symbol
+        // 解析最後。必定會被拒絕的請求因此不必先付一次資產查詢，也不會在交易內做無謂的工作。
         TradeType type = TradeType.fromApiValue(request.type());
         BigDecimal fee = Objects.requireNonNullElse(request.fee(), BigDecimal.ZERO);
         OffsetDateTime executedAt = resolveExecutedAt(request.executedAt(), now);
+        AssetSummary asset = resolveTradeableAsset(request.symbol());
         Optional<Holding> current = repository.findHoldingForUpdate(userId, asset.id());
         Holding next = switch (type) {
             case BUY -> calculator.applyBuy(current.orElse(null), userId, asset.id(), request.quantity(), request.price(), fee, now);

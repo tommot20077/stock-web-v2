@@ -159,6 +159,7 @@ DROP INDEX IF EXISTS idx_transactions_user_asset_created;
 - 所有排序一律附加 `, t.id {direction}` 作為決定性 tie-breaker；`sort=total&direction=desc` 下金額相同者，**後插入者（id 較大）在前**。
 - 日期篩選與**預設**排序以 `executed_at`（成交時間）為準，**非** `created_at`（入帳時間）。補登舊交易時兩者會分歧。`executed_at` 由提交者填寫，`created_at` 由資料庫產生並受 V8 append-only trigger 保護；需要防竄改順序時請用 `sort=createdAt`。
 - `executedAt` 建立交易時**不得為未來時間**（容忍 5 分鐘時鐘偏移），否則 400 `VALIDATION_FAILED`；**不設下界**，補登舊交易是明確支援的情境。
+- **多個參數同時非法時的錯誤優先序**：`GET /trades` 與 `POST /trades` 都是零 I/O 的白名單比對與時間檢查先行、需查資料庫的 `symbol` 解析最後。因此「`type` 打錯 + `symbol` 也不存在」回的是 `TRADE_UNSUPPORTED_TYPE`（非 `ASSET_NOT_FOUND`），且不會為必定被拒的請求付一次資產查詢。前端若要顯示單一錯誤，請以回應的 `error.code` 為準，不要假設優先序。
 - `totalElements` 與 `items` 套用完全相同的 WHERE（單一來源），且 `listTrades` 標記為 `@Transactional(readOnly = true)` 讓 count 與 list 讀到同一個快照，因此帶篩選或併發寫入時兩者都一致。
 - 篩選/排序的任何組合都不會跨使用者洩漏（`t.user_id = :userId` 恆在）。
 - 回應信封與分頁結構不變：`$.data.items[]` / `$.data.page` / `$.data.size` / `$.data.totalElements` / `$.data.totalPages`。
