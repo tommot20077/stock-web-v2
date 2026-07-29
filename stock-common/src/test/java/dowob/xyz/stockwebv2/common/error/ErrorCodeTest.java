@@ -1,5 +1,6 @@
 package dowob.xyz.stockwebv2.common.error;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -160,6 +161,42 @@ class ErrorCodeTest {
                 "DUPLICATE_RESOURCE",
                 "INTERNAL_ERROR"
         ));
+    }
+
+    // ── Phase 4：冪等鍵重用的 409 error code（DP-14 已鎖定字面）─────────────
+
+    @Test
+    @DisplayName("TRADE_IDEMPOTENCY_KEY_REUSED 的 HTTP 狀態碼是 409")
+    void tradeIdempotencyKeyReused_httpStatusIs409() {
+        assertThat(ErrorCode.TRADE_IDEMPOTENCY_KEY_REUSED.httpStatus()).isEqualTo(409);
+    }
+
+    @Test
+    @DisplayName("TRADE_IDEMPOTENCY_KEY_REUSED 的預設訊息不為空且不含任何請求值佔位字串")
+    void tradeIdempotencyKeyReused_defaultMessageDoesNotEchoRequestValues() {
+        assertThat(ErrorCode.TRADE_IDEMPOTENCY_KEY_REUSED.defaultMessage())
+                .isNotNull()
+                .isNotBlank()
+                .doesNotContain("%s")
+                .doesNotContain("{");
+    }
+
+    @Test
+    @DisplayName("TRADE_IDEMPOTENCY_KEY_REUSED 與既有三個 409 code 是相異常數且訊息兩兩不同")
+    void tradeIdempotencyKeyReused_isDistinctFromOtherConflictCodes() {
+        ErrorCode[] conflictCodes = {
+                ErrorCode.DUPLICATE_RESOURCE,
+                ErrorCode.TRADE_INSUFFICIENT_HOLDING,
+                ErrorCode.TRADE_CONFLICT,
+                ErrorCode.TRADE_IDEMPOTENCY_KEY_REUSED
+        };
+
+        assertThat(conflictCodes).doesNotHaveDuplicates();
+        assertThat(Arrays.stream(conflictCodes).map(ErrorCode::defaultMessage).collect(Collectors.toSet()))
+                .as("四個 409 code 的 defaultMessage 必須兩兩不同，才能在前端分派出不同文案")
+                .hasSize(4);
+        assertThat(Arrays.stream(conflictCodes).map(ErrorCode::httpStatus))
+                .allMatch(status -> status == 409);
     }
 
     @Test
