@@ -99,7 +99,7 @@ public class TradingService {
         } else {
             repository.updateHolding(next);
         }
-        TradeTransaction saved = repository.insertTransaction(new TradeTransaction(
+        TradeTransaction saved = repository.insertTransactionIfAbsent(new TradeTransaction(
             null,
             UUID.randomUUID(),
             userId,
@@ -113,7 +113,7 @@ public class TradingService {
             executedAt,
             null,
             null
-        ));
+        )).orElseThrow(() -> new BusinessException(ErrorCode.TRADE_CONFLICT, ErrorCode.TRADE_CONFLICT.defaultMessage()));
         portfolioCache.invalidateAfterTrade(userId, asset.id());
         return mapper.toTradeDto(saved);
     }

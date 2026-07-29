@@ -32,7 +32,7 @@ import java.util.Optional;
 public class JdbcTradingRepository implements TradingRepository {
     private static final String TRANSACTION_COLUMNS = """
         t.id, t.uuid, t.user_id, t.asset_id, a.symbol, t.type, t.quantity, t.price,
-        t.fee, t.note, t.executed_at, t.created_at
+        t.fee, t.note, t.executed_at, t.created_at, t.idempotency_key
         """;
 
     private final JdbcClient jdbcClient;
@@ -41,17 +41,38 @@ public class JdbcTradingRepository implements TradingRepository {
         this.jdbcClient = jdbcClient;
     }
 
+    /**
+     * 帶冪等鍵的交易寫入，也是本模組<strong>唯一</strong>的交易寫入路徑。
+     *
+     * <p>{@code on conflict} 的欄位組合與 {@code where} predicate 必須與 V11 的部分唯一索引
+     * {@code uk_transactions_user_idempotency} <strong>逐字相同</strong>，否則 PostgreSQL 推斷不出要用哪個索引，
+     * 會直接報 {@code there is no unique or exclusion constraint matching the ON CONFLICT specification}
+     * ——不會靜默降級成一般 insert，所以推斷寫錯必定在測試中現形。</p>
+     *
+     * <p>衝突時只能是 {@code do nothing}，<strong>絕不可</strong>改用會就地改寫既有列的那個 {@code on conflict}
+     * 分支：{@code transactions} 由 V8 的 {@code trg_transactions_no_update} 保護，任何 UPDATE 都會被 trigger
+     * 擋下。而 {@code do nothing} 在衝突時 {@code returning} 回零列，故結尾必須是 {@code .optional()} 而不是
+     * {@code .single()}（{@code .single()} 會拋 {@code EmptyResultDataAccessException}，
+     * 等於把「冪等命中」這個正常結果誤報成系統錯誤）。</p>
+     *
+     * <p>{@code symbol} 不在 {@code returning} 內（本述句沒有 join assets），沿用呼叫端傳入的值。</p>
+     *
+     * @param transaction 待寫入的交易；{@code id} 與 {@code createdAt} 由資料庫產生
+     * @return 實際建立的交易；冪等鍵已被同一使用者用過時回傳空 Optional
+     */
     @Override
-    public TradeTransaction insertTransaction(TradeTransaction transaction) {
+    public Optional<TradeTransaction> insertTransactionIfAbsent(TradeTransaction transaction) {
         return jdbcClient.sql("""
                 insert into transactions (
-                    uuid, user_id, asset_id, type, quantity, price, fee, note, executed_at
+                    uuid, user_id, asset_id, type, quantity, price, fee, note, executed_at, idempotency_key
                 )
                 values (
                     coalesce(:uuid, uuid_generate_v4()), :userId, :assetId, :type,
-                    :quantity, :price, :fee, :note, :executedAt
+                    :quantity, :price, :fee, :note, :executedAt, :idempotencyKey
                 )
-                returning id, uuid, user_id, asset_id, type, quantity, price, fee, note, executed_at, created_at
+                on conflict (user_id, idempotency_key) where idempotency_key is not null do nothing
+                returning id, uuid, user_id, asset_id, type, quantity, price, fee, note,
+                          executed_at, created_at, idempotency_key
                 """)
             .param("uuid", transaction.uuid())
             .param("userId", transaction.userId())
@@ -62,6 +83,7 @@ public class JdbcTradingRepository implements TradingRepository {
             .param("fee", transaction.fee())
             .param("note", transaction.note())
             .param("executedAt", transaction.executedAt())
+            .param("idempotencyKey", transaction.idempotencyKey())
             .query((rs, rowNum) -> new TradeTransaction(
                 rs.getLong("id"),
                 rs.getObject("uuid", java.util.UUID.class),
@@ -75,9 +97,36 @@ public class JdbcTradingRepository implements TradingRepository {
                 rs.getString("note"),
                 rs.getObject("executed_at", java.time.OffsetDateTime.class),
                 rs.getObject("created_at", java.time.OffsetDateTime.class),
-                null
+                rs.getString("idempotency_key")
             ))
-            .single();
+            .optional();
+    }
+
+    /**
+     * 以冪等鍵查出該使用者既有的交易，供冪等重送時回傳原本的結果。
+     *
+     * <p>{@code where} 同時綁 {@code t.user_id} 與 {@code t.idempotency_key}：冪等鍵只在單一使用者範圍內唯一，
+     * 少了 {@code user_id} 會讓 A 的 key 命中 B 的交易（威脅 T-04-02）。join {@code assets} 是為了取回
+     * {@code symbol}，與 {@link #listTransactions(TradeQuery)} 用同一組 {@code TRANSACTION_COLUMNS}。</p>
+     *
+     * <p>刻意不加 {@code for update}：要查的列可能還不存在，而列鎖對不存在的列不生效（{@code TradingApiIT}
+     * 的註解指出過同一件事），加了只會製造已防住併發的錯覺。併發由部分唯一索引擋，不是由這個查詢擋。</p>
+     *
+     * @param userId         交易擁有者 id
+     * @param idempotencyKey 冪等鍵
+     * @return 既有交易；查無此 key 時回傳空 Optional
+     */
+    @Override
+    public Optional<TradeTransaction> findByIdempotencyKey(Long userId, String idempotencyKey) {
+        return jdbcClient.sql("select " + TRANSACTION_COLUMNS + """
+                from transactions t
+                join assets a on a.id = t.asset_id
+                where t.user_id = :userId and t.idempotency_key = :idempotencyKey
+                """)
+            .param("userId", userId)
+            .param("idempotencyKey", idempotencyKey)
+            .query(this::mapTransaction)
+            .optional();
     }
 
     @Override
@@ -290,7 +339,7 @@ public class JdbcTradingRepository implements TradingRepository {
             rs.getString("note"),
             rs.getObject("executed_at", java.time.OffsetDateTime.class),
             rs.getObject("created_at", java.time.OffsetDateTime.class),
-            null
+            rs.getString("idempotency_key")
         );
     }
 
