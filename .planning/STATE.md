@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Ready to execute
-stopped_at: Phase 4 UI-SPEC approved
-last_updated: "2026-07-26T15:34:07.481Z"
-last_activity: 2026-07-26 -- Phase 4 planning complete
+status: Executing Phase 04
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-07-29T15:50:00.000Z"
+last_activity: 2026-07-29 -- Phase 04 Plan 01 完成（冪等 DB 約束與 409 error code）
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 15
-  completed_plans: 15
-  percent: 50
+  total_plans: 28
+  completed_plans: 16
+  percent: 57
 ---
 
 # Project State
@@ -21,12 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can safely sign in, inspect portfolio state, and record trades through one coherent frontend/backend flow.
-**Current focus:** Phase 04 — Manual Trade Creation。前置文件已齊備(CONTEXT / RESEARCH / VALIDATION / UI-SPEC),下一步是 `/gsd-plan-phase 4`
+**Current focus:** Phase 04 — manual-trade-creation-idempotency-post-trade-refetch
 
 ## Current Position
 
-Phase: 03 (Portfolio Read API Mode) — COMPLETE(5/5 plans executed,SUMMARY 齊備)
-Last activity: 2026-07-26 -- Phase 4 planning complete
+Phase: 04 (manual-trade-creation-idempotency-post-trade-refetch) — EXECUTING
+Plan: 2 of 13（01 已完成，SUMMARY 已產出）
+Last activity: 2026-07-29 -- Phase 04 Plan 01 完成（冪等 DB 約束與 409 error code）
 
 Progress(milestone v1.0):[████████████░░░░░░░░] 3/5 phases (60%)
 Progress(plan):15/15 plans executed(Phase 1-3 全部執行完畢)
@@ -51,6 +52,7 @@ Progress(plan):15/15 plans executed(Phase 1-3 全部執行完畢)
 |-------|-------|-------|----------|
 | 02 | 5 | 111min | 22min |
 | 03 | 5 | 197min | 39min |
+| 04 | 1 | 55min | 55min |
 
 **Recent Trend:**
 
@@ -86,6 +88,9 @@ Recent decisions affecting current work:
 - [Phase 4]: Trading scope is manual executed trade creation only; broker/order lifecycle remains out of scope.
 - [Phase 5]: Cross-repo browser verification is required because backend and frontend green tests alone do not prove cookie/CORS/CSRF integration.
 - [Phase 4]: [Phase 4 discuss] 四條後端資料缺口提前處理,插入 Phase 04.1(排在 4 之後、5 之前;非緊急,(INSERTED) 僅為結構標記)。理由:Phase 5 跨 repo 瀏覽器驗證若在大量 API-mode 隱藏區塊上跑,證明力被削弱。
+- [Phase 4 Plan 01]: migration 版本號由計畫的 V10 順延為 V11 —— V10 已被 develop 的 `d76f824`(`V10__trading_query_indexes_realign.sql`)占用,已套用版本號不可重用。索引名 `uk_transactions_user_idempotency` 與 predicate 不變,契約不受影響;但 04-02-PLAN / 04-PATTERNS / 04-RESEARCH 中的 `V10__transactions_idempotency_key.sql` 字樣應讀作 V11。
+- [Phase 4 Plan 01]: 交易冪等以 `transactions.idempotency_key VARCHAR(128)` + partial unique index `(user_id, idempotency_key) WHERE idempotency_key IS NOT NULL` 承載;`WHERE` predicate 是應用層 `ON CONFLICT` 推斷的必要組成,不是最佳化。
+- [Phase 4 Plan 01]: `ErrorCode.TRADE_IDEMPOTENCY_KEY_REUSED(409)` 字面定案不可更名(前端 i18n 對照表已寫死);defaultMessage 為靜態英文字串,絕不回射 idempotency key 值。
 - [Phase 4]: DP-1 裁定採 (c):以 develop 為基準,Phase 4 只做冪等,不等 PR #15。executedAt 未來時間驗證與 ApiTimeParser 不屬 Phase 4 範圍,留給 PR #15(仍為 OPEN draft)。理由:PR #15 修改了已在 origin/develop 的 V9 migration,違反 flyway-convention「Never modify an applied migration」,等它合併會把 checksum 債帶進 Phase 4 的時程。同時排除 Docker blocker:實跑 docker info → Server 29.5.3 可用,Testcontainers 路徑可行。
 
 ### Pending Todos
@@ -125,10 +130,11 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-26T13:37:23.891Z
-Stopped at: Phase 4 UI-SPEC approved
-Resume file: .planning/phases/04-manual-trade-creation-idempotency-post-trade-refetch/04-UI-SPEC.md
-Next action: Phase 4 前置文件齊備(CONTEXT / RESEARCH / VALIDATION / UI-SPEC 皆已 commit)→ `/gsd-plan-phase 4`
+Last session: 2026-07-29T15:50:00.000Z
+Stopped at: Completed 04-01-PLAN.md（分支 `feature/phase-04-trade-idempotency`,尚未 push）
+Resume file: .planning/phases/04-manual-trade-creation-idempotency-post-trade-refetch/04-02-PLAN.md
+Next action: 執行 04-02(repository/service 層冪等)。**注意 migration 檔名是 V11 不是 V10**;
+failsafe 多類別參數用逗號不是 `+`。
 
 ⚠️ Phase 3 收尾狀態:
 
