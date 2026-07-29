@@ -74,7 +74,8 @@ public class JdbcTradingRepository implements TradingRepository {
                 rs.getBigDecimal("fee"),
                 rs.getString("note"),
                 rs.getObject("executed_at", java.time.OffsetDateTime.class),
-                rs.getObject("created_at", java.time.OffsetDateTime.class)
+                rs.getObject("created_at", java.time.OffsetDateTime.class),
+                null
             ))
             .single();
     }
@@ -288,7 +289,8 @@ public class JdbcTradingRepository implements TradingRepository {
             rs.getBigDecimal("fee"),
             rs.getString("note"),
             rs.getObject("executed_at", java.time.OffsetDateTime.class),
-            rs.getObject("created_at", java.time.OffsetDateTime.class)
+            rs.getObject("created_at", java.time.OffsetDateTime.class),
+            null
         );
     }
 

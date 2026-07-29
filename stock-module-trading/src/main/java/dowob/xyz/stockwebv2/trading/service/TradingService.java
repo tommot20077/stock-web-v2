@@ -111,6 +111,7 @@ public class TradingService {
             fee,
             cleanNote(request.note()),
             executedAt,
+            null,
             null
         ));
         portfolioCache.invalidateAfterTrade(userId, asset.id());
