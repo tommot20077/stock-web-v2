@@ -288,8 +288,8 @@ class TradingServiceTest {
         when(repository.findHoldingForUpdate(7L, 55L)).thenReturn(Optional.empty());
         when(repository.insertHoldingIfAbsent(any(Holding.class)))
             .thenAnswer(invocation -> Optional.of(invocation.getArgument(0)));
-        when(repository.insertTransaction(any(TradeTransaction.class)))
-            .thenAnswer(invocation -> invocation.getArgument(0));
+        when(repository.insertTransactionIfAbsent(any(TradeTransaction.class)))
+            .thenAnswer(invocation -> Optional.of(invocation.getArgument(0)));
 
         OffsetDateTime backdated = OffsetDateTime.parse("2020-01-01T00:00:00Z");
         CreateTradeRequest request = new CreateTradeRequest(
@@ -298,7 +298,7 @@ class TradingServiceTest {
         service.createTrade(7L, request);
 
         ArgumentCaptor<TradeTransaction> captor = ArgumentCaptor.forClass(TradeTransaction.class);
-        verify(repository).insertTransaction(captor.capture());
+        verify(repository).insertTransactionIfAbsent(captor.capture());
         assertThat(captor.getValue().executedAt()).isEqualTo(backdated);
     }
 
