@@ -7,6 +7,7 @@ import dowob.xyz.stockwebv2.common.model.AssetType;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 import dowob.xyz.stockwebv2.trading.api.CreateTradeRequest;
+import dowob.xyz.stockwebv2.trading.api.TradeDto;
 import dowob.xyz.stockwebv2.trading.domain.Holding;
 import dowob.xyz.stockwebv2.trading.domain.SortDirection;
 import dowob.xyz.stockwebv2.trading.domain.TradeSortKey;
@@ -23,11 +24,13 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -39,11 +42,27 @@ import static org.mockito.Mockito.when;
  * 被驗證成 {@link TradeQuery}，非法值不得抵達 repository。本測試以 mock repository
  * 攔截 {@link TradeQuery} 來鎖定這層契約。</p>
  *
+ * <p>後半段鎖的是 {@link TradingService#createTrade} 的冪等契約：同一把冪等鍵重送時
+ * <strong>絕不可再次改動 holdings</strong>（judgment §5），同鍵不同 payload 必須回 409，
+ * 而空白／過長的鍵要在任何 I/O 之前就被拒絕，且錯誤訊息一律不得回射鍵值本身。</p>
+ *
  * @author Yuan
- * @version 1.0
+ * @version 1.1
  */
 @DisplayName("交易清單查詢參數解析")
 class TradingServiceTest {
+
+    /** 刻意可辨識的冪等鍵：用來斷言任何錯誤訊息都沒有把它回射出去（T-04-03）。 */
+    private static final String CANARY_KEY = "LEAK-CANARY-12345";
+
+    /** 既有交易的金額：模擬 {@code NUMERIC(24,8)} 讀回值，scale 一律為 8。 */
+    private static final BigDecimal STORED_QUANTITY = new BigDecimal("10.00000000");
+
+    /** 重送請求的金額與時間：同一個意圖，但 scale 與偏移量都與讀回值不同。 */
+    private static final BigDecimal SENT_QUANTITY = new BigDecimal("10");
+    private static final BigDecimal SENT_PRICE = new BigDecimal("123.45");
+    private static final BigDecimal SENT_FEE = new BigDecimal("1.5");
+    private static final OffsetDateTime SENT_EXECUTED_AT = OffsetDateTime.parse("2026-01-10T08:00:00+08:00");
 
     private TradingRepository repository;
     private AssetFacade assetFacade;
@@ -272,7 +291,7 @@ class TradingServiceTest {
         CreateTradeRequest request = new CreateTradeRequest(
             "AAPL", "BUY", BigDecimal.ONE, BigDecimal.TEN, null, null, OffsetDateTime.now().plusDays(1));
 
-        assertThatThrownBy(() -> service.createTrade(7L, request))
+        assertThatThrownBy(() -> service.createTrade(7L, request, "key-1"))
             .isInstanceOf(BusinessException.class)
             .extracting("errorCode")
             .isEqualTo(ErrorCode.VALIDATION_FAILED);
@@ -295,7 +314,7 @@ class TradingServiceTest {
         CreateTradeRequest request = new CreateTradeRequest(
             "AAPL", "BUY", BigDecimal.ONE, BigDecimal.TEN, null, null, backdated);
 
-        service.createTrade(7L, request);
+        service.createTrade(7L, request, "key-1");
 
         ArgumentCaptor<TradeTransaction> captor = ArgumentCaptor.forClass(TradeTransaction.class);
         verify(repository).insertTransactionIfAbsent(captor.capture());
@@ -308,7 +327,7 @@ class TradingServiceTest {
         CreateTradeRequest request = new CreateTradeRequest(
             "AAPL", "DIV", BigDecimal.ONE, BigDecimal.TEN, null, null, null);
 
-        assertThatThrownBy(() -> service.createTrade(7L, request))
+        assertThatThrownBy(() -> service.createTrade(7L, request, "key-1"))
             .isInstanceOf(BusinessException.class)
             .extracting("errorCode")
             .isEqualTo(ErrorCode.TRADE_UNSUPPORTED_TYPE);
@@ -323,13 +342,175 @@ class TradingServiceTest {
         CreateTradeRequest request = new CreateTradeRequest(
             "AAPL", "BUY", BigDecimal.ONE, BigDecimal.TEN, null, null, OffsetDateTime.now().plusDays(1));
 
-        assertThatThrownBy(() -> service.createTrade(7L, request))
+        assertThatThrownBy(() -> service.createTrade(7L, request, "key-1"))
             .isInstanceOf(BusinessException.class)
             .extracting("errorCode")
             .isEqualTo(ErrorCode.VALIDATION_FAILED);
 
         verifyNoInteractions(assetFacade);
         verifyNoInteractions(repository);
+    }
+
+    @Test
+    @DisplayName("同 key 重送相同意圖：回傳既有交易，holdings 與快取完全不被再次改動")
+    void duplicateKeyReturnsExistingTradeWithoutTouchingHoldings() {
+        /*
+         * judgment §5 最直接的驗收：duplicate 進來時，帳本上那筆交易已經存在，
+         * 持倉也早就套用過一次。任何一次 holdings 寫入都會讓成本基礎被重複計算，
+         * 而 transactions 是 append-only 帳本 —— 改錯了就改不回來。
+         */
+        stubTradeableAsset();
+        TradeTransaction existing = storedTransaction(STORED_QUANTITY);
+        when(repository.findByIdempotencyKey(7L, "key-1")).thenReturn(Optional.of(existing));
+
+        TradeDto dto = service.createTrade(7L, buyRequest(SENT_QUANTITY, "重試時順手改過的備註"), "key-1");
+
+        assertThat(dto.id()).isEqualTo(existing.uuid().toString());
+        verify(repository, never()).findHoldingForUpdate(any(), any());
+        verify(repository, never()).insertHoldingIfAbsent(any());
+        verify(repository, never()).updateHolding(any());
+        verify(repository, never()).insertTransactionIfAbsent(any());
+        // 快路徑沒有任何資料變動，快取自然不需要失效（DP-8）。
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("同 key 送不同 payload 回 TRADE_IDEMPOTENCY_KEY_REUSED，且沒有任何寫入發生")
+    void reusedKeyWithDifferentPayloadIsRejected() {
+        stubTradeableAsset();
+        when(repository.findByIdempotencyKey(7L, CANARY_KEY))
+            .thenReturn(Optional.of(storedTransaction(STORED_QUANTITY)));
+
+        CreateTradeRequest changed = buyRequest(new BigDecimal("11"), "第一次送出的備註");
+
+        assertThatThrownBy(() -> service.createTrade(7L, changed, CANARY_KEY))
+            .isInstanceOf(BusinessException.class)
+            .hasMessageNotContaining(CANARY_KEY)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.TRADE_IDEMPOTENCY_KEY_REUSED);
+
+        verify(repository, never()).findHoldingForUpdate(any(), any());
+        verify(repository, never()).updateHolding(any());
+        verify(repository, never()).insertTransactionIfAbsent(any());
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("空白或 null 的冪等鍵在 service 層被拒（400），repository 零互動")
+    void blankIdempotencyKeyIsRejectedBeforeAnyIo() {
+        /*
+         * `Idempotency-Key:`（空值）會通過 controller 的 required = true，
+         * 所以空白檢查只能落在這裡。若放任它往下走，key 為空字串的請求會落在部分唯一索引
+         * 的範圍內，第一個空字串就會把所有後續請求都擋成衝突。
+         */
+        CreateTradeRequest request = buyRequest(SENT_QUANTITY, null);
+
+        assertThatThrownBy(() -> service.createTrade(7L, request, "   "))
+            .isInstanceOf(BusinessException.class)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.VALIDATION_FAILED);
+
+        assertThatThrownBy(() -> service.createTrade(7L, request, null))
+            .isInstanceOf(BusinessException.class)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.VALIDATION_FAILED);
+
+        verifyNoInteractions(repository);
+        verifyNoInteractions(assetFacade);
+    }
+
+    @Test
+    @DisplayName("超過 128 字元的冪等鍵在 service 層被拒（400），不落到 DB 變成資料完整性例外")
+    void oversizedIdempotencyKeyIsRejectedBeforeAnyIo() {
+        /*
+         * 欄位是 VARCHAR(128)。只靠 DB 上限的話，過長的 key 會在 insert 時拋
+         * DataIntegrityViolationException —— 那個例外與「冪等命中」長得一模一樣，
+         * 會被誤判成衝突，也讓攻擊者能用超長字串免費製造 500（T-04-04）。
+         */
+        CreateTradeRequest request = buyRequest(SENT_QUANTITY, null);
+        String oversized = CANARY_KEY + "x".repeat(129 - CANARY_KEY.length());
+        assertThat(oversized).hasSize(129);
+
+        assertThatThrownBy(() -> service.createTrade(7L, request, oversized))
+            .isInstanceOf(BusinessException.class)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.VALIDATION_FAILED);
+
+        verifyNoInteractions(repository);
+        verifyNoInteractions(assetFacade);
+    }
+
+    @Test
+    @DisplayName("三種冪等鍵失敗情境的錯誤訊息都不含 key 本身（T-04-03）")
+    void idempotencyKeyIsNeverEchoedInErrorMessages() {
+        stubTradeableAsset();
+        when(repository.findByIdempotencyKey(7L, CANARY_KEY))
+            .thenReturn(Optional.of(storedTransaction(STORED_QUANTITY)));
+        CreateTradeRequest request = buyRequest(SENT_QUANTITY, null);
+        String oversized = CANARY_KEY + "x".repeat(129 - CANARY_KEY.length());
+
+        assertThatThrownBy(() -> service.createTrade(7L, request, "   "))
+            .hasMessageNotContaining(CANARY_KEY);
+        assertThatThrownBy(() -> service.createTrade(7L, request, oversized))
+            .hasMessageNotContaining(CANARY_KEY);
+        assertThatThrownBy(() -> service.createTrade(7L, buyRequest(new BigDecimal("11"), null), CANARY_KEY))
+            .hasMessageNotContaining(CANARY_KEY);
+    }
+
+    @Test
+    @DisplayName("insert 回空且重讀落空的殘餘競態回 TRADE_CONFLICT，而不是 NPE 或 500")
+    void concurrentInsertMissWithoutVisibleRowFallsBackToConflict() {
+        stubTradeableAsset();
+        when(repository.findByIdempotencyKey(7L, "key-1")).thenReturn(Optional.empty());
+        when(repository.insertTransactionIfAbsent(any(TradeTransaction.class))).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.createTrade(7L, buyRequest(SENT_QUANTITY, null), "key-1"))
+            .isInstanceOf(BusinessException.class)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.TRADE_CONFLICT);
+
+        verify(repository, never()).updateHolding(any());
+        verifyNoInteractions(portfolioCache);
+    }
+
+    private void stubTradeableAsset() {
+        when(assetFacade.findBySymbol("AAPL")).thenReturn(Optional.of(
+            new AssetSummary(55L, "AAPL", "Apple Inc.", AssetType.STOCK, "US", true, true)));
+    }
+
+    /**
+     * 建立一筆重送請求。數量與備註以外的欄位固定，讓斷言只受被測維度影響。
+     *
+     * @param quantity 本次送出的數量
+     * @param note     本次送出的備註；D-06 明示它不納入 payload 比對
+     * @return 交易建立請求
+     */
+    private CreateTradeRequest buyRequest(BigDecimal quantity, String note) {
+        return new CreateTradeRequest("AAPL", "BUY", quantity, SENT_PRICE, SENT_FEE, note, SENT_EXECUTED_AT);
+    }
+
+    /**
+     * 建立一筆「從 PostgreSQL 讀回」形狀的既有交易：金額 scale 補滿 8、成交時間為 UTC、備註與重送值不同。
+     *
+     * @param quantity 既有交易的數量
+     * @return 既有交易
+     */
+    private TradeTransaction storedTransaction(BigDecimal quantity) {
+        return new TradeTransaction(
+            9L,
+            UUID.fromString("00000000-0000-0000-0000-0000000000ff"),
+            7L,
+            55L,
+            "AAPL",
+            TradeType.BUY,
+            quantity,
+            new BigDecimal("123.45000000"),
+            new BigDecimal("1.50000000"),
+            "第一次送出的備註",
+            OffsetDateTime.parse("2026-01-10T00:00:00Z"),
+            OffsetDateTime.parse("2026-01-10T00:00:01Z"),
+            "key-1"
+        );
     }
 
     private TradeQuery captureQuery() {
