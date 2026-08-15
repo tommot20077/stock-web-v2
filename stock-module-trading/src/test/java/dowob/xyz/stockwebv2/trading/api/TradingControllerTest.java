@@ -59,10 +59,10 @@ class TradingControllerTest {
     @Test
     @DisplayName("交易建立被拒（BusinessException）→ 輸出 failure 稽核事件且例外向外拋出")
     void rejectedTradeEmitsFailureAudit() {
-        when(tradingService.createTrade(eq(42L), any()))
+        when(tradingService.createTrade(eq(42L), any(), eq("key-1")))
             .thenThrow(new BusinessException(ErrorCode.ASSET_NOT_FOUND, "Asset not found: AAPL"));
 
-        assertThatThrownBy(() -> controller.createTrade(tradeRequest(), authentication, servletRequest))
+        assertThatThrownBy(() -> controller.createTrade(tradeRequest(), "key-1", authentication, servletRequest))
             .isInstanceOf(BusinessException.class);
 
         verify(auditLogger).log(
