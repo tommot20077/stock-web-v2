@@ -16,6 +16,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -52,23 +53,26 @@ public class TradingController {
      * 被拒時例外仍向外拋出，交由 {@code GlobalExceptionHandler} 轉成錯誤信封。</p>
      *
      * @param request        交易建立請求，已通過 bean validation
+     * @param idempotencyKey 冪等鍵，原樣轉交 service；空白與長度檢查一律在 service 層，
+     *                       controller 不做業務判斷
      * @param authentication 已驗證的身分，name 即 userId
      * @param servletRequest 原始請求，用於解析客戶端 IP 寫入稽核
      * @return 建立完成的交易
      * @throws BusinessException 標的不存在或不可交易、交易類型不支援、持倉不足、
-     *                           成交時間為未來時間，或併發衝突時
+     *                           成交時間為未來時間、冪等鍵非法或被重複使用，或併發衝突時
      */
     @PostMapping("/trades")
     @PreAuthorize("hasAuthority('TRADE_EXECUTE')")
     public ApiResponse<TradeDto> createTrade(
         @Valid @RequestBody CreateTradeRequest request,
+        @RequestHeader("Idempotency-Key") String idempotencyKey,
         Authentication authentication,
         HttpServletRequest servletRequest
     ) {
         Long userId = authenticatedUserId(authentication);
         String ip = ClientIpResolver.resolve(servletRequest);
         try {
-            TradeDto trade = tradingService.createTrade(userId, request);
+            TradeDto trade = tradingService.createTrade(userId, request, idempotencyKey);
             auditLogger.log(userId, "trade_create", "trade:" + trade.id(), "success", ip);
             return ApiResponse.success(trade, ApiMetaFactory.current());
         } catch (BusinessException exception) {
