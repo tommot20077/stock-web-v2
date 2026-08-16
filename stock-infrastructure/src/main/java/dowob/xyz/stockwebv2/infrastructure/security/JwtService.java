@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.infrastructure.security;
 
 import com.nimbusds.jose.jwk.Curve;
 import com.nimbusds.jose.jwk.ECKey;
+import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
 import com.nimbusds.jose.proc.SecurityContext;
@@ -23,34 +24,20 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.stereotype.Service;
 
-import java.math.BigInteger;
-import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.ECPublicKey;
 import java.security.spec.ECGenParameterSpec;
-import java.security.spec.ECFieldFp;
-import java.security.spec.ECParameterSpec;
-import java.security.spec.ECPoint;
-import java.security.spec.ECPublicKeySpec;
-import java.security.spec.PKCS8EncodedKeySpec;
-import java.security.spec.X509EncodedKeySpec;
+import java.text.ParseException;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Service
 public class JwtService {
     private static final Logger log = LoggerFactory.getLogger(JwtService.class);
-    private static final Pattern PEM_BLOCK_PATTERN = Pattern.compile(
-        "-----BEGIN ([A-Z ]+)-----(.*?)-----END \\1-----",
-        Pattern.DOTALL
-    );
 
     private final JwtEncoder encoder;
     private final JwtDecoder decoder;
@@ -133,8 +120,8 @@ public class JwtService {
         return number.intValue();
     }
 
-    private ECKey resolveKey(String privateKeyPem, Environment environment) {
-        if (StringUtils.isBlank(privateKeyPem)) {
+    private ECKey resolveKey(String configuredKey, Environment environment) {
+        if (StringUtils.isBlank(configuredKey)) {
             if (!environment.acceptsProfiles(Profiles.of("dev", "test", "e2e", "e2e-browser"))) {
                 throw new IllegalStateException("STOCK_JWT_PRIVATE_KEY must be configured outside dev/test/e2e/e2e-browser profiles");
             }
@@ -142,7 +129,7 @@ public class JwtService {
             return generateKey();
         }
         try {
-            ECKey ecKey = parseEcPrivateKey(privateKeyPem);
+            ECKey ecKey = parseJwk(configuredKey);
             validatePrivateP256Key(ecKey);
             return ecKey;
         } catch (IllegalArgumentException exception) {
@@ -166,63 +153,6 @@ public class JwtService {
         }
     }
 
-    private ECKey parseEcPrivateKey(String pem) throws Exception {
-        byte[] privateKeyBytes = null;
-        byte[] publicKeyBytes = null;
-        Matcher matcher = PEM_BLOCK_PATTERN.matcher(pem);
-        while (matcher.find()) {
-            String type = matcher.group(1);
-            byte[] bytes = Base64.getMimeDecoder().decode(matcher.group(2));
-            if ("PRIVATE KEY".equals(type)) {
-                privateKeyBytes = bytes;
-            } else if ("PUBLIC KEY".equals(type)) {
-                publicKeyBytes = bytes;
-            }
-        }
-
-        if (privateKeyBytes == null) {
-            if (publicKeyBytes != null) {
-                throw new IllegalArgumentException("STOCK_JWT_PRIVATE_KEY must be an EC private key, not a public-only key");
-            }
-            throw new IllegalArgumentException("STOCK_JWT_PRIVATE_KEY must contain a PKCS#8 EC private key PEM block");
-        }
-
-        KeyFactory keyFactory = KeyFactory.getInstance("EC");
-        ECPrivateKey privateKey;
-        try {
-            privateKey = (ECPrivateKey) keyFactory.generatePrivate(new PKCS8EncodedKeySpec(privateKeyBytes));
-        } catch (Exception exception) {
-            throw new IllegalArgumentException("STOCK_JWT_PRIVATE_KEY must be an EC private key", exception);
-        }
-
-        ECPublicKey derivedPublicKey = derivePublicKey(keyFactory, privateKey);
-        ECPublicKey publicKey = derivedPublicKey;
-        if (publicKeyBytes != null) {
-            publicKey = parsePublicKey(keyFactory, publicKeyBytes);
-            if (!publicKey.getW().equals(derivedPublicKey.getW())) {
-                throw new IllegalArgumentException("STOCK_JWT_PRIVATE_KEY public key block must match the private key");
-            }
-        }
-        return new ECKey.Builder(toNimbusCurve(privateKey.getParams()), publicKey)
-            .privateKey(privateKey)
-            .keyID(UUID.randomUUID().toString())
-            .build();
-    }
-
-    private ECPublicKey parsePublicKey(KeyFactory keyFactory, byte[] publicKeyBytes) {
-        try {
-            return (ECPublicKey) keyFactory.generatePublic(new X509EncodedKeySpec(publicKeyBytes));
-        } catch (Exception exception) {
-            throw new IllegalArgumentException("STOCK_JWT_PRIVATE_KEY public key block must be an EC public key", exception);
-        }
-    }
-
-    private ECPublicKey derivePublicKey(KeyFactory keyFactory, ECPrivateKey privateKey) throws Exception {
-        ECParameterSpec params = privateKey.getParams();
-        ECPoint publicPoint = multiply(params.getGenerator(), privateKey.getS(), params);
-        return (ECPublicKey) keyFactory.generatePublic(new ECPublicKeySpec(publicPoint, params));
-    }
-
     private void validatePrivateP256Key(ECKey ecKey) {
         if (!ecKey.isPrivate()) {
             throw new IllegalArgumentException("STOCK_JWT_PRIVATE_KEY must include EC private key material");
@@ -232,82 +162,51 @@ public class JwtService {
         }
     }
 
-    private Curve toNimbusCurve(ECParameterSpec params) {
-        int fieldSize = params.getCurve().getField().getFieldSize();
-        if (fieldSize == 256) {
-            return Curve.P_256;
+    /**
+     * 把設定值解析成 JWK。
+     *
+     * <p>設定格式是 <strong>EC JWK（JSON）</strong>而非 PEM。理由是 JWK 把私鑰分量 {@code d}
+     * 與公鑰座標 {@code x} / {@code y} 放在同一個物件裡，所以：</p>
+     *
+     * <ul>
+     *   <li>不需要從私鑰推導公鑰——JCA 沒有開放純量乘法，過去為此自行實作了約 60 行橢圓曲線
+     *       體算術（{@code multiply} / {@code doublePoint} / {@code addPoints}），現已刪除。</li>
+     *   <li>不需要比對「公鑰區塊與私鑰是否配對」——只有一個物件，不存在兩塊可能不一致的情形。</li>
+     * </ul>
+     *
+     * <p>{@code kid} 缺漏時才補一個隨機值。設定裡有寫就沿用，因為 {@code kid} 應該隨金鑰走
+     * 而不是隨啟動走：若日後對外發布 JWKS，每次重啟就換 {@code kid} 會讓消費端快取的金鑰集對不上。</p>
+     *
+     * @param value 設定值
+     * @return 解析後的 EC JWK
+     * @throws IllegalArgumentException 值仍是舊的 PEM 格式、非合法 JSON、或 kty 不是 EC 時
+     */
+    private ECKey parseJwk(String value) {
+        String trimmed = value.trim();
+        if (trimmed.startsWith("-----BEGIN")) {
+            throw new IllegalArgumentException(
+                "STOCK_JWT_PRIVATE_KEY is still in the legacy PEM format; it must now be an EC JWK (JSON). "
+                    + "Convert it without exposing the key to any third party: "
+                    + "openssl pkey -in private.pem -pubout -out public.pem"
+                    + " && java -cp <app.jar> " + JwkKeyConverter.class.getName() + " private.pem public.pem");
         }
-        if (fieldSize == 384) {
-            return Curve.P_384;
+        JWK jwk;
+        try {
+            jwk = JWK.parse(trimmed);
+        } catch (ParseException exception) {
+            throw new IllegalArgumentException("STOCK_JWT_PRIVATE_KEY must be a valid EC JWK (JSON)", exception);
         }
-        if (fieldSize == 521) {
-            return Curve.P_521;
+        if (!(jwk instanceof ECKey ecKey)) {
+            /*
+             * 不先擋下來的話，(ECKey) 轉型會丟 ClassCastException——啟動失敗訊息完全看不出
+             * 是設定放錯了金鑰類型。
+             */
+            throw new IllegalArgumentException(
+                "STOCK_JWT_PRIVATE_KEY must be an EC JWK for ES256, but kty was " + jwk.getKeyType());
         }
-        throw new IllegalArgumentException("STOCK_JWT_PRIVATE_KEY uses an unsupported EC curve");
-    }
-
-    private ECPoint multiply(ECPoint point, BigInteger scalar, ECParameterSpec params) {
-        ECPoint result = ECPoint.POINT_INFINITY;
-        ECPoint addend = point;
-        for (int index = scalar.bitLength() - 1; index >= 0; index--) {
-            result = doublePoint(result, params);
-            if (scalar.testBit(index)) {
-                result = addPoints(result, addend, params);
-            }
+        if (ecKey.getKeyID() != null) {
+            return ecKey;
         }
-        return result;
-    }
-
-    private ECPoint doublePoint(ECPoint point, ECParameterSpec params) {
-        if (ECPoint.POINT_INFINITY.equals(point)) {
-            return point;
-        }
-        BigInteger p = fieldPrime(params);
-        BigInteger x = point.getAffineX();
-        BigInteger y = point.getAffineY();
-        if (BigInteger.ZERO.equals(y)) {
-            return ECPoint.POINT_INFINITY;
-        }
-
-        BigInteger a = params.getCurve().getA();
-        BigInteger numerator = x.pow(2).multiply(BigInteger.valueOf(3)).add(a).mod(p);
-        BigInteger denominator = y.multiply(BigInteger.TWO).modInverse(p);
-        BigInteger lambda = numerator.multiply(denominator).mod(p);
-        BigInteger xr = lambda.pow(2).subtract(x.shiftLeft(1)).mod(p);
-        BigInteger yr = lambda.multiply(x.subtract(xr)).subtract(y).mod(p);
-        return new ECPoint(xr, yr);
-    }
-
-    private ECPoint addPoints(ECPoint first, ECPoint second, ECParameterSpec params) {
-        if (ECPoint.POINT_INFINITY.equals(first)) {
-            return second;
-        }
-        if (ECPoint.POINT_INFINITY.equals(second)) {
-            return first;
-        }
-
-        BigInteger p = fieldPrime(params);
-        BigInteger x1 = first.getAffineX();
-        BigInteger y1 = first.getAffineY();
-        BigInteger x2 = second.getAffineX();
-        BigInteger y2 = second.getAffineY();
-        if (x1.equals(x2)) {
-            if (y1.add(y2).mod(p).equals(BigInteger.ZERO)) {
-                return ECPoint.POINT_INFINITY;
-            }
-            return doublePoint(first, params);
-        }
-
-        BigInteger lambda = y2.subtract(y1).multiply(x2.subtract(x1).modInverse(p)).mod(p);
-        BigInteger xr = lambda.pow(2).subtract(x1).subtract(x2).mod(p);
-        BigInteger yr = lambda.multiply(x1.subtract(xr)).subtract(y1).mod(p);
-        return new ECPoint(xr, yr);
-    }
-
-    private BigInteger fieldPrime(ECParameterSpec params) {
-        if (params.getCurve().getField() instanceof ECFieldFp field) {
-            return field.getP();
-        }
-        throw new IllegalArgumentException("STOCK_JWT_PRIVATE_KEY must use a prime-field EC curve");
+        return new ECKey.Builder(ecKey).keyID(UUID.randomUUID().toString()).build();
     }
 }
