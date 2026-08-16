@@ -98,11 +98,26 @@ Task 3 的 RED 為「事後反向驗證」而非「先寫測試再實作」—�
 > **索引分佈於兩個 migration，這是修正 convention 違規的結果。** 本節原先描述的「單一個 V9」
 > 一度成立，但那是因為 PR #15 直接修改了已隨 PR #13 合併的 V9，違反
 > `ai-docs/flyway-convention.md`「Never modify a migration that has already been applied」。
-> 實測 CRC32（Flyway checksum 的計算方式）：原始 V9 為 `1874006957`、被改後為 `2297068974`
+> V9 的內容確實變了（+43/−4 行），因此它的 Flyway checksum 也必然改變
 > —— 已套用舊 V9 的資料庫會在下次啟動 checksum mismatch 而失敗。
-> 現已把 V9 還原成 PR #13 的原始內容（checksum 回到 `1874006957`，不需任何手動 `flyway repair`），
+> 現已把 V9 還原成 PR #13 的原始內容（git blob 為 `a2530ba`，與原始逐位元相同，
+> 故 checksum 必然回到原值，不需任何手動 `flyway repair`），
 > PR #15 真正新增的兩道述句移入 `V10__trading_query_indexes_realign.sql`。
 > 最終 schema 與原本的意圖完全相同。
+>
+> **關於本節先前引用的兩個數字（`1874006957` / `2297068974`）**：那是用
+> `zlib.crc32(整個檔案的原始位元組)` 算出來的，**不是** Flyway 的 checksum 值，
+> 先前誤標為「Flyway checksum 的計算方式」。反編譯 `flyway-core` 11.14.1 的
+> `ChecksumCalculator` 可見它的實際做法是
+> `BufferedReader.readLine()` → `BomFilter` → `String.getBytes()` → `CRC32.update()`
+> 逐行累加，**行尾終止符已被 `readLine()` 剝除、不計入**。
+> 兩者結論一致（內容變則 checksum 變），但拿上面的數字去比對
+> `flyway_schema_history.checksum` 會對不上，故在此更正。
+>
+> 這個差異另有一個正面結論：**行尾（CRLF / LF）不影響 Flyway checksum**。
+> 本 repo 的 `.gitattributes` 未涵蓋 `*.sql` 且 `core.autocrlf=true`，
+> 一度令人擔心 Windows build 與 Linux build 會產生不同 checksum——依上述演算法，
+> 這個顧慮不成立，`.gitattributes` 不需要為此調整。
 
 `V9__trading_query_indexes.sql`（隨 PR #13，內容自此不可再改）：
 
