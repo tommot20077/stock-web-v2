@@ -7,11 +7,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -37,6 +39,23 @@ class TradingApiIT extends ContainerIT {
     private static final String EXECUTED_AT_MIDDLE = "2026-02-10T00:00:00Z";
     private static final String EXECUTED_AT_NEWEST = "2026-03-10T00:00:00Z";
 
+    /**
+     * 冪等測試共用的成交時間。所有冪等 payload 都必須明確送出 {@code executedAt}（D-03 / D-07）：
+     * 若省略讓後端補 {@code now()}，同一把 key 的重試 payload 每次都不同，
+     * 「重試回既有交易」的測試會假性變成「payload 不符 → 409」，看起來綠但驗到的是別件事。
+     */
+    private static final String IDEMPOTENT_EXECUTED_AT = "2026-04-10T00:00:00Z";
+
+    /**
+     * 刻意可辨識的 idempotency key。錯誤回應只要把 key 回射出去，
+     * {@code doesNotContain} 就會抓到，不必猜它會從 message、fields 還是 meta 漏出（T-04-03）。
+     */
+    private static final String IDEM_KEY_CANARY = "LEAK-CANARY-12345";
+
+    /** 129 字元、且開頭帶 canary 的 key：超過服務層 128 字元上限一個字元（T-04-04）。 */
+    private static final String IDEM_KEY_TOO_LONG =
+        IDEM_KEY_CANARY + "L".repeat(129 - IDEM_KEY_CANARY.length());
+
     @Autowired
     MockMvc mockMvc;
 
@@ -45,8 +64,10 @@ class TradingApiIT extends ContainerIT {
 
     @Test
     void tradingEndpointsRequireAuthentication() throws Exception {
+        // 帶齊 header：讓這條專測「未帶憑證即 401」，而不是被缺 header 的 400 搶先攔下。
         mockMvc.perform(post("/api/v1/trades")
                 .contentType(MediaType.APPLICATION_JSON)
+                .header("Idempotency-Key", UUID.randomUUID().toString())
                 .content(buyBody()))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.error.code", equalTo("AUTH_INVALID_CREDENTIALS")));
@@ -59,12 +80,15 @@ class TradingApiIT extends ContainerIT {
         String buyResponse = mockMvc.perform(post("/api/v1/trades")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + tokens.accessToken())
+                .header("Idempotency-Key", UUID.randomUUID().toString())
                 .content(buyBody()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success", equalTo(true)))
             .andExpect(jsonPath("$.data.id", notNullValue()))
             .andExpect(jsonPath("$.data.symbol", equalTo("AAPL")))
             .andExpect(jsonPath("$.data.type", equalTo("BUY")))
+            // idempotency key 是請求層的實作細節，不得出現在交易 DTO（T-04-09）。
+            .andExpect(jsonPath("$.data.idempotencyKey").doesNotExist())
             .andReturn()
             .getResponse()
             .getContentAsString();
@@ -88,6 +112,7 @@ class TradingApiIT extends ContainerIT {
         mockMvc.perform(post("/api/v1/trades")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + tokens.accessToken())
+                .header("Idempotency-Key", UUID.randomUUID().toString())
                 .content("""
                     {"symbol":"AAPL","type":"SELL","quantity":4,"price":120,"fee":1,"note":"partial exit"}
                     """))
@@ -111,6 +136,7 @@ class TradingApiIT extends ContainerIT {
         mockMvc.perform(post("/api/v1/trades")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + tokens.accessToken())
+                .header("Idempotency-Key", UUID.randomUUID().toString())
                 .content(buyBody()))
             .andExpect(status().isOk());
 
@@ -118,6 +144,7 @@ class TradingApiIT extends ContainerIT {
         mockMvc.perform(post("/api/v1/trades")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + tokens.accessToken())
+                .header("Idempotency-Key", UUID.randomUUID().toString())
                 .content("""
                     {"symbol":"AAPL","type":"SELL","quantity":10,"price":120,"fee":1,"note":"full exit"}
                     """))
@@ -140,6 +167,7 @@ class TradingApiIT extends ContainerIT {
         mockMvc.perform(post("/api/v1/trades")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + tokens.accessToken())
+                .header("Idempotency-Key", UUID.randomUUID().toString())
                 .content("""
                     {"symbol":"AAPL","type":"SELL","quantity":1,"price":120,"fee":0}
                     """))
@@ -157,12 +185,19 @@ class TradingApiIT extends ContainerIT {
         List<Future<Integer>> results = new ArrayList<>();
         try {
             for (int i = 0; i < threads; i++) {
+                /*
+                 * 每條 thread 一把不同的 key：這條測的是「8 筆各自獨立的首次 BUY 併入同一持倉」，
+                 * 共用同一把 key 會被冪等機制合併成 1 筆，總量變 1 而非 8，測到的就不是原本的
+                 * 持倉 upsert 競態了。同 key 併發的驗收在 concurrentSameKeyCreatesExactlyOneTrade。
+                 */
+                String perThreadKey = "concurrent-first-buy-" + i;
                 results.add(pool.submit(() -> {
                     ready.countDown();
                     go.await();
                     return mockMvc.perform(post("/api/v1/trades")
                             .contentType(MediaType.APPLICATION_JSON)
                             .header("Authorization", "Bearer " + tokens.accessToken())
+                            .header("Idempotency-Key", perThreadKey)
                             .content("""
                                 {"symbol":"AAPL","type":"BUY","quantity":1,"price":100,"fee":0}
                                 """))
@@ -362,6 +397,7 @@ class TradingApiIT extends ContainerIT {
         mockMvc.perform(post("/api/v1/trades")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + tokens.accessToken())
+                .header("Idempotency-Key", UUID.randomUUID().toString())
                 .content("""
                     {"symbol":"AAPL","type":"BUY","quantity":1,"price":100,"fee":0,"executedAt":"2099-01-01T00:00:00Z"}
                     """))
@@ -371,6 +407,7 @@ class TradingApiIT extends ContainerIT {
         mockMvc.perform(post("/api/v1/trades")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + tokens.accessToken())
+                .header("Idempotency-Key", UUID.randomUUID().toString())
                 .content("""
                     {"symbol":"AAPL","type":"BUY","quantity":1,"price":100,"fee":0,"executedAt":"2020-01-01T00:00:00Z"}
                     """))
@@ -496,6 +533,263 @@ class TradingApiIT extends ContainerIT {
             .andExpect(jsonPath("$.data.items[0].id", equalTo(foreignId)));
     }
 
+    @Test
+    @DisplayName("8 條併發的同 key 請求：只建立 1 筆交易、8 個回應的 id 全同、零 500")
+    void concurrentSameKeyCreatesExactlyOneTrade() throws Exception {
+        AuthTokens tokens = register("trading-idem-concurrent@example.com", "tradingidemconcurrent", "Password1");
+        String key = "concurrent-same-key-" + UUID.randomUUID();
+        String body = idempotentBuyBody(10, "initial buy");
+
+        int threads = 8;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch go = new CountDownLatch(1);
+        List<Future<String>> responses = new ArrayList<>();
+        try {
+            for (int i = 0; i < threads; i++) {
+                responses.add(pool.submit(() -> {
+                    ready.countDown();
+                    go.await();
+                    var response = postTrade(tokens, key, body).andReturn().getResponse();
+                    return response.getStatus() + " " + response.getContentAsString();
+                }));
+            }
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            go.countDown();
+
+            List<String> ids = new ArrayList<>();
+            for (Future<String> response : responses) {
+                String raw = response.get(30, TimeUnit.SECONDS);
+                assertThat(raw).startsWith("200 ");
+                ids.add(objectMapper.readTree(raw.substring(4)).get("data").get("id").asText());
+            }
+            // 斷言不變量（只有一個 id）而非時序（誰先誰後）：哪一條 thread 贏得 insert 是不確定的，
+            // 「大家最後看到同一筆交易」才是契約。
+            assertThat(ids).containsOnly(ids.getFirst());
+        } finally {
+            pool.shutdownNow();
+        }
+
+        mockMvc.perform(get("/api/v1/trades")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(1)));
+
+        mockMvc.perform(get("/api/v1/portfolio/holdings")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(10.00000000)));
+    }
+
+    @Test
+    @DisplayName("被拒的交易回滾後，同一把 key 仍可重新使用（rollback 未留下半成品）")
+    void rejectedTradeDoesNotBurnTheIdempotencyKey() throws Exception {
+        AuthTokens tokens = register("trading-idem-rollback@example.com", "tradingidemrollback", "Password1");
+        String key = "rollback-" + UUID.randomUUID();
+
+        // 零持倉下賣出必定被拒；此時交易已先 insert，靠整筆 tx 回滾撤銷。
+        postTrade(tokens, key, """
+            {"symbol":"AAPL","type":"SELL","quantity":1,"price":120,"fee":0,"executedAt":"%s"}
+            """.formatted(IDEMPOTENT_EXECUTED_AT))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code", equalTo("TRADE_INSUFFICIENT_HOLDING")));
+
+        /*
+         * 同一把 key 改送合法的 BUY 必須成功。若回 409 KEY_REUSED，代表被拒交易的那一列其實
+         * 留在資料庫裡 —— 使用者會被自己的一次失敗永久鎖住這把 key，而且帳本多了一列不該存在的
+         * 紀錄（T-04-07）。
+         */
+        postTrade(tokens, key, idempotentBuyBody(10, "retry after rejection"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/trades")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(1)));
+    }
+
+    @Test
+    @DisplayName("錯誤回應的完整 body 都不回射使用者送出的 idempotency key 或備註")
+    void errorResponsesNeverEchoUserControlledInput() throws Exception {
+        AuthTokens tokens = register("trading-idem-canary@example.com", "tradingidemcanary", "Password1");
+
+        postTrade(tokens, IDEM_KEY_CANARY, idempotentBuyBody(10, "initial buy")).andExpect(status().isOk());
+
+        /*
+         * 斷言整個 body 而非只有 $.error.message：key 也可能從 fields 的鍵、meta，
+         * 或某個未預期的欄位漏出去（T-04-03，避免重蹈 BackfillController 把 key 串進訊息的做法）。
+         */
+        String reuseBody = postTrade(tokens, IDEM_KEY_CANARY, idempotentBuyBody(11, "initial buy"))
+            .andExpect(status().isConflict())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        assertThat(reuseBody).doesNotContain(IDEM_KEY_CANARY);
+
+        String blankKeyBody = postTrade(tokens, "   ", idempotentBuyBody(10, IDEM_KEY_CANARY))
+            .andExpect(status().isBadRequest())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        assertThat(blankKeyBody).doesNotContain(IDEM_KEY_CANARY);
+
+        String oversizedKeyBody = postTrade(tokens, IDEM_KEY_TOO_LONG, idempotentBuyBody(10, "initial buy"))
+            .andExpect(status().isBadRequest())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        assertThat(oversizedKeyBody).doesNotContain(IDEM_KEY_CANARY);
+    }
+
+    @Test
+    @DisplayName("同一把 key 連送兩次：回同一筆交易、帳本只有 1 列、持倉只套用一次")
+    void sameIdempotencyKeyReturnsExistingTradeAndAppliesHoldingOnce() throws Exception {
+        AuthTokens tokens = register("trading-idem-serial@example.com", "tradingidemserial", "Password1");
+        String key = "serial-" + UUID.randomUUID();
+        String body = idempotentBuyBody(10, "initial buy");
+
+        String firstId = tradeIdOf(postTrade(tokens, key, body).andExpect(status().isOk()));
+        String secondId = tradeIdOf(postTrade(tokens, key, body).andExpect(status().isOk()));
+
+        /*
+         * 三條斷言缺一不可：id 相同證明「回的是既有交易」，totalElements 為 1 證明帳本沒多一列，
+         * totalQuantity 為 10（不是 20）證明持倉的副作用也只套用了一次。只驗前兩條的話，
+         * 「重覆套用持倉但回傳同一筆交易」這種最難察覺的錯誤會整條漏掉。
+         */
+        assertThat(secondId).isEqualTo(firstId);
+
+        mockMvc.perform(get("/api/v1/trades")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(1)));
+
+        mockMvc.perform(get("/api/v1/portfolio/holdings")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(10.00000000)));
+    }
+
+    @Test
+    @DisplayName("同一把 key 搭配不同 payload → 409 TRADE_IDEMPOTENCY_KEY_REUSED，且不新增交易")
+    void sameKeyWithDifferentPayloadIsRejectedAsReuse() throws Exception {
+        AuthTokens tokens = register("trading-idem-reuse@example.com", "tradingidemreuse", "Password1");
+        String key = "reuse-" + UUID.randomUUID();
+
+        postTrade(tokens, key, idempotentBuyBody(10, "initial buy")).andExpect(status().isOk());
+
+        postTrade(tokens, key, idempotentBuyBody(11, "initial buy"))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code", equalTo("TRADE_IDEMPOTENCY_KEY_REUSED")));
+
+        mockMvc.perform(get("/api/v1/trades")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(1)));
+    }
+
+    @Test
+    @DisplayName("同一把 key 只有 note 不同 → 200 回既有交易（note 不納入 payload 比對）")
+    void sameKeyWithOnlyNoteChangedReturnsExistingTrade() throws Exception {
+        AuthTokens tokens = register("trading-idem-note@example.com", "tradingidemnote", "Password1");
+        String key = "note-" + UUID.randomUUID();
+
+        String firstId = tradeIdOf(
+            postTrade(tokens, key, idempotentBuyBody(10, "initial buy")).andExpect(status().isOk()));
+
+        /*
+         * note 是自由文字備註，不影響帳務金額。把它納入比對會讓「使用者重試時順手改了備註」
+         * 變成 409，那是把重試安全機制變成障礙，因此刻意排除（DP-6）。
+         */
+        String secondId = tradeIdOf(
+            postTrade(tokens, key, idempotentBuyBody(10, "changed note")).andExpect(status().isOk()));
+
+        assertThat(secondId).isEqualTo(firstId);
+    }
+
+    @Test
+    @DisplayName("兩個不同使用者用同一把 key：各自建立交易，互不命中（跨使用者隔離）")
+    void sameKeyAcrossDifferentUsersCreatesSeparateTrades() throws Exception {
+        AuthTokens first = register("trading-idem-userA@example.com", "tradingidemusera", "Password1");
+        AuthTokens second = register("trading-idem-userB@example.com", "tradingidemuserb", "Password1");
+        String sharedKey = "shared-across-users-" + UUID.randomUUID();
+        String body = idempotentBuyBody(10, "initial buy");
+
+        String firstId = tradeIdOf(postTrade(first, sharedKey, body).andExpect(status().isOk()));
+        String secondId = tradeIdOf(postTrade(second, sharedKey, body).andExpect(status().isOk()));
+
+        /*
+         * 唯一約束的 user_id 維度是這條隔離的唯一保證。若約束只建在 idempotency_key 上，
+         * 第二個使用者會拿到第一個使用者的交易 —— 那是跨帳戶資料外洩，不只是冪等失效（T-04-02）。
+         */
+        assertThat(secondId).isNotEqualTo(firstId);
+
+        mockMvc.perform(get("/api/v1/trades")
+                .header("Authorization", "Bearer " + first.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(1)))
+            .andExpect(jsonPath("$.data.items[0].id", equalTo(firstId)));
+
+        mockMvc.perform(get("/api/v1/trades")
+                .header("Authorization", "Bearer " + second.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(1)))
+            .andExpect(jsonPath("$.data.items[0].id", equalTo(secondId)));
+    }
+
+    @Test
+    @DisplayName("缺少 Idempotency-Key → 400，且 error.fields 指出是哪一個 header")
+    void missingIdempotencyKeyHeaderReturnsFieldAwareValidationError() throws Exception {
+        AuthTokens tokens = register("trading-idem-missing@example.com", "tradingidemmissing", "Password1");
+
+        // 本檔唯一刻意不帶 Idempotency-Key 的請求：header 必填是 D-05 的核心防線。
+        mockMvc.perform(post("/api/v1/trades")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + tokens.accessToken())
+                .content(idempotentBuyBody(10, "initial buy")))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields['Idempotency-Key']", notNullValue()));
+
+        // 被擋在業務邏輯之前，帳本不得留下任何痕跡。
+        mockMvc.perform(get("/api/v1/trades")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(0)));
+    }
+
+    @Test
+    @DisplayName("空白 Idempotency-Key → 400 VALIDATION_FAILED，而非靜默通過")
+    void blankIdempotencyKeyIsRejected() throws Exception {
+        AuthTokens tokens = register("trading-idem-blank@example.com", "tradingidemblank", "Password1");
+
+        /*
+         * 空白字串能通過 header 的「必填」檢查（值存在，只是全是空白），卻無法作為唯一鍵使用。
+         * 這條不寫，空白 key 會一路走到 DB 才出事，而且每次重試都拿到同一把「空」鍵。
+         */
+        postTrade(tokens, "   ", idempotentBuyBody(10, "initial buy"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")));
+
+        mockMvc.perform(get("/api/v1/trades")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(0)));
+    }
+
+    @Test
+    @DisplayName("超過長度上限的 Idempotency-Key → 400，而非 500 或資料庫例外外洩")
+    void oversizedIdempotencyKeyIsRejectedWithValidationError() throws Exception {
+        AuthTokens tokens = register("trading-idem-toolong@example.com", "tradingidemtoolong", "Password1");
+
+        /*
+         * 129 字元剛好超過服務層 128 的上限。若沒有這道長度檢查，超長 key 會走到 DB 才被欄位
+         * 長度擋下，變成 500 並把 DataIntegrityViolationException 的內容當成錯誤訊息外洩（T-04-04）。
+         */
+        postTrade(tokens, IDEM_KEY_TOO_LONG, idempotentBuyBody(10, "initial buy"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")));
+    }
+
     /**
      * 建立三筆交易，刻意讓 created_at 與 executed_at 的順序不一致：
      * 最後插入的 backfill 交易 created_at 最新、executed_at 最舊。
@@ -516,10 +810,19 @@ class TradingApiIT extends ContainerIT {
         return new TradeFixture(buyId, sellId, backfillBuyId);
     }
 
+    /**
+     * 建立一筆交易並回傳其 id。每次呼叫都用一把新的隨機 key —— 這些 fixture 交易彼此獨立，
+     * 若共用 key，第二筆之後會被冪等機制擋成「回傳既有交易」或 409，fixture 就湊不齊了。
+     *
+     * @param tokens 交易擁有者的權杖
+     * @param body   交易 payload
+     * @return 建立完成的交易 id
+     */
     private String createTrade(AuthTokens tokens, String body) throws Exception {
         String response = mockMvc.perform(post("/api/v1/trades")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + tokens.accessToken())
+                .header("Idempotency-Key", UUID.randomUUID().toString())
                 .content(body))
             .andExpect(status().isOk())
             .andReturn()
@@ -529,6 +832,41 @@ class TradingApiIT extends ContainerIT {
     }
 
     private record TradeFixture(String buyId, String sellId, String backfillBuyId) {
+    }
+
+    /**
+     * 送出一筆交易建立請求，不對狀態碼做任何預期——冪等測試同時需要 200 / 409 / 400 三種結果。
+     *
+     * @param tokens         交易擁有者的權杖
+     * @param idempotencyKey 原樣送出的 {@code Idempotency-Key} header 值，不做 trim 或補值
+     * @param body           交易 payload
+     * @return 尚未斷言的請求結果，由呼叫端決定要驗什麼
+     */
+    private ResultActions postTrade(AuthTokens tokens, String idempotencyKey, String body) throws Exception {
+        return mockMvc.perform(post("/api/v1/trades")
+            .contentType(MediaType.APPLICATION_JSON)
+            .header("Authorization", "Bearer " + tokens.accessToken())
+            .header("Idempotency-Key", idempotencyKey)
+            .content(body));
+    }
+
+    /**
+     * 冪等測試共用的 BUY payload。{@code executedAt} 固定，讓同一把 key 的重試送出逐字相同的
+     * payload；{@code quantity} 是唯一刻意可變的比對欄位，{@code note} 則用來驗證它<strong>不</strong>納入比對。
+     *
+     * @param quantity 交易數量
+     * @param note     自由文字備註
+     * @return JSON payload
+     */
+    private String idempotentBuyBody(int quantity, String note) {
+        return """
+            {"symbol":"AAPL","type":"BUY","quantity":%d,"price":100,"fee":5,"note":"%s","executedAt":"%s"}
+            """.formatted(quantity, note, IDEMPOTENT_EXECUTED_AT);
+    }
+
+    private String tradeIdOf(ResultActions actions) throws Exception {
+        String body = actions.andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).get("data").get("id").asText();
     }
 
     private String buyBody() {
