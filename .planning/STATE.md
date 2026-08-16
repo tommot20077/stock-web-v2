@@ -10,8 +10,8 @@ progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 28
-  completed_plans: 23
-  percent: 52
+  completed_plans: 24
+  percent: 54
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-05-30)
 ## Current Position
 
 Phase: 04 (manual-trade-creation-idempotency-post-trade-refetch) — EXECUTING
-Plan: 8 of 13 完成（04-01、04-02、04-03、04-04、04-05、04-06、04-07、04-08 皆已產出 SUMMARY）
-未執行：04-09、04-10、04-11、04-12、04-13
-Last activity: 2026-08-16 -- Phase 04 wave 4/5 executed (04-04, 04-05)
+Plan: 9 of 13 完成（04-01 ~ 04-09 皆已產出 SUMMARY）
+未執行：04-10、04-11、04-12、04-13
+Last activity: 2026-08-16 -- Phase 04 executed 04-04, 04-05（後端收尾）與 04-09（前端 ticket 骨架）
 
 > ⚠️ **判斷 plan 是否已執行請以 `*-SUMMARY.md` 的存在為準**，不要只讀本節。
 > 2026-08-16 接手時本行寫的是「Plan: 2 of 13」，而磁碟上已有 6 份 SUMMARY —— 狀態檔落後了 4 個 plan。
@@ -113,6 +113,13 @@ Recent decisions affecting current work:
 - [Phase 4 Plan 05]: 前端契約凍結 —— header 名 `Idempotency-Key`(1–128 字元、不得全空白)、
   409 `TRADE_IDEMPOTENCY_KEY_REUSED`、payload 比對含 assetId/type/quantity/price/fee/executedAt 但
   **不含 note**、成功回應的 `data` 不含 `idempotencyKey`。
+- [Phase 4 Plan 09]: OrderTicket 的連點防護改為**雙層** —— `:disabled="submitting"`(視覺/a11y)
+  加上 `submitTrade` 開頭的 `if (submitting.value) return;`(實際保證)。原本靠「placing 期間按鈕
+  從畫面消失」是假進度的副作用,U-16 移除假進度後就不存在了。`task4.test.ts` 對應 case 的**意圖**
+  隨之改變並在測試名反映;被保護的不變量(連點兩次只記一筆)逐字不變。
+- [Phase 4 Plan 09]: `toLocalIso` 從 `Trades.vue` 抽成 `services/localTime.ts` 共用,另立
+  `toLocalInputValue` —— `datetime-local` 不接受 offset 也不接受秒,直接塞 `toLocalIso` 的輸出
+  會被瀏覽器判為無效值而顯示空白。這個轉換的錯法(UTC 位移)會直接寫進 append-only 帳本。
 - [Phase 4]: DP-1 裁定採 (c):以 develop 為基準,Phase 4 只做冪等,不等 PR #15。executedAt 未來時間驗證與 ApiTimeParser 不屬 Phase 4 範圍,留給 PR #15(仍為 OPEN draft)。理由:PR #15 修改了已在 origin/develop 的 V9 migration,違反 flyway-convention「Never modify an applied migration」,等它合併會把 checksum 債帶進 Phase 4 的時程。同時排除 Docker blocker:實跑 docker info → Server 29.5.3 可用,Testcontainers 路徑可行。
 
 ### Pending Todos
@@ -153,9 +160,14 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-08-16
-Stopped at: Completed 04-05-PLAN.md —— **後端 Phase 4 收尾**,前端契約凍結(見 04-05-SUMMARY 末節)。
-Resume file: .planning/phases/04-manual-trade-creation-idempotency-post-trade-refetch/04-09-PLAN.md
-Next action: 執行 04-09。04-06 / 04-07 / 04-08 已完成(前端 wave 3)。
+Stopped at: Completed 04-09-PLAN.md(前端 OrderTicket 骨架)。**後端 Phase 4 已於 04-05 收尾**,
+前端契約凍結(見 04-05-SUMMARY 末節)。
+Resume file: .planning/phases/04-manual-trade-creation-idempotency-post-trade-refetch/04-10-PLAN.md
+Next action: 執行 04-10(symbol typeahead 七態 / debounce / AbortController)。
+
+**前端 repo 的狀態**(`../../vue/stock-v2`,分支 `feature/phase-04-manual-trade-creation`):
+04-06 ~ 04-09 的 14 個 commit **只在本機**,upstream 仍指向 `origin/develop`,
+該 feature 分支從未推送、也還沒有 PR。
 
 **接手前必讀的四個地雷:**
 
