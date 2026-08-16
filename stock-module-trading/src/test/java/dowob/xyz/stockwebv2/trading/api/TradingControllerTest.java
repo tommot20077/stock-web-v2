@@ -148,6 +148,28 @@ class TradingControllerTest {
     }
 
     @Test
+    @DisplayName("成功稽核事件的任何參數都不含 idempotency key（T-04-03）")
+    void successAuditNeverCarriesIdempotencyKey() {
+        when(tradingService.createTrade(eq(42L), any(), eq(IDEM_KEY_CANARY))).thenReturn(tradeDto());
+
+        controller.createTrade(tradeRequest(), IDEM_KEY_CANARY, authentication, servletRequest);
+
+        /*
+         * 成功與失敗是兩條各自組裝 audit 參數的路徑：失敗路徑不洩漏，不能推論成功路徑也不洩漏。
+         * 成功路徑的 target 會帶入新建交易的 id（"trade:{id}"），是最容易把使用者可控字串
+         * 一併串進去的地方，因此這條與 failure 版同樣逐一檢查每個字串參數。
+         */
+        ArgumentCaptor<String> targetCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> resultCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> ipCaptor = ArgumentCaptor.forClass(String.class);
+        verify(auditLogger).log(
+            eq(42L), eq("trade_create"), targetCaptor.capture(), resultCaptor.capture(), ipCaptor.capture());
+        assertThat(targetCaptor.getValue()).doesNotContain(IDEM_KEY_CANARY);
+        assertThat(resultCaptor.getValue()).doesNotContain(IDEM_KEY_CANARY);
+        assertThat(ipCaptor.getValue()).doesNotContain(IDEM_KEY_CANARY);
+    }
+
+    @Test
     @DisplayName("六個查詢參數原樣轉交 service，controller 層不做任何解析或正規化")
     void listTradesForwardsEveryQueryParameterUnchanged() {
         when(tradingService.listTrades(
