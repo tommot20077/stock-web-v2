@@ -63,6 +63,10 @@ stock:
   cors:
     allowed-origins: ${STOCK_CORS_ALLOWED_ORIGINS:http://localhost:5173}
   jwt:
+    # EC JWK(JSON,含私鑰分量 d 與公鑰座標 x/y),不是 PEM。
+    # 舊的 PEM 值請用 JwkKeyConverter 轉換,不要貼到線上轉換器:
+    #   openssl pkey -in private.pem -pubout -out public.pem
+    #   java -cp <app.jar> dowob.xyz.stockwebv2.infrastructure.security.JwkKeyConverter private.pem public.pem
     private-key: ${STOCK_JWT_PRIVATE_KEY:}
     access-token-ttl: ${STOCK_JWT_ACCESS_TOKEN_TTL:PT30M}
     refresh-token-ttl: ${STOCK_JWT_REFRESH_TOKEN_TTL:P14D}

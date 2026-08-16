@@ -1,76 +1,71 @@
 ---
 created: 2026-07-26
-title: JwtService 移除手寫 EC 點運算,改用標準 JCA 簽章探針
+updated: 2026-08-16
+title: JwtService 移除手寫 EC 點運算(程式碼已完成,剩環境遷移)
 area: infrastructure
+status: code-done-pending-rollout
 files:
-  - stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/security/JwtService.java:220-300
+  - stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/security/JwtService.java
+  - stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/security/JwkKeyConverter.java
 ---
 
-## Problem
+## ⚠️ 2026-08-16 更正:原本的 Solution 建立在一個錯誤前提上
 
-`JwtService` 為了「從私鑰推導公鑰」自行實作了橢圓曲線點運算,約 60 行:
+原文說「JCA 沒有公開 API 可以做純量乘法,所以『不自己算』的代價是不能再推導公鑰」,
+並據此提議用簽章探針取代推導 + 比對,還標註這是破壞性變更。
 
-| 方法 | 位置 | 內容 |
-|---|---|---|
-| `derivePublicKey` | `:220` | `multiply(generator, privateKey.getS(), params)` |
-| `multiply` | `:249` | double-and-add 純量乘法 |
-| `doublePoint` | `:261` | 體算術倍點,每次 `modInverse` |
-| `addPoints` | — | 體算術點加 |
+**實測後發現:公鑰本來就在私鑰 PEM 裡面,根本不需要推導。**
 
-用途有二:私鑰是唯一輸入時推導出公鑰;以及在有提供公鑰時比對兩者是否配對。
-
-## 嚴重度:是程式碼品質問題,不是可利用的漏洞
-
-這點必須說清楚,以免被誤當成緊急安全修補:
-
-- **不在每次請求的簽章路徑上。** 只在 `resolveKey` → `parseEcPrivateKey` → `derivePublicKey`
-  執行,即 bean 建構(啟動)時一次。實際簽章由 Nimbus/JCA 完成。
-- **沒有攻擊者可控輸入,也沒有可觀測的時序訊號。** 非常數時間的純量乘法在一般情況是
-  教科書級的側通道風險,但那需要攻擊者能反覆觸發並觀測時間差;這裡只在開機時跑一次。
-- **推導錯誤會大聲失敗。** 若算錯,啟動時的公私鑰比對就不通過,或 JWKS 公布錯誤公鑰導致
-  所有驗證失敗——是 fail-loud 而非靜默錯誤。
-
-真正的成本是**維護面**:60 行沒有人想 review 的手寫體算術,而 JDK 已經有標準做法可以
-完全避開它。
-
-## Solution
-
-用標準 JCA 的「私鑰簽、公鑰驗」探針取代推導 + 比對:
-
-```java
-byte[] probe = "stock-web-v2-jwt-key-probe".getBytes(StandardCharsets.UTF_8);
-Signature signer = Signature.getInstance("SHA256withECDSA");
-signer.initSign(privateKey);
-signer.update(probe);
-byte[] signature = signer.sign();
-
-Signature verifier = Signature.getInstance("SHA256withECDSA");
-verifier.initVerify(publicKey);
-verifier.update(probe);
-if (!verifier.verify(signature)) {
-    throw new IllegalArgumentException("...public key block must match the private key");
-}
-```
-
-參考實作在本地 ref `archive/fullstack-review-q5nvfj`(commit `30b2ca2`,原
-`claude/fullstack-review-architecture-q5nvfj` 分支,遠端已於 2026-07-26 刪除;
-該分支其餘 4/6 commit 的內容都已被 develop 以別的方式達成)。
-
-## ⚠️ 這是破壞性設定變更,需要 Yuan 決定
-
-JCA 沒有公開 API 可以做純量乘法,所以「不自己算」的代價是**不能再推導公鑰**——必須要求
-部署方直接提供:
+RFC 5915 的 `ECPrivateKey` 結構有一個 optional 欄位 `publicKey [1] BIT STRING`,
+OpenSSL 產生 PKCS#8 EC 私鑰時預設就會填。實測(2026-08-16):
 
 ```
-openssl pkey -in private.pem -pubout
+$ openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out t.pem
+$ openssl asn1parse -in t.pem
+   27:d=1  hl=2 l= 109 prim: OCTET STRING  [HEX DUMP]:306B0201010420<32-byte 私鑰>
+                                           A14403420004<65-byte 公鑰點>
+                                           ^^^^ 這就是內嵌的 publicKey 欄位
 ```
 
-`STOCK_JWT_PRIVATE_KEY` 只給私鑰區塊的環境會在啟動時失敗並要求補上公鑰區塊。
-落地前要確認:
+把 `openssl pkey -in t.pem -pubout` 的輸出與這個內嵌欄位逐位元組比對:**完全相同**。
+`pubout` 沒有在計算,它只是把已經存在的欄位讀出來。
 
-- [ ] 現行 dev / demo / 正式環境的 `STOCK_JWT_PRIVATE_KEY` 是否都已含 PUBLIC KEY 區塊
-- [ ] `.env.example` 與部署文件同步更新產生指令
-- [ ] 開發用的 ephemeral key 路徑(`generateKey()`)不受影響——它本來就有完整 keypair
+`derivePublicKey` 會存在,是因為 **Java 的 `ECPrivateKey` 介面沒把這個欄位暴露出來**
+(只有 `getS()` / `getParams()`),`KeyFactory.generatePrivate` 解析完就丟了。
+這是 JCA 的 API 缺口,不是資料缺失。前人看到「JCA 給不出公鑰」,結論是「那我自己算」;
+正確的結論是「那我自己去讀」。
 
-若不接受這個破壞性變更,替代方案是引入 BouncyCastle 做推導(多一個相依),或維持現狀
-並在 JavaDoc 註明「刻意保留,已評估風險」。
+## 已完成(2026-08-16,分支 `fix/jwt-jwk-key-format`)
+
+採用正規做法:**設定格式改為 EC JWK**,`d` / `x` / `y` 在同一個 JSON 物件裡。
+
+- `JwtService` 的 `parseEcPrivateKey` / `derivePublicKey` / `parsePublicKey` /
+  `multiply` / `doublePoint` / `addPoints` / `toNimbusCurve` / `PEM_BLOCK_PATTERN`
+  **全部刪除**,改為 `parseJwk`(`JWK.parse` + kty 檢查)。
+- 「公私鑰是否配對」的檢查一併消失——只有一個物件,不存在兩塊可能不一致的情形。
+- Nimbus 已是既有相依,**零新增套件**。
+- `kid` 設定裡有寫就沿用,沒寫才補隨機值(原本每次啟動都換,對外發布 JWKS 時會出事)。
+- 新增 `JwkKeyConverter`:一次性 PEM → JWK 轉換工具。簽章探針的正確歸宿是**這裡**
+  (一次性轉換時確認兩個檔案來自同一把金鑰),不是啟動路徑。
+
+驗證:`./mvnw test`、`./mvnw -pl stock-start -am verify`(86 IT)、
+`./mvnw -pl stock-start -am test -Pe2e`(30) 三者皆綠;轉換工具已用真實 openssl 產生的
+PEM 實跑過端到端。
+
+## 剩下的工作:環境遷移(需要 Yuan)
+
+設定格式變了,每個環境的 `STOCK_JWT_PRIVATE_KEY` 都要從 PEM 換成 JWK。
+啟動時若偵測到值仍是 PEM,錯誤訊息會直接給出轉換指令,不會靜默失敗。
+
+- [ ] 盤點 dev / demo / 正式環境目前的 `STOCK_JWT_PRIVATE_KEY` 值
+- [ ] 逐一轉換:
+      ```
+      openssl pkey -in private.pem -pubout -out public.pem
+      java -cp <app.jar> dowob.xyz.stockwebv2.infrastructure.security.JwkKeyConverter private.pem public.pem
+      ```
+      **不要用線上轉換器**——那等同把生產環境的簽章私鑰交給第三方。
+- [ ] `.env.example:12` 的說明要更新(該檔在本 session 的權限設定下無法讀寫,未改到)
+- [ ] 考慮在轉換時順手加上固定的 `kid`(例如 `"kid":"stock-signing-2026"`),
+      為日後對外發布 JWKS 預留
+
+不受影響:dev/test/e2e 的 ephemeral key 路徑(`generateKey()`)本來就產完整 keypair。
