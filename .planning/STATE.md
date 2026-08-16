@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Executing Phase 04
-stopped_at: Completed 04-01-PLAN.md（分支 `feature/phase-04-trade-idempotency`,尚未 push）
-last_updated: "2026-07-29T18:18:08.187Z"
-last_activity: 2026-07-29 -- Phase 04 execution resumed (wave continue)
+stopped_at: Completed 04-05-PLAN.md（後端收尾;分支 `feature/phase-04-trade-idempotency` 已推送,draft PR #20）
+last_updated: "2026-08-16T00:00:00.000Z"
+last_activity: 2026-08-16 -- Phase 04 wave 4/5 executed (04-04, 04-05)
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 28
-  completed_plans: 17
-  percent: 50
+  completed_plans: 23
+  percent: 52
 ---
 
 # Project State
@@ -26,8 +26,13 @@ See: .planning/PROJECT.md (updated 2026-05-30)
 ## Current Position
 
 Phase: 04 (manual-trade-creation-idempotency-post-trade-refetch) — EXECUTING
-Plan: 2 of 13（01 已完成，SUMMARY 已產出）
-Last activity: 2026-07-29 -- Phase 04 execution resumed (wave continue)
+Plan: 8 of 13 完成（04-01、04-02、04-03、04-04、04-05、04-06、04-07、04-08 皆已產出 SUMMARY）
+未執行：04-09、04-10、04-11、04-12、04-13
+Last activity: 2026-08-16 -- Phase 04 wave 4/5 executed (04-04, 04-05)
+
+> ⚠️ **判斷 plan 是否已執行請以 `*-SUMMARY.md` 的存在為準**，不要只讀本節。
+> 2026-08-16 接手時本行寫的是「Plan: 2 of 13」，而磁碟上已有 6 份 SUMMARY —— 狀態檔落後了 4 個 plan。
+> 依它判斷會重跑已完成的工作。
 
 Progress(milestone v1.0):[████████████░░░░░░░░] 3/5 phases (60%)
 Progress(plan):15/15 plans executed(Phase 1-3 全部執行完畢)
@@ -52,7 +57,11 @@ Progress(plan):15/15 plans executed(Phase 1-3 全部執行完畢)
 |-------|-------|-------|----------|
 | 02 | 5 | 111min | 22min |
 | 03 | 5 | 197min | 39min |
-| 04 | 1 | 55min | 55min |
+| 04 | 8 | 未回填 | 未回填 |
+
+> ⚠️ Phase 04 的耗時未逐 plan 回填(多個 plan 跨 session／跨 worktree 執行,無可信起訖時間)。
+> 上方「Total plans completed: 15」同樣未更新,實際為 23。這些數字僅供趨勢參考,不可當事實引用;
+> plan 完成與否一律以 `*-SUMMARY.md` 為準。
 
 **Recent Trend:**
 
@@ -91,6 +100,19 @@ Recent decisions affecting current work:
 - [Phase 4 Plan 01]: migration 版本號由計畫的 V10 順延為 V11 —— V10 已被 develop 的 `d76f824`(`V10__trading_query_indexes_realign.sql`)占用,已套用版本號不可重用。索引名 `uk_transactions_user_idempotency` 與 predicate 不變,契約不受影響;但 04-02-PLAN / 04-PATTERNS / 04-RESEARCH 中的 `V10__transactions_idempotency_key.sql` 字樣應讀作 V11。
 - [Phase 4 Plan 01]: 交易冪等以 `transactions.idempotency_key VARCHAR(128)` + partial unique index `(user_id, idempotency_key) WHERE idempotency_key IS NOT NULL` 承載;`WHERE` predicate 是應用層 `ON CONFLICT` 推斷的必要組成,不是最佳化。
 - [Phase 4 Plan 01]: `ErrorCode.TRADE_IDEMPOTENCY_KEY_REUSED(409)` 字面定案不可更名(前端 i18n 對照表已寫死);defaultMessage 為靜態英文字串,絕不回射 idempotency key 值。
+- [Phase 4 Plan 04]: `Idempotency-Key` 為 `POST /api/v1/trades` 的**必填** header(D-05,不寫 `required = false`)。
+  缺 header 回 400 `VALIDATION_FAILED` 且 `error.fields['Idempotency-Key']` 非空 —— 獨立的
+  `MissingRequestHeaderException` handler 存在的唯一理由就是這個 `fields`:落到 catch-all 也有 400 與正確 code,
+  但 `fields` 為空,前端無法區分「缺 header」與「body 欄位錯」(D-16)。
+- [Phase 4 Plan 04]: DP-3 新 handler 插在 `handleBusiness` 與 `handleValidation` 之間,避開 draft PR #15 的 hunk;
+  `handleValidation` 本體零改動。
+- [Phase 4 Plan 05]: RESEARCH Q1.8 的 `[ASSUMED]`(「`ON CONFLICT DO NOTHING` 回零列後衝突列在同一
+  READ COMMITTED 交易中可見」)在本專案環境下**實測成立** —— 8 併發同 key 的 IT 連跑四次全綠。
+  **維持方案 A,未切換方案 E**(`pg_advisory_xact_lock`)。若日後偶發紅燈,處置是切方案 E,
+  **不是**調 timeout / 加重試 / 放寬斷言(判準已寫進測試註解)。
+- [Phase 4 Plan 05]: 前端契約凍結 —— header 名 `Idempotency-Key`(1–128 字元、不得全空白)、
+  409 `TRADE_IDEMPOTENCY_KEY_REUSED`、payload 比對含 assetId/type/quantity/price/fee/executedAt 但
+  **不含 note**、成功回應的 `data` 不含 `idempotencyKey`。
 - [Phase 4]: DP-1 裁定採 (c):以 develop 為基準,Phase 4 只做冪等,不等 PR #15。executedAt 未來時間驗證與 ApiTimeParser 不屬 Phase 4 範圍,留給 PR #15(仍為 OPEN draft)。理由:PR #15 修改了已在 origin/develop 的 V9 migration,違反 flyway-convention「Never modify an applied migration」,等它合併會把 checksum 債帶進 Phase 4 的時程。同時排除 Docker blocker:實跑 docker info → Server 29.5.3 可用,Testcontainers 路徑可行。
 
 ### Pending Todos
@@ -130,11 +152,25 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-29T15:50:00.000Z
-Stopped at: Completed 04-01-PLAN.md（分支 `feature/phase-04-trade-idempotency`,尚未 push）
-Resume file: .planning/phases/04-manual-trade-creation-idempotency-post-trade-refetch/04-02-PLAN.md
-Next action: 執行 04-02(repository/service 層冪等)。**注意 migration 檔名是 V11 不是 V10**;
-failsafe 多類別參數用逗號不是 `+`。
+Last session: 2026-08-16
+Stopped at: Completed 04-05-PLAN.md —— **後端 Phase 4 收尾**,前端契約凍結(見 04-05-SUMMARY 末節)。
+Resume file: .planning/phases/04-manual-trade-creation-idempotency-post-trade-refetch/04-09-PLAN.md
+Next action: 執行 04-09。04-06 / 04-07 / 04-08 已完成(前端 wave 3)。
+
+**接手前必讀的四個地雷:**
+
+1. **migration 版本號是 V11 不是 V10** —— V10 已被 develop 的 `d76f824` 占用為
+   `V10__trading_query_indexes_realign.sql`。實際採用 `V11__transactions_idempotency_key.sql`。
+   04-01/04-02 文件裡殘留的 `V10__transactions_idempotency_key` 是歷史與偏離記錄,**不要改**。
+   若不慎再建一個 V10,實測是硬失敗:`Found more than one migration with version 10`
+   → flywayInitializer bean 建立失敗 → Spring context 起不來,錯誤訊息會誤導除錯方向。
+2. **本機跑 IT 前必須先開 Docker Desktop**。沒開的話 Testcontainers 丟
+   `Could not find a valid Docker environment`,連鎖成 `ExceptionInInitializerError` →
+   `NoClassDefFoundError`,看起來像程式碼壞掉但不是。判準:看 Failures 而非 Errors ——
+   `Failures: 0` 表示零斷言失敗,全是環境問題。另外 `*E2E` 類別(如 `ValidationBoundaryE2E`)
+   繼承 `ContainerIT` 也需要 Docker,但名稱不帶 IT 後綴,`-Dtest='!*IT'` 排不掉它們。
+3. **`mvn -pl` 沒帶 `-am` 就是在測 m2 裡的舊 JAR**,跨模組改動務必加 `-am`。
+4. failsafe 多類別參數用逗號不是 `+`。
 
 ⚠️ Phase 3 收尾狀態:
 
