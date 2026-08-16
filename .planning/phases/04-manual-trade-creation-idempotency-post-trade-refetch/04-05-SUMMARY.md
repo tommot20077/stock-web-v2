@@ -124,6 +124,27 @@ Tests run: 29, Failures: 0, Errors: 0, Skipped: 0 -- in TradingApiIT   → BUILD
 - **`concurrentFirstBuysMergeWithoutUniqueViolation` 改為每 thread 一把不同的 key**。這是本次遷移最容易寫錯的一處：它斷言 `totalQuantity` 為 8，若沿用同一把 key，冪等機制會把 8 筆合併成 1 筆而讓斷言變成 1，測到的就不再是原本的「持倉 upsert 競態」。
 - `tradingEndpointsRequireAuthentication` 也補上 header，讓它專測「未帶憑證即 401」，而不是被缺 header 的 400 搶先攔下。
 
+## ⚠️ Plan 漏列的第二個呼叫者：`ValidationBoundaryE2E`
+
+Plan 的 `files_modified` 只列了 `TradingApiIT`。本機兩條驗證指令（`./mvnw test`、`./mvnw -pl stock-start -am verify`）**全綠後推送，CI 的 E2E job 仍紅**：
+
+```
+ValidationBoundaryE2E.tradeNoteWithFiveHundredCharsIsAccepted   Status expected:<200> but was:<400>
+ValidationBoundaryE2E.tradeOnNonexistentSymbolReturnsAssetNotFound  Status expected:<404> but was:<400>
+ValidationBoundaryE2E.tradePriceAtUpperBoundSucceeds            Status expected:<200> but was:<400>
+ValidationBoundaryE2E.tradeQuantityAtUpperBoundSucceeds         Status expected:<200> but was:<400>
+```
+
+**兩個成因疊在一起，兩個都值得記住：**
+
+1. **`*E2E` 類別掛在 `-Pe2e` profile 下**，CI 的 E2E job 跑的是 `./mvnw -B -pl stock-start -am test -Pe2e`。CLAUDE.md 列的兩條驗證指令都涵蓋不到它們。找「還有誰在呼叫這個端點」必須 `grep -rn 'post("/api/v1/trades")' --include=*.java`，不能只信驗證指令的綠燈，也不能只信 plan 的 `files_modified`。
+
+2. **只有 4 條紅，不代表另外 7 條無關**。Spring 依參數宣告順序解析 handler 參數，`@Valid @RequestBody` 在 `@RequestHeader` 之前 —— body 不合法的請求會先拋 `MethodArgumentNotValidException`，根本走不到 header 綁定。所以「缺 header」的迴歸只在 **body 合法** 的 4 條上現形。
+
+處置：`ValidationBoundaryE2E` 的 11 處 `post("/api/v1/trades")` 全數補上 header。`./mvnw -pl stock-start -am test -Pe2e` → 30/30 綠。
+
+兩條教訓已 append 進 `ai-docs/bug-reports/LESSONS.md`。
+
 ## 誠實標示：未覆蓋的項目
 
 - **`TRADE_EXECUTE` 權限缺失 → 403**：`Role.USER` 已含該權限，repo 內沒有缺少它的角色可用。**由 `@PreAuthorize("hasAuthority('TRADE_EXECUTE')")` 註解保證，無獨立測試**。不假裝覆蓋。
@@ -137,6 +158,7 @@ Tests run: 29, Failures: 0, Errors: 0, Skipped: 0 -- in TradingApiIT   → BUILD
 | `./mvnw -pl stock-start -am verify -Dit.test=TradingApiIT` ×4 | 全部 exit 0，29/29，零偶發 |
 | `./mvnw -pl stock-start -am verify`（全部 IT） | exit 0 — 106 IT + 324 unit，BUILD SUCCESS |
 | `./mvnw test` | exit 0 |
+| `./mvnw -pl stock-start -am test -Pe2e`（**CLAUDE.md 未列，但 CI 會跑**） | exit 0 — 30/30 |
 
 全 IT 回歸涵蓋 `TransactionsAppendOnlyIT`(3)、`TransactionsIdempotencyIT`(8)、`FoundationMigrationIT`(1)、`ErrorHandlingIT`(7)、`BrowserAuthFlowIT`(11) 皆綠。
 

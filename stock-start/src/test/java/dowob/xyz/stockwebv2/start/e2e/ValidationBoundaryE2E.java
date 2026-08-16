@@ -12,6 +12,7 @@ import org.springframework.http.MediaType;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 import static dowob.xyz.stockwebv2.start.e2e.support.AuthE2EHelper.bearerToken;
 import static dowob.xyz.stockwebv2.start.e2e.support.StockE2EAssertions.apiError;
@@ -151,6 +152,7 @@ class ValidationBoundaryE2E extends AbstractStockE2ETest {
             var session = auth.register("c7-note-max@example.com", "c7notemax", "Password1");
 
             mockMvc.perform(post("/api/v1/trades")
+                    .header("Idempotency-Key", UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
                     .with(bearerToken(session.accessToken()))
                     .content(tradeBody("NVDA", "BUY", "1", "100", "n".repeat(500))))
@@ -165,6 +167,7 @@ class ValidationBoundaryE2E extends AbstractStockE2ETest {
             var session = auth.register("c7-note-over@example.com", "c7noteover", "Password1");
 
             mockMvc.perform(post("/api/v1/trades")
+                    .header("Idempotency-Key", UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
                     .with(bearerToken(session.accessToken()))
                     .content(tradeBody("NVDA", "BUY", "1", "100", "n".repeat(501))))
@@ -184,6 +187,7 @@ class ValidationBoundaryE2E extends AbstractStockE2ETest {
             var session = auth.register("c8-nosuch@example.com", "c8nosuch", "Password1");
 
             mockMvc.perform(post("/api/v1/trades")
+                    .header("Idempotency-Key", UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
                     .with(bearerToken(session.accessToken()))
                     .content(tradeBody("NOSUCH", "BUY", "1", "100", null)))
@@ -202,6 +206,7 @@ class ValidationBoundaryE2E extends AbstractStockE2ETest {
             var session = auth.register("f1-qty-1e15@example.com", "f1qty1e15", "Password1");
 
             mockMvc.perform(post("/api/v1/trades")
+                    .header("Idempotency-Key", UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
                     .with(bearerToken(session.accessToken()))
                     .content(tradeBody("NVDA", "BUY", "1000000000000000", "100", null)))
@@ -216,6 +221,7 @@ class ValidationBoundaryE2E extends AbstractStockE2ETest {
             var session = auth.register("f1-price-1e15@example.com", "f1price1e15", "Password1");
 
             mockMvc.perform(post("/api/v1/trades")
+                    .header("Idempotency-Key", UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
                     .with(bearerToken(session.accessToken()))
                     .content(tradeBody("NVDA", "BUY", "1", "1000000000000000", null)))
@@ -230,6 +236,7 @@ class ValidationBoundaryE2E extends AbstractStockE2ETest {
             var session = auth.register("f1-qty-1e17@example.com", "f1qty1e17", "Password1");
 
             mockMvc.perform(post("/api/v1/trades")
+                    .header("Idempotency-Key", UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
                     .with(bearerToken(session.accessToken()))
                     .content(tradeBody("NVDA", "BUY", "100000000000000000", "100", null)))
@@ -244,6 +251,7 @@ class ValidationBoundaryE2E extends AbstractStockE2ETest {
             var session = auth.register("f1-qty-max@example.com", "f1qtymax", "Password1");
 
             mockMvc.perform(post("/api/v1/trades")
+                    .header("Idempotency-Key", UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
                     .with(bearerToken(session.accessToken()))
                     .content(tradeBody("NVDA", "BUY", "1000000000", "100", null)))
@@ -257,6 +265,7 @@ class ValidationBoundaryE2E extends AbstractStockE2ETest {
             var session = auth.register("f1-qty-over@example.com", "f1qtyover", "Password1");
 
             mockMvc.perform(post("/api/v1/trades")
+                    .header("Idempotency-Key", UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
                     .with(bearerToken(session.accessToken()))
                     .content(tradeBody("NVDA", "BUY", "1000000000.00000001", "100", null)))
@@ -271,6 +280,7 @@ class ValidationBoundaryE2E extends AbstractStockE2ETest {
             var session = auth.register("f1-price-max@example.com", "f1pricemax", "Password1");
 
             mockMvc.perform(post("/api/v1/trades")
+                    .header("Idempotency-Key", UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
                     .with(bearerToken(session.accessToken()))
                     .content(tradeBody("NVDA", "BUY", "1", "1000000", null)))
@@ -284,6 +294,7 @@ class ValidationBoundaryE2E extends AbstractStockE2ETest {
             var session = auth.register("f1-price-over@example.com", "f1priceover", "Password1");
 
             mockMvc.perform(post("/api/v1/trades")
+                    .header("Idempotency-Key", UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
                     .with(bearerToken(session.accessToken()))
                     .content(tradeBody("NVDA", "BUY", "1", "1000000.00000001", null)))
@@ -298,6 +309,7 @@ class ValidationBoundaryE2E extends AbstractStockE2ETest {
             var session = auth.register("f1-qty-scale@example.com", "f1qtyscale", "Password1");
 
             mockMvc.perform(post("/api/v1/trades")
+                    .header("Idempotency-Key", UUID.randomUUID().toString())
                     .contentType(MediaType.APPLICATION_JSON)
                     .with(bearerToken(session.accessToken()))
                     .content(tradeBody("NVDA", "BUY", "1.123456789", "100", null)))
