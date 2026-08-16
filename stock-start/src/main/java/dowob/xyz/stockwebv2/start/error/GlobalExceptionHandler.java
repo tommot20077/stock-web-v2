@@ -14,6 +14,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -52,6 +54,29 @@ public class GlobalExceptionHandler {
         ErrorCode code = exception.errorCode();
         ApiError error = ApiError.of(code, exception.getMessage());
         return ResponseEntity.status(code.httpStatus()).body(ApiResponse.failure(error, ApiMetaFactory.current()));
+    }
+
+    /**
+     * 必填請求 header 缺漏，例如 {@code POST /api/v1/trades} 沒帶 {@code Idempotency-Key}。
+     *
+     * <p>不加這個 handler 也能得到 400 {@code VALIDATION_FAILED}——{@link MissingRequestHeaderException}
+     * 實作了 {@link ErrorResponse}，會落到 catch-all 的 {@code handleErrorResponse} 分支。但那條路徑
+     * 產生的 {@code fields} 是<strong>空的</strong>、message 是通用的，前端無從分辨「缺 header」與
+     * 「body 欄位驗證失敗」——兩者都是 400 {@code VALIDATION_FAILED}，只能靠解析展示字串來猜。
+     * 獨立 handler 把 header 名稱放進 {@code fields}，讓兩種錯誤在契約層面可區分。</p>
+     *
+     * <p>{@code fields} 的 value 用靜態英文字串而非 {@code exception.getMessage()}：沿用本類別
+     * 「絕不把例外原始訊息當 API message」的既有慣例，避免框架訊息成為對外契約的一部分。</p>
+     *
+     * @param exception 必填 header 缺漏例外
+     * @return 400 VALIDATION_FAILED，fields 指出是哪一個 header 缺漏
+     */
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingRequestHeader(MissingRequestHeaderException exception) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put(exception.getHeaderName(), "required header is missing");
+        ApiError error = ApiError.of(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage(), fields);
+        return ResponseEntity.badRequest().body(ApiResponse.failure(error, ApiMetaFactory.current()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
