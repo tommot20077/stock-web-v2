@@ -16,6 +16,7 @@ public record TradeTransaction(
     BigDecimal fee,
     String note,
     OffsetDateTime executedAt,
-    OffsetDateTime createdAt
+    OffsetDateTime createdAt,
+    String idempotencyKey
 ) {
 }

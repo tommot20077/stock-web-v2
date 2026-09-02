@@ -45,3 +45,15 @@ TBD。兩條路,取決於 watchlist 何時 API 化:
 
 判斷點:如果 v2 的 watchlist 後端形狀還沒定,做 (2) 可能白工(介面會跟著改);
 若只是想讓 §3 合規性檢查乾淨,(2) 就夠。建議等 PORT-06 有明確排程再一起做。
+
+## Scheduling
+
+**已排入 Phase 04.1**(2026-07-26,Phase 4 discuss 時 Yuan 決定)。見 `.planning/ROADMAP.md` 的
+`### Phase 04.1: Backend Data Gap Backfill (INSERTED)`。
+
+**排程本身就回答了上方的判斷點**:既然 watchlist 後端 API 已排入 04.1,就走路線 (1)(比照
+portfolioApi 建 `watchlistApi` 三件組),不要做路線 (2) 的純介面隔離 —— 那會是白工。
+
+補充查證(2026-07-26):後端目前**完全沒有** watchlist —— 整個 repo 只有
+`Permission.WATCHLIST_MANAGE` 一個 enum 值(`Permission.java:4`、`Role.java:13`),無表、無 endpoint。
+所以 04.1 要從 schema 開始做,不是接線。

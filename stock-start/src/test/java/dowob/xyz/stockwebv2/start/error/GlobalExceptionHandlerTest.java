@@ -2,12 +2,14 @@ package dowob.xyz.stockwebv2.start.error;
 
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.common.error.FieldValidationException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.time.Instant;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -53,5 +55,27 @@ class GlobalExceptionHandlerTest {
 
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().toString()).doesNotContain("script");
+    }
+
+    @Test
+    @DisplayName("帶欄位的驗證失敗回 400 VALIDATION_FAILED，且 fields 指名是哪個欄位／header")
+    void fieldValidationExceptionCarriesFieldsIntoEnvelope() {
+        /*
+         * `Idempotency-Key:`（空值）能通過 Spring 的 required 檢查，只能在 service 層擋。
+         * 若它以一般 BusinessException 丟出，回應雖是 400 但 fields 為空，前端（D-16）就分不出
+         * 「缺 header」與「body 欄位錯」—— 這正是獨立的 MissingRequestHeaderException handler
+         * 存在的理由，空值變體必須得到同樣的 fields。
+         */
+        FieldValidationException exception = new FieldValidationException(
+            "Idempotency-Key header is required", Map.of("Idempotency-Key", "must not be blank"));
+
+        ResponseEntity<ApiResponse<Void>> response = handler.handleFieldValidation(exception);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+        ApiResponse<Void> body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.success()).isFalse();
+        assertThat(body.error().code()).isEqualTo(ErrorCode.VALIDATION_FAILED.name());
+        assertThat(body.error().fields()).containsEntry("Idempotency-Key", "must not be blank");
     }
 }

@@ -125,7 +125,7 @@ Roadmap creation will map each v1 requirement to exactly one phase.
 | PORT-08 | Phase 3 | Complete |
 | TRAD-01 | Phase 4 | Pending |
 | TRAD-02 | Phase 4 | Pending |
-| TRAD-03 | Phase 4 | Pending |
+| TRAD-03 | Phase 4 | In progress（04-01 已交付 DB 層唯一約束與 409 code；應用層冪等邏輯待 04-02/04-03）|
 | TRAD-04 | Phase 4 | Pending |
 | TRAD-05 | Phase 4 | Pending |
 | TRAD-06 | Phase 4 | Pending |

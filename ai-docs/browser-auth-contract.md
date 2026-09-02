@@ -113,6 +113,8 @@ Frontend should route these stable codes:
 | 403 | `AUTH_FORBIDDEN` | Authenticated user lacks permission or status is not allowed. |
 | 403 | `AUTH_CSRF_TOKEN_INVALID` | CSRF cookie/header missing or mismatched. |
 | 503 | `AUTH_REDIS_UNAVAILABLE` | Auth state unavailable; fail closed. |
+| 400 | `VALIDATION_FAILED` | Body field or required header invalid; `error.fields` names the field or header (for example `Idempotency-Key`). |
+| 409 | `TRADE_IDEMPOTENCY_KEY_REUSED` | Same `Idempotency-Key` reused with a different trade payload (trading, Phase 4). |
 
 All auth/security failures use `ApiResponse` and include `meta.traceId`.
 
@@ -127,6 +129,7 @@ In API mode, Vue must:
 - attempt one refresh after a 401 when appropriate
 - avoid storing access or refresh tokens anywhere JavaScript can read
 - display user-safe auth errors while exposing `error.code` and `meta.traceId` in details
+- send a per-attempt `Idempotency-Key` header (1–128 chars, not blank) on `POST /api/v1/trades`; reuse it when retrying the same payload, rotate it after the user edits the form
 
 Portfolio and trading DTOs remain owned by their backend APIs. Phase 1 only defines how authenticated browser requests reach those APIs; Phase 2+ frontend adapters should continue using typed service clients and the common `ApiResponse<T>` envelope.
 

@@ -155,7 +155,7 @@ All other endpoints require **authentication** (`authenticated()`).
 ### CORS
 - `allowedOrigins`: Injected via `application.yaml` config — **hardcoding `*` is forbidden**
 - `allowedMethods`: `GET, POST, PUT, DELETE, PATCH`
-- `allowedHeaders`: `Authorization, Content-Type`
+- `allowedHeaders`: `*`(`SecurityConfig` 實際設定;業務端點會用到 `Authorization`、`Content-Type`、`X-XSRF-TOKEN`、`X-Trace-Id`,以及 `POST /api/v1/trades` **必填**的 `Idempotency-Key`——若日後收緊白名單,這幾個都必須保留,否則瀏覽器 preflight 會直接擋掉下單)
 - `allowCredentials`: `true`
 - Different environments (dev/demo/prod) define different CORS configurations
 

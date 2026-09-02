@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.trading.service;
 import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.common.error.FieldValidationException;
 import dowob.xyz.stockwebv2.common.time.ApiTimeParser;
 import dowob.xyz.stockwebv2.common.time.ApiTimeParser.RangeBound;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
@@ -15,6 +16,7 @@ import dowob.xyz.stockwebv2.trading.domain.Holding;
 import dowob.xyz.stockwebv2.trading.domain.HoldingCalculator;
 import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
 import dowob.xyz.stockwebv2.trading.domain.SortDirection;
+import dowob.xyz.stockwebv2.trading.domain.TradePayloadMatcher;
 import dowob.xyz.stockwebv2.trading.domain.TradeSortKey;
 import dowob.xyz.stockwebv2.trading.domain.TradeTransaction;
 import dowob.xyz.stockwebv2.trading.domain.TradeType;
@@ -29,8 +31,10 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -48,6 +52,14 @@ public class TradingService {
      * 保留數分鐘容忍度是為了吸收客戶端與伺服器之間正常的時鐘偏移，避免誤殺合法請求。</p>
      */
     private static final Duration EXECUTED_AT_FUTURE_TOLERANCE = Duration.ofMinutes(5);
+
+    /**
+     * 冪等鍵的長度上限，<strong>必須與 {@code transactions.idempotency_key} 的
+     * {@code VARCHAR(128)} 一致</strong>：兩者一旦分歧，過長的鍵就會穿過應用層驗證、
+     * 在 insert 時變成資料完整性例外，而那個例外與冪等命中難以區分。
+     */
+    private static final int MAX_IDEMPOTENCY_KEY_LENGTH = 128;
+    private static final String IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
 
     private final TradingRepository repository;
     private final AssetFacade assetFacade;
@@ -68,18 +80,72 @@ public class TradingService {
         this.calculator = new HoldingCalculator();
     }
 
+    /**
+     * 建立一筆交易並更新持倉；同一使用者的同一把冪等鍵只會建立一筆交易。
+     *
+     * <p><strong>交易寫入必須早於持倉變更。</strong>持倉是就地改寫的狀態，交易則是 append-only 帳本：
+     * 若先改持倉再靠 insert 的唯一約束發現重送，重複的那次改動已經發生，而帳本上改不回來。
+     * 因此本方法先以 {@link TradingRepository#insertTransactionIfAbsent} 宣告「這把鍵歸我」，
+     * 拿到列之後才動持倉；重送的請求連持倉分支都不會進入。</p>
+     *
+     * <p><strong>資產解析必須早於冪等鍵快路徑。</strong>命中既有交易時要以
+     * {@link TradePayloadMatcher} 比對 payload，而比對維度是 {@code assetId} 而非標的代號
+     * （代號是否唯一未經查證，比 id 就不依賴那個假設）。代價是重送也要付一次資產解析，
+     * 但 D-07 的正確性優先於省一次查詢。</p>
+     *
+     * <p>整條路徑靠 {@code ON CONFLICT DO NOTHING} 避開唯一約束例外，因此<strong>不需要也不可以</strong>
+     * 在本交易內 catch 例外後重讀：PostgreSQL 在唯一約束例外後該交易已中止，重讀必定失敗。</p>
+     *
+     * @param userId         交易擁有者 id，一律由 controller 自已驗證的身分取得
+     * @param request        交易建立請求，已通過 bean validation
+     * @param idempotencyKey 冪等鍵，由 {@code Idempotency-Key} header 原樣傳入
+     * @return 新建立的交易；重送時為既有交易
+     * @throws BusinessException 冪等鍵為空白或超過長度上限時丟出 VALIDATION_FAILED；
+     *                           同一把鍵搭配不同 payload 時丟出 TRADE_IDEMPOTENCY_KEY_REUSED；
+     *                           以及既有的標的不存在、交易類型不支援、持倉不足、成交時間為未來時間等情境
+     */
     @Transactional
-    public TradeDto createTrade(Long userId, CreateTradeRequest request) {
+    public TradeDto createTrade(Long userId, CreateTradeRequest request, String idempotencyKey) {
         if (request == null) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "request is required");
         }
+        validateIdempotencyKey(idempotencyKey);
         OffsetDateTime now = OffsetDateTime.now();
         // 驗證順序與 listTrades 一致：零 I/O 的白名單比對與時間檢查先行，需查資料庫的 symbol
         // 解析最後。必定會被拒絕的請求因此不必先付一次資產查詢，也不會在交易內做無謂的工作。
         TradeType type = TradeType.fromApiValue(request.type());
         BigDecimal fee = Objects.requireNonNullElse(request.fee(), BigDecimal.ZERO);
-        OffsetDateTime executedAt = resolveExecutedAt(request.executedAt(), now);
+        // 截到微秒：TIMESTAMPTZ 只存到微秒，不先正規化的話，帶奈秒精度的客戶端每次重送都會與
+        // 讀回值差一個被四捨五入掉的尾數，於是每次合法重試都吃到假性 409（DP-7）。
+        OffsetDateTime executedAt = resolveExecutedAt(request.executedAt(), now).truncatedTo(ChronoUnit.MICROS);
         AssetSummary asset = resolveTradeableAsset(request.symbol());
+        Optional<TradeTransaction> known = repository.findByIdempotencyKey(userId, idempotencyKey);
+        if (known.isPresent()) {
+            // 快路徑：資料完全沒有變動，因此也不必讓快取失效（DP-8）。
+            return resolveIdempotentHit(known.get(), asset.id(), type, request, fee, executedAt);
+        }
+        Optional<TradeTransaction> inserted = repository.insertTransactionIfAbsent(new TradeTransaction(
+            null,
+            UUID.randomUUID(),
+            userId,
+            asset.id(),
+            asset.symbol(),
+            type,
+            request.quantity(),
+            request.price(),
+            fee,
+            cleanNote(request.note()),
+            executedAt,
+            null,
+            idempotencyKey
+        ));
+        if (inserted.isEmpty()) {
+            // 併發下被同一把鍵的另一個請求搶先。DO NOTHING 不會中止本交易，因此重讀是安全的；
+            // 重讀仍落空是理論上的殘餘競態，一律回 409 而非讓它變成 500。
+            TradeTransaction concurrent = repository.findByIdempotencyKey(userId, idempotencyKey)
+                .orElseThrow(() -> new BusinessException(ErrorCode.TRADE_CONFLICT, ErrorCode.TRADE_CONFLICT.defaultMessage()));
+            return resolveIdempotentHit(concurrent, asset.id(), type, request, fee, executedAt);
+        }
         Optional<Holding> current = repository.findHoldingForUpdate(userId, asset.id());
         Holding next = switch (type) {
             case BUY -> calculator.applyBuy(current.orElse(null), userId, asset.id(), request.quantity(), request.price(), fee, now);
@@ -99,22 +165,64 @@ public class TradingService {
         } else {
             repository.updateHolding(next);
         }
-        TradeTransaction saved = repository.insertTransaction(new TradeTransaction(
-            null,
-            UUID.randomUUID(),
-            userId,
-            asset.id(),
-            asset.symbol(),
-            type,
-            request.quantity(),
-            request.price(),
-            fee,
-            cleanNote(request.note()),
-            executedAt,
-            null
-        ));
         portfolioCache.invalidateAfterTrade(userId, asset.id());
-        return mapper.toTradeDto(saved);
+        return mapper.toTradeDto(inserted.get());
+    }
+
+    /**
+     * 擋下不可能是合法冪等鍵的輸入，且必須在任何 I/O 之前執行。
+     *
+     * <p>空白鍵會通過 header 的 {@code required = true}（{@code Idempotency-Key:} 是合法的空值），
+     * 若放行則第一個空字串會落進部分唯一索引，把所有後續請求都變成衝突。過長的鍵若只靠
+     * 欄位上限攔截，會在 insert 時拋出與「冪等命中」難以區分的資料完整性例外（T-04-04）。</p>
+     *
+     * <p>錯誤訊息刻意只說明期望、<strong>不回射鍵值本身</strong>：鍵是完全使用者可控的字串，
+     * 而錯誤訊息是使用者可見的輸出面（T-04-03）。</p>
+     *
+     * @param idempotencyKey 待驗證的冪等鍵
+     * @throws FieldValidationException 鍵為空白或超過 {@value #MAX_IDEMPOTENCY_KEY_LENGTH} 字元時丟出
+     *                                  VALIDATION_FAILED，fields 以 header 名指出問題所在（D-16）
+     */
+    private void validateIdempotencyKey(String idempotencyKey) {
+        if (StringUtils.isBlank(idempotencyKey)) {
+            throw new FieldValidationException("Idempotency-Key header is required",
+                Map.of(IDEMPOTENCY_KEY_HEADER, "must not be blank"));
+        }
+        if (idempotencyKey.length() > MAX_IDEMPOTENCY_KEY_LENGTH) {
+            throw new FieldValidationException("Idempotency-Key header exceeds the maximum length",
+                Map.of(IDEMPOTENCY_KEY_HEADER, "must be at most " + MAX_IDEMPOTENCY_KEY_LENGTH + " characters"));
+        }
+    }
+
+    /**
+     * 處理冪等鍵命中既有交易的情形：相同意圖回傳既有交易，不同意圖回報衝突（D-07）。
+     *
+     * <p>兩條路徑（快路徑與併發重讀）共用這個方法，避免兩處各寫一次比對而逐漸分歧。</p>
+     *
+     * @param existing   既有交易
+     * @param assetId    本次請求解析出的標的 id
+     * @param type       本次請求的交易類型
+     * @param request    本次請求
+     * @param fee        本次請求已套用預設值的手續費
+     * @param executedAt 本次請求已正規化的成交時間
+     * @return 既有交易的 DTO
+     * @throws BusinessException payload 與既有交易不一致時丟出 TRADE_IDEMPOTENCY_KEY_REUSED
+     */
+    private TradeDto resolveIdempotentHit(
+        TradeTransaction existing,
+        Long assetId,
+        TradeType type,
+        CreateTradeRequest request,
+        BigDecimal fee,
+        OffsetDateTime executedAt
+    ) {
+        if (!TradePayloadMatcher.matches(existing, assetId, type, request.quantity(), request.price(), fee, executedAt)) {
+            throw new BusinessException(
+                ErrorCode.TRADE_IDEMPOTENCY_KEY_REUSED,
+                ErrorCode.TRADE_IDEMPOTENCY_KEY_REUSED.defaultMessage()
+            );
+        }
+        return mapper.toTradeDto(existing);
     }
 
     /**
