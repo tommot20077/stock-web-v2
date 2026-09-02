@@ -21,6 +21,7 @@ import java.time.OffsetDateTime;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -106,6 +107,26 @@ class TradingControllerWebMvcTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(VALID_BODY))
             .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("fee 超過 8 位小數 → 綁定階段 400，不得進入業務邏輯（NUMERIC(24,8) 會靜默捨入，合法重試會假性 409）")
+    void feeWithMoreThanEightDecimalsIsRejectedAtBinding() throws Exception {
+        /*
+         * quantity / price 都有 @Digits(fraction = 8)，fee 卻沒有。9 位小數的 fee 會被 DB 的
+         * NUMERIC(24,8) 四捨五入後存起來；同一把 key 的合法重試拿原始 fee 去比對讀回值時就不相等，
+         * 使用者得到一個莫名其妙的 409。上限必須在綁定階段就擋掉，與另外兩個金額欄位一致。
+         */
+        String body = VALID_BODY.replace("\"fee\": 1.00", "\"fee\": 0.000000001");
+
+        mvc.perform(post("/api/v1/trades")
+                .with(user("42"))
+                .header("Idempotency-Key", "key-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+            .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(tradingService);
     }
 
     /**
