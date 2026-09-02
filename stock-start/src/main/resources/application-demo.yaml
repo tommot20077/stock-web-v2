@@ -11,7 +11,9 @@
 # STOCK_OPENAPI_ENABLED: Enables OpenAPI docs. Defaults to true.
 # STOCK_SWAGGER_UI_ENABLED: Enables Swagger UI. Defaults to true.
 # STOCK_CORS_ALLOWED_ORIGINS: Comma-separated frontend origins. Defaults to http://localhost:5173.
-# STOCK_JWT_PRIVATE_KEY: JWT private key. Required outside dev/test/e2e; blank dev/test/e2e generates an ephemeral key.
+# STOCK_JWT_PRIVATE_KEY: JWT signing key as an EC JWK (JSON, P-256, must include the private "d" component).
+#   Not PEM. Convert a legacy PEM with JwkKeyConverter (see application.yaml).
+#   Required outside dev/test/e2e; blank dev/test/e2e generates an ephemeral key.
 # STOCK_JWT_ACCESS_TOKEN_TTL: Access token TTL. Defaults to PT30M.
 # STOCK_JWT_REFRESH_TOKEN_TTL: Refresh token TTL. Defaults to P14D.
 
