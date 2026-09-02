@@ -4,6 +4,7 @@ import dowob.xyz.stockwebv2.common.api.ApiError;
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.common.error.FieldValidationException;
 import dowob.xyz.stockwebv2.common.error.RateLimitExceededException;
 import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
 import dowob.xyz.stockwebv2.infrastructure.web.TraceIdFilter;
@@ -14,7 +15,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -54,6 +54,23 @@ public class GlobalExceptionHandler {
         ErrorCode code = exception.errorCode();
         ApiError error = ApiError.of(code, exception.getMessage());
         return ResponseEntity.status(code.httpStatus()).body(ApiResponse.failure(error, ApiMetaFactory.current()));
+    }
+
+    /**
+     * service 層判定的、帶欄位對照的驗證失敗，例如 {@code Idempotency-Key:} 空值或過長。
+     *
+     * <p>必須排在 {@link #handleBusiness} 之前被選中（Spring 以例外型別的距離挑 handler，
+     * 子類別優先）。若落到 {@code handleBusiness}，回應仍是 400 {@code VALIDATION_FAILED}
+     * 但 {@code fields} 為空，前端就無法分辨「header 問題」與「body 欄位錯」（D-16）——
+     * 與 {@link #handleMissingRequestHeader} 存在的理由相同。</p>
+     *
+     * @param exception 帶 fields 的驗證失敗
+     * @return 400 VALIDATION_FAILED，fields 為例外攜帶的欄位對照
+     */
+    @ExceptionHandler(FieldValidationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleFieldValidation(FieldValidationException exception) {
+        ApiError error = ApiError.of(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage(), exception.fields());
+        return ResponseEntity.badRequest().body(ApiResponse.failure(error, ApiMetaFactory.current()));
     }
 
     /**

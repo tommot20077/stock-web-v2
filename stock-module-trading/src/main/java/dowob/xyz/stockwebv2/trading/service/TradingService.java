@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.trading.service;
 import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.common.error.FieldValidationException;
 import dowob.xyz.stockwebv2.common.time.ApiTimeParser;
 import dowob.xyz.stockwebv2.common.time.ApiTimeParser.RangeBound;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
@@ -33,6 +34,7 @@ import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -57,6 +59,7 @@ public class TradingService {
      * 在 insert 時變成資料完整性例外，而那個例外與冪等命中難以區分。
      */
     private static final int MAX_IDEMPOTENCY_KEY_LENGTH = 128;
+    private static final String IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
 
     private final TradingRepository repository;
     private final AssetFacade assetFacade;
@@ -177,14 +180,17 @@ public class TradingService {
      * 而錯誤訊息是使用者可見的輸出面（T-04-03）。</p>
      *
      * @param idempotencyKey 待驗證的冪等鍵
-     * @throws BusinessException 鍵為空白或超過 {@value #MAX_IDEMPOTENCY_KEY_LENGTH} 字元時丟出 VALIDATION_FAILED
+     * @throws FieldValidationException 鍵為空白或超過 {@value #MAX_IDEMPOTENCY_KEY_LENGTH} 字元時丟出
+     *                                  VALIDATION_FAILED，fields 以 header 名指出問題所在（D-16）
      */
     private void validateIdempotencyKey(String idempotencyKey) {
         if (StringUtils.isBlank(idempotencyKey)) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Idempotency-Key header is required");
+            throw new FieldValidationException("Idempotency-Key header is required",
+                Map.of(IDEMPOTENCY_KEY_HEADER, "must not be blank"));
         }
         if (idempotencyKey.length() > MAX_IDEMPOTENCY_KEY_LENGTH) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Idempotency-Key header exceeds the maximum length");
+            throw new FieldValidationException("Idempotency-Key header exceeds the maximum length",
+                Map.of(IDEMPOTENCY_KEY_HEADER, "must be at most " + MAX_IDEMPOTENCY_KEY_LENGTH + " characters"));
         }
     }
 
