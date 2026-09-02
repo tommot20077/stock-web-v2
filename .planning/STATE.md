@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 04 awaiting Yuan's blocking human-verify checkpoint (04-13 Task 2)
-stopped_at: 04-13 Task 1 完成（跨 repo 四項驗證全綠）;Task 2 為 blocking human-verify,awaiting Yuan
-last_updated: "2026-08-16T07:40:00.000Z"
-last_activity: 2026-08-16 -- Phase 04 waves 4-8 executed (04-04, 04-05, 04-09 ~ 04-12, 04-13 Task 1)
+status: Phase 04 code merged to develop (BE PR #20 @ 334cb34, FE PR #9 @ a00fb29); 04-13 Task 2 (Yuan human-verify) still open
+stopped_at: 2026-09-02 兩個 PR 經 review 修正後合併;04-13 Task 2（Yuan 雙 mode 14 步）待本機虛擬化恢復後執行
+last_updated: "2026-09-02T15:30:00.000Z"
+last_activity: 2026-09-02 -- Phase 04 review fixes (BE C-1/K-1/Q-1/S-1, FE F-1/F-2/F-3 + flushAsync) and both PRs merged; develop full review
 progress:
   total_phases: 6
   completed_phases: 3
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-05-30)
 
 ## Current Position
 
-Phase: 04 (manual-trade-creation-idempotency-post-trade-refetch) — **BLOCKED ON HUMAN CHECKPOINT**
-Plan: 13 of 13 已產出 SUMMARY，但 **04-13 只完成 Task 1**。
-Last activity: 2026-08-16 -- Phase 04 waves 4-8 全部執行完畢（04-04、04-05、04-09 ~ 04-12、04-13 Task 1）
+Phase: 04 (manual-trade-creation-idempotency-post-trade-refetch) — **程式碼已合併 develop；僅剩 04-13 Task 2（Yuan 人工確認）**
+Plan: 13 of 13 已產出 SUMMARY；**04-13 Task 2 尚未執行**。
+Last activity: 2026-09-02 -- 兩個 PR 經 code review 修正後合併（後端 PR #20 → develop @ 334cb34；前端 PR #9 → develop @ a00fb29）
 
 > 🚦 **Phase 4 尚未完成，不要標記為 complete。**
 > `04-13-SUMMARY.md` 存在，因此 `gsd-tools query phase-plan-index 04` 會回報 `incomplete: []` ——
@@ -39,16 +39,25 @@ Last activity: 2026-08-16 -- Phase 04 waves 4-8 全部執行完畢（04-04、04-
 > 2026-08-16 接手時本行寫的是「Plan: 2 of 13」，而磁碟上已有 6 份 SUMMARY —— 狀態檔落後了 4 個 plan。
 > 依它判斷會重跑已完成的工作。
 
-### ⚠️ 未經授權的 push / PR（待 Yuan 裁決）
+### 2026-09-02 收尾（Yuan 指示：review → 修正 → 開 PR → 合併）
 
-Phase 4 執行期間有 executor 在**未被要求**的情況下推送並開 PR（CLAUDE.md 規定 commit/push 只在使用者要求時做）：
+2026-08-16 記載的「未經授權 push / PR」由 Yuan 於 2026-09-02 以「已完成的開 PR、有 PR 的 review 後合併」指示收斂，不再是待裁決事項。
 
-- **後端** `feature/phase-04-trade-idempotency`：程式碼全部已 push，且 **draft PR #20 已開啟**
-  （標題仍寫「進行中 5/13」，已過期）。目前本地尚有 6 個 `.planning/` 文件 commit 未 push。
-- **前端** `feature/phase-04-manual-trade-creation`：遠端停在 04-09 附近，
-  **04-10 / 04-11 / 04-12 的 15 個 commit 未 push，且無 PR**。
+| 項目 | 結果 |
+|------|------|
+| 後端 PR #20 | 合入最新 develop（PR #19、#21）→ reviewer 裁決 MERGE（0 BLOCKER/MAJOR）→ 修 C-1（fee `@Digits`）、K-1（`FieldValidationException` 讓 `fields['Idempotency-Key']` 指名 header）、Q-1、S-1 → CI Unit/Integration/E2E/Browser E2E 全綠 → **merged @ 334cb34** |
+| 前端 PR #9 | 新開 → reviewer 裁決 MERGE-WITH-FIXES → 修 F-1（review 步驟 oversell 可見錯誤）、F-2（「新」標記三個清除時機，UI-SPEC §9）、F-3、CI 假紅（`flushAsync` Node 20）→ Node 20/24 雙模式 377/377 → **merged @ a00fb29** |
+| 04-13 Task 2 | **未執行**。本機 Docker/WSL2 因 BIOS 虛擬化關閉（`HyperVRequirementVirtualizationFirmwareEnabled: False`）無法起 E2E 環境；Yuan 決定先跳過、重開機後再做。 |
+| 分支整理 | 已合併分支刪除；`archive/fullstack-review-q5nvfj`、`backup/phase-04-planning-20260726`、前端 `claude/fullstack-review-architecture-q5nvfj` 保留待 Yuan 裁決（內容已被 develop 或 todos 取代） |
 
-我（orchestrator）未做任何 push、未改 PR，也未 force-push 回收既有推送 —— 處置權在 Yuan。
+### Phase 4 合併後驗證（2026-09-02 實測；本機無 Docker，IT/E2E 以 CI 為準）
+
+| 項目 | 結果 |
+|------|------|
+| 後端 `./mvnw test -pl <7 modules> -am -Dtest='!*IT'` | common 83 / infra 29 / backtest 44 / market-data 187 / trading 75，0 failures |
+| 後端 CI @ b3412a5（PR #20） | Unit / Integration / E2E / Browser E2E 全綠 |
+| 前端 `npm test`、`VITE_DATA_MODE=api npm test`、`npm run build` | 377 / 377 / exit 0（Node 24）；Node 20 全套 377 |
+| 前端 CI @ fde9968（PR #9） | frontend job 綠 |
 
 ### Phase 4 收尾驗證基準線（2026-08-16 實測）
 
