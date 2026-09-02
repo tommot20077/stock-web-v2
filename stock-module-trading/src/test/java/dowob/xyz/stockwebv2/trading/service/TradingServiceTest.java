@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.trading.service;
 import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.common.error.FieldValidationException;
 import dowob.xyz.stockwebv2.common.model.AssetType;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
@@ -435,6 +436,28 @@ class TradingServiceTest {
             .isInstanceOf(BusinessException.class)
             .extracting("errorCode")
             .isEqualTo(ErrorCode.VALIDATION_FAILED);
+
+        verifyNoInteractions(repository);
+        verifyNoInteractions(assetFacade);
+    }
+
+    @Test
+    @DisplayName("空白與過長的冪等鍵都以 fields['Idempotency-Key'] 指名 header，前端才能與 body 欄位錯誤區分（D-16）")
+    void idempotencyKeyFailuresNameTheHeaderInFields() {
+        CreateTradeRequest request = buyRequest(SENT_QUANTITY, null);
+        String oversized = "k".repeat(129);
+
+        assertThatThrownBy(() -> service.createTrade(7L, request, "   "))
+            .isInstanceOf(FieldValidationException.class)
+            .extracting("fields")
+            .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+            .containsKey("Idempotency-Key");
+
+        assertThatThrownBy(() -> service.createTrade(7L, request, oversized))
+            .isInstanceOf(FieldValidationException.class)
+            .extracting("fields")
+            .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+            .containsKey("Idempotency-Key");
 
         verifyNoInteractions(repository);
         verifyNoInteractions(assetFacade);

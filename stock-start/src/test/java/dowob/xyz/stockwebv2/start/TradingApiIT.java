@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -768,7 +769,10 @@ class TradingApiIT extends ContainerIT {
          */
         postTrade(tokens, "   ", idempotentBuyBody(10, "initial buy"))
             .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")));
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            // 與缺 header 同樣要指名 header（D-16）：前端靠 fields 分辨「header 問題」與「body 欄位錯」
+            .andExpect(jsonPath("$.error.fields['Idempotency-Key']", notNullValue()))
+            .andExpect(jsonPath("$.error.fields['Idempotency-Key']", not(equalTo(""))));
 
         mockMvc.perform(get("/api/v1/trades")
                 .header("Authorization", "Bearer " + tokens.accessToken()))
