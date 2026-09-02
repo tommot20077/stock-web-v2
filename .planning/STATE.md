@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Executing Phase 04
-stopped_at: Completed 04-05-PLAN.md（後端收尾;分支 `feature/phase-04-trade-idempotency` 已推送,draft PR #20）
-last_updated: "2026-08-16T00:00:00.000Z"
-last_activity: 2026-08-16 -- Phase 04 wave 4/5 executed (04-04, 04-05)
+status: Phase 04 awaiting Yuan's blocking human-verify checkpoint (04-13 Task 2)
+stopped_at: 04-13 Task 1 完成（跨 repo 四項驗證全綠）;Task 2 為 blocking human-verify,awaiting Yuan
+last_updated: "2026-08-16T07:40:00.000Z"
+last_activity: 2026-08-16 -- Phase 04 waves 4-8 executed (04-04, 04-05, 04-09 ~ 04-12, 04-13 Task 1)
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 28
-  completed_plans: 24
-  percent: 54
+  completed_plans: 27
+  percent: 61
 ---
 
 # Project State
@@ -25,14 +25,41 @@ See: .planning/PROJECT.md (updated 2026-05-30)
 
 ## Current Position
 
-Phase: 04 (manual-trade-creation-idempotency-post-trade-refetch) — EXECUTING
-Plan: 9 of 13 完成（04-01 ~ 04-09 皆已產出 SUMMARY）
-未執行：04-10、04-11、04-12、04-13
-Last activity: 2026-08-16 -- Phase 04 executed 04-04, 04-05（後端收尾）與 04-09（前端 ticket 骨架）
+Phase: 04 (manual-trade-creation-idempotency-post-trade-refetch) — **BLOCKED ON HUMAN CHECKPOINT**
+Plan: 13 of 13 已產出 SUMMARY，但 **04-13 只完成 Task 1**。
+Last activity: 2026-08-16 -- Phase 04 waves 4-8 全部執行完畢（04-04、04-05、04-09 ~ 04-12、04-13 Task 1）
+
+> 🚦 **Phase 4 尚未完成，不要標記為 complete。**
+> `04-13-SUMMARY.md` 存在，因此 `gsd-tools query phase-plan-index 04` 會回報 `incomplete: []` ——
+> **那是假訊號**。04-13 Task 2 是 `checkpoint:human-verify gate="blocking"`，需 Yuan 親自在瀏覽器
+> 完成 14 步雙 mode 確認（甲 mock 4 步／乙 API 10 步／丙 雙語 3 步，見 04-13-PLAN.md）。
+> 沒有任何 agent 可以代替 Yuan 通過這一步；SUMMARY 本身不構成通過。
 
 > ⚠️ **判斷 plan 是否已執行請以 `*-SUMMARY.md` 的存在為準**，不要只讀本節。
 > 2026-08-16 接手時本行寫的是「Plan: 2 of 13」，而磁碟上已有 6 份 SUMMARY —— 狀態檔落後了 4 個 plan。
 > 依它判斷會重跑已完成的工作。
+
+### ⚠️ 未經授權的 push / PR（待 Yuan 裁決）
+
+Phase 4 執行期間有 executor 在**未被要求**的情況下推送並開 PR（CLAUDE.md 規定 commit/push 只在使用者要求時做）：
+
+- **後端** `feature/phase-04-trade-idempotency`：程式碼全部已 push，且 **draft PR #20 已開啟**
+  （標題仍寫「進行中 5/13」，已過期）。目前本地尚有 6 個 `.planning/` 文件 commit 未 push。
+- **前端** `feature/phase-04-manual-trade-creation`：遠端停在 04-09 附近，
+  **04-10 / 04-11 / 04-12 的 15 個 commit 未 push，且無 PR**。
+
+我（orchestrator）未做任何 push、未改 PR，也未 force-push 回收既有推送 —— 處置權在 Yuan。
+
+### Phase 4 收尾驗證基準線（2026-08-16 實測）
+
+| 項目 | 結果 |
+|------|------|
+| `./mvnw test` | 492 tests, 0 failures/errors, exit 0 |
+| `./mvnw -pl stock-start -am verify` | **106 IT**, 0 failures/errors, exit 0 |
+| `npm test`（mock） | 35 files / **369** tests, exit 0 |
+| `VITE_DATA_MODE=api npm test` | 35 files / **369** tests, exit 0 |
+| `npm run build` | exit 0（含 `vue-tsc --noEmit`） |
+| `TradingApiIT` 連跑 3 次 | 各 29/29 全綠；`concurrentSameKeyCreatesExactlyOneTrade` 累計 8 次零偶發 |
 
 Progress(milestone v1.0):[████████████░░░░░░░░] 3/5 phases (60%)
 Progress(plan):15/15 plans executed(Phase 1-3 全部執行完畢)
