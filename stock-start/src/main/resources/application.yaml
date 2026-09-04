@@ -1,0 +1,73 @@
+spring:
+  application:
+    name: stock-web-v2
+  profiles:
+    default: dev
+  jackson:
+    time-zone: Asia/Taipei
+  batch:
+    jdbc:
+      initialize-schema: never
+  kafka:
+    bootstrap-servers: ${STOCK_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        "[spring.json.trusted.packages]": "dowob.xyz.stockwebv2.common.event"
+    # 不設全域 ack-mode:兩個 listener 都以 containerFactory 明確指定(RECORD / BATCH)。
+    # 這裡曾設為 manual,而 WsBroadcastConsumer 沒收 Acknowledgment,結果是永不 commit offset、
+    # 每次重啟從 earliest 重播整個 tick topic。留空讓未來新增的 listener 落在會自動 commit 的預設值。
+
+server:
+  port: ${SERVER_PORT:11180}
+
+management:
+  server:
+    port: ${STOCK_MANAGEMENT_PORT:11181}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+
+springdoc:
+  api-docs:
+    enabled: ${STOCK_OPENAPI_ENABLED:true}
+  swagger-ui:
+    enabled: ${STOCK_SWAGGER_UI_ENABLED:true}
+
+stock:
+  auth:
+    cookie:
+      access-name: ${STOCK_AUTH_COOKIE_ACCESS_NAME:stock_access}
+      refresh-name: ${STOCK_AUTH_COOKIE_REFRESH_NAME:stock_refresh}
+      path: ${STOCK_AUTH_COOKIE_PATH:/}
+      same-site: ${STOCK_AUTH_COOKIE_SAME_SITE:Lax}
+      secure: ${STOCK_AUTH_COOKIE_SECURE:false}
+      domain: ${STOCK_AUTH_COOKIE_DOMAIN:}
+      access-token-ttl: ${STOCK_AUTH_COOKIE_ACCESS_TOKEN_TTL:PT15M}
+      refresh-token-ttl: ${STOCK_AUTH_COOKIE_REFRESH_TOKEN_TTL:P14D}
+  cors:
+    allowed-origins: ${STOCK_CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  jwt:
+    # EC JWK(JSON,含私鑰分量 d 與公鑰座標 x/y),不是 PEM。
+    # 舊的 PEM 值請用 JwkKeyConverter 轉換,不要貼到線上轉換器:
+    #   openssl pkey -in private.pem -pubout -out public.pem
+    #   java -cp <app.jar> dowob.xyz.stockwebv2.infrastructure.security.JwkKeyConverter private.pem public.pem
+    private-key: ${STOCK_JWT_PRIVATE_KEY:}
+    access-token-ttl: ${STOCK_JWT_ACCESS_TOKEN_TTL:PT30M}
+    refresh-token-ttl: ${STOCK_JWT_REFRESH_TOKEN_TTL:P14D}

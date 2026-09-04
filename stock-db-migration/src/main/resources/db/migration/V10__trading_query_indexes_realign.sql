@@ -1,0 +1,57 @@
+-- 交易查詢索引的補正，承接 V9。
+--
+-- ── 這個檔案為什麼存在 ──────────────────────────────────────────────────────
+-- V9 隨 PR #13 合併進 develop 之後，PR #15 直接「修改」了 V9 的內容（新增第三條索引、
+-- 移除 V7 的舊索引、全面加上 IF NOT EXISTS）。那違反 ai-docs/flyway-convention.md：
+--   「Never modify a migration that has already been applied to any environment
+--     (Flyway checksum validation will fail)」
+-- 任何已套用過 V9 的資料庫（dev / demo 指向的長期 Postgres）在下次啟動時會因
+-- checksum mismatch 直接失敗——而且這件事測試與 CI 都抓不到：IT 用 Testcontainers，
+-- 每次都是全新資料庫，永遠不會有既存的 schema history 可比對。
+--
+-- 修正方式是把 V9 還原成 PR #13 的原始內容（checksum 自動恢復，不需要任何人手動
+-- 執行 flyway repair），並把 PR #15 真正新增的兩道述句移到本檔。
+--
+-- ── 本檔對兩種環境都正確 ────────────────────────────────────────────────────
+-- 全新資料庫：V9 建立 user_executed 與 user_amount 兩條索引，本檔補上第三條並移除
+--   V7 的舊索引。最終 schema 與 PR #15 的意圖完全一致。
+-- 已套用舊 V9 的資料庫：V9 checksum 恢復原值故驗證通過，本檔作為新版本被套用，
+--   補上它先前沒有的那條索引並清掉舊的。
+-- 兩道述句都帶 IF NOT EXISTS / IF EXISTS，重複套用或部分套用都安全。
+--
+-- ── 鎖的取捨：本檔刻意「不」使用 CONCURRENTLY ──────────────────────────────
+-- 一般的 CREATE INDEX 會對 transactions 取 ACCESS EXCLUSIVE 鎖，在套用期間擋住所有
+-- INSERT。直覺的解法是改用 CREATE INDEX CONCURRENTLY，但在 Flyway 底下這會直接死鎖：
+-- Flyway 套用 migration 時另有一條連線持有 schema history 的交易並停在
+-- idle in transaction，而 CONCURRENTLY 必須等待所有並行交易的 virtualxid 釋放，兩者互等。
+-- 實測（TradingApiIT，Postgres 16 + Flyway 11）：該檔已被正確判定為 [non-transactional]
+-- 並在交易外執行，仍卡死逾 1.5 小時，pg_stat_activity 顯示
+--   pid A  idle in transaction        ← Flyway schema history
+--   pid B  active  Lock/virtualxid    ← CREATE INDEX CONCURRENTLY
+-- 亦即在 migration 內使用 CONCURRENTLY 會讓「短暫鎖表」惡化成「啟動永遠不會完成」。
+--
+-- 當 transactions 成長到不能承受套用期鎖表時，正確做法是「部署前先在線上手動建好」：
+--
+--   CREATE INDEX CONCURRENTLY idx_transactions_user_asset_executed
+--       ON transactions (user_id, asset_id, executed_at DESC, id DESC);
+--   DROP INDEX CONCURRENTLY IF EXISTS idx_transactions_user_asset_created;
+--
+-- 本檔的 IF NOT EXISTS / IF EXISTS 會讓屆時的 migration 自然變成 no-op。
+-- （手動建立前請先確認沒有殘留的 INVALID 索引：
+--   SELECT indexrelid::regclass FROM pg_index WHERE NOT indisvalid;）
+--
+-- 一個誠實的限制：V9 建立的 user_executed 與 user_amount 兩條索引用的是不帶
+-- IF NOT EXISTS 的 CREATE INDEX，而 V9 現在不可再改，所以上述「先手動建好再讓
+-- migration no-op」的手法對那兩條索引不適用——尚未套用 V9 的大表只能承受該次鎖表。
+-- 今後新增索引的 migration 請一開始就寫 IF NOT EXISTS，把這個選項留給部署方。
+
+-- D-05：symbol 篩選 + 預設排序的配套索引。symbol 會被解析成 asset_id 進入 WHERE，
+-- 排序仍是 executed_at；缺此索引時 PostgreSQL 只能先以 asset_id 過濾再自行排序。
+CREATE INDEX IF NOT EXISTS idx_transactions_user_asset_executed
+    ON transactions (user_id, asset_id, executed_at DESC, id DESC);
+
+-- V7 的 (user_id, asset_id, created_at DESC, id DESC) 在 Phase 3 之後已無任何讀者：
+-- symbol 篩選的排序改由上面的 idx_transactions_user_asset_executed 承接。留著只會讓
+-- 每筆交易寫入多維護一份沒有人讀的索引。
+-- 同組的 idx_transactions_user_created 則「保留」：sort=createdAt 仍以它為配套索引。
+DROP INDEX IF EXISTS idx_transactions_user_asset_created;

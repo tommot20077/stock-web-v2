@@ -1,0 +1,188 @@
+package dowob.xyz.stockwebv2.user.api;
+
+import dowob.xyz.stockwebv2.common.api.ApiResponse;
+import dowob.xyz.stockwebv2.common.api.EmptyResponse;
+import dowob.xyz.stockwebv2.common.error.BusinessException;
+import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
+import dowob.xyz.stockwebv2.infrastructure.security.JwtService;
+import dowob.xyz.stockwebv2.infrastructure.security.RateLimitProperties;
+import dowob.xyz.stockwebv2.infrastructure.security.RateLimitService;
+import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
+import dowob.xyz.stockwebv2.infrastructure.web.AuthenticatedUserResolver;
+import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
+import dowob.xyz.stockwebv2.user.domain.User;
+import dowob.xyz.stockwebv2.user.service.AuthService;
+import dowob.xyz.stockwebv2.user.service.BrowserAuthCookieService;
+import dowob.xyz.stockwebv2.user.service.RefreshTokenService;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
+
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.OffsetDateTime;
+
+@RestController
+@RequestMapping("/api/v1")
+public class AuthController {
+    private final AuthService authService;
+    private final JwtService jwtService;
+    private final RefreshTokenService refreshTokenService;
+    private final BrowserAuthCookieService cookieService;
+    private final RateLimitService rateLimitService;
+    private final RateLimitProperties rateLimitProperties;
+    private final AuditLogger auditLogger;
+
+    public AuthController(
+        AuthService authService,
+        JwtService jwtService,
+        RefreshTokenService refreshTokenService,
+        BrowserAuthCookieService cookieService,
+        RateLimitService rateLimitService,
+        RateLimitProperties rateLimitProperties,
+        AuditLogger auditLogger
+    ) {
+        this.authService = authService;
+        this.jwtService = jwtService;
+        this.refreshTokenService = refreshTokenService;
+        this.cookieService = cookieService;
+        this.rateLimitService = rateLimitService;
+        this.rateLimitProperties = rateLimitProperties;
+        this.auditLogger = auditLogger;
+    }
+
+    @PostMapping("/auth/register")
+    public ApiResponse<BrowserSessionResponse> register(
+        @Valid @RequestBody RegisterRequest request,
+        HttpServletRequest servletRequest,
+        HttpServletResponse servletResponse
+    ) {
+        String ip = ClientIpResolver.resolve(servletRequest);
+        rateLimitService.enforce("register", ip, rateLimitProperties.register());
+        User user = authService.register(request);
+        auditLogger.log(user.id(), "register", "user", "success", ip);
+        return ApiResponse.success(browserSession(user, servletRequest, servletResponse), ApiMetaFactory.current());
+    }
+
+    @PostMapping("/auth/login")
+    public ApiResponse<BrowserSessionResponse> login(
+        @Valid @RequestBody LoginRequest request,
+        HttpServletRequest servletRequest,
+        HttpServletResponse servletResponse
+    ) {
+        String ip = ClientIpResolver.resolve(servletRequest);
+        rateLimitService.enforce("login", ip, rateLimitProperties.login());
+        User user = authenticate(request, ip);
+        return ApiResponse.success(browserSession(user, servletRequest, servletResponse), ApiMetaFactory.current());
+    }
+
+    @PostMapping("/auth/token")
+    public ApiResponse<TokenResponse> token(@Valid @RequestBody LoginRequest request, HttpServletRequest servletRequest) {
+        String ip = ClientIpResolver.resolve(servletRequest);
+        rateLimitService.enforce("login", ip, rateLimitProperties.login());
+        User user = authenticate(request, ip);
+        return ApiResponse.success(tokenResponse(user, servletRequest), ApiMetaFactory.current());
+    }
+
+    /**
+     * 驗證登入憑證並記錄稽核事件（security.md §13）。成功與失敗皆須留下紀錄，
+     * 失敗時不揭露目標帳號 id 以免稽核日誌成為帳號枚舉來源。
+     *
+     * @param request 登入請求
+     * @param ip      來源 IP
+     * @return 驗證通過的使用者
+     */
+    private User authenticate(LoginRequest request, String ip) {
+        try {
+            User user = authService.verifyCredentials(request.email(), request.password());
+            auditLogger.log(user.id(), "login", "user", "success", ip);
+            return user;
+        } catch (BusinessException exception) {
+            auditLogger.log(null, "login", "user", "failure:" + exception.errorCode().name(), ip);
+            throw exception;
+        }
+    }
+
+    @PostMapping("/auth/refresh")
+    public ApiResponse<BrowserSessionResponse> refresh(HttpServletRequest servletRequest, HttpServletResponse servletResponse) {
+        String refreshToken = cookieService.readRefreshCookie(servletRequest);
+        Long refreshOwner = refreshTokenService.findOwner(refreshToken);
+        String refreshIdentity = refreshOwner != null ? "u:" + refreshOwner : "ip:" + ClientIpResolver.resolve(servletRequest);
+        rateLimitService.enforce("refresh", refreshIdentity, rateLimitProperties.refresh());
+        try {
+            RefreshTokenService.RefreshSession session = refreshTokenService.consumeForRotation(refreshToken);
+            User user = authService.requireById(session.userId());
+            auditLogger.log(user.id(), "refresh", "session", "success", ClientIpResolver.resolve(servletRequest));
+            return ApiResponse.success(browserSession(user, servletRequest, servletResponse), ApiMetaFactory.current());
+        } catch (BusinessException exception) {
+            auditLogger.log(refreshOwner, "refresh", "session", "failure:" + exception.errorCode().name(),
+                ClientIpResolver.resolve(servletRequest));
+            cookieService.clearAuthCookies(servletResponse);
+            throw exception;
+        }
+    }
+
+    @GetMapping("/me")
+    public ApiResponse<MeResponse> me(Authentication authentication) {
+        Long userId = AuthenticatedUserResolver.resolve(authentication);
+        User user = authService.requireById(userId);
+        return ApiResponse.success(user.toMeResponse(), ApiMetaFactory.current());
+    }
+
+    @PostMapping("/auth/logout")
+    public ApiResponse<EmptyResponse> logout(
+        @RequestBody(required = false) LogoutRequest request,
+        Authentication authentication,
+        HttpServletRequest servletRequest,
+        HttpServletResponse servletResponse
+    ) {
+        String ip = ClientIpResolver.resolve(servletRequest);
+        String browserRefreshToken = cookieService.readRefreshCookie(servletRequest);
+        if (browserRefreshToken != null) {
+            Long owner = refreshTokenService.findOwner(browserRefreshToken);
+            refreshTokenService.revoke(browserRefreshToken);
+            if (owner != null) {
+                authService.logout(owner);
+            }
+            cookieService.clearAuthCookies(servletResponse);
+            auditLogger.log(owner, "logout", "session", "success", ip);
+            return ApiResponse.empty(ApiMetaFactory.current());
+        }
+
+        Long userId = AuthenticatedUserResolver.resolve(authentication);
+        String refreshToken = request == null ? null : request.refreshToken();
+        if (StringUtils.isBlank(refreshToken)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage());
+        }
+        refreshTokenService.revoke(refreshToken, userId);
+        authService.logout(userId);
+        auditLogger.log(userId, "logout", "session", "success", ip);
+        return ApiResponse.empty(ApiMetaFactory.current());
+    }
+
+    private BrowserSessionResponse browserSession(User user, HttpServletRequest servletRequest, HttpServletResponse servletResponse) {
+        String accessToken = jwtService.createAccessToken(user.id(), user.role(), user.tokenVersion());
+        String refreshToken = refreshTokenService.issue(user, servletRequest.getHeader("User-Agent"));
+        cookieService.addAuthCookies(servletResponse, accessToken, refreshToken);
+        OffsetDateTime now = OffsetDateTime.now();
+        return new BrowserSessionResponse(
+            user.toMeResponse(),
+            now.plus(cookieService.accessTokenTtl()),
+            now.plus(cookieService.refreshTokenTtl())
+        );
+    }
+
+    private TokenResponse tokenResponse(User user, HttpServletRequest servletRequest) {
+        String accessToken = jwtService.createAccessToken(user.id(), user.role(), user.tokenVersion());
+        String refreshToken = refreshTokenService.issue(user, servletRequest.getHeader("User-Agent"));
+        return new TokenResponse(accessToken, refreshToken, user.toMeResponse());
+    }
+}

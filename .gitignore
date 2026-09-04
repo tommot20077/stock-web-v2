@@ -31,3 +31,13 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Local git worktrees
+.worktrees/
+
+# Local runtime environment
+.env
+.env.*
+!.env.example
+logs/
+.gstack/
