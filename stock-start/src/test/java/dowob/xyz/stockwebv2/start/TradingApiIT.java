@@ -5,6 +5,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -13,6 +15,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.math.BigDecimal;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -63,6 +66,12 @@ class TradingApiIT extends ContainerIT {
     @Autowired
     ObjectMapper objectMapper;
 
+    @Autowired
+    JdbcClient jdbcClient;
+
+    @Autowired
+    StringRedisTemplate redisTemplate;
+
     @Test
     void tradingEndpointsRequireAuthentication() throws Exception {
         // 帶齊 header：讓這條專測「未帶憑證即 401」，而不是被缺 header 的 400 搶先攔下。
@@ -101,14 +110,22 @@ class TradingApiIT extends ContainerIT {
             .andExpect(jsonPath("$.data.items[0].id", equalTo(buyId)))
             .andExpect(jsonPath("$.data.totalElements", equalTo(1)));
 
+        /*
+         * 估值價由本測試自己寫進 market-data 的來源（market_prices 最新一列），而不是靠環境裡剛好有什麼。
+         * 刻意選一個與 V2 seed（asset_latest_prices.price = 218.4）不同的數字：若哪天有人把估值改回讀
+         * 那張死表，這裡會立刻紅。同時清掉 Redis latest cache，確保讀到的是本測試寫的值而非殘留快取。
+         */
+        seedMarketPrice("AAPL", new BigDecimal("200.00"));
+
         mockMvc.perform(get("/api/v1/portfolio/holdings")
                 .header("Authorization", "Bearer " + tokens.accessToken()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[0].symbol", equalTo("AAPL")))
             .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(10.00000000)))
             .andExpect(jsonPath("$.data[0].avgCost", equalTo(100.50000000)))
-            .andExpect(jsonPath("$.data[0].marketPrice", equalTo(218.40000000)))
-            .andExpect(jsonPath("$.data[0].unrealizedPnl", equalTo(1179.00000000)));
+            .andExpect(jsonPath("$.data[0].marketPrice", equalTo(200.00000000)))
+            // 10 × (200.00 − 100.50)
+            .andExpect(jsonPath("$.data[0].unrealizedPnl", equalTo(995.00000000)));
 
         mockMvc.perform(post("/api/v1/trades")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -125,9 +142,36 @@ class TradingApiIT extends ContainerIT {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.holdingCount", equalTo(1)))
             .andExpect(jsonPath("$.data.totalCostBasis", equalTo(603.00000000)))
-            .andExpect(jsonPath("$.data.totalMarketValue", equalTo(1310.40000000)))
+            // 賣掉 4 股後剩 6 股：6 × 200.00
+            .andExpect(jsonPath("$.data.totalMarketValue", equalTo(1200.00000000)))
             .andExpect(jsonPath("$.data.realizedPnl", equalTo(77.00000000)))
-            .andExpect(jsonPath("$.data.unrealizedPnl", equalTo(707.40000000)));
+            // 1200.00 − 603.00
+            .andExpect(jsonPath("$.data.unrealizedPnl", equalTo(597.00000000)));
+    }
+
+    /**
+     * 為指定標的寫入一筆「此刻」的市價，作為持倉估值的權威來源。
+     *
+     * <p>{@code MarketDataFacade} 的取價順序是 Redis latest cache → {@code market_prices} 最新一列，
+     * 所以這裡先刪掉快取鍵再寫 DB，避免同一批 IT 共用容器時讀到別的測試留下的殘值。
+     *
+     * @param symbol 標的代號
+     * @param price  要寫入的市價
+     */
+    private void seedMarketPrice(String symbol, BigDecimal price) {
+        Long assetId = jdbcClient.sql("select id from assets where symbol = :symbol")
+            .param("symbol", symbol)
+            .query(Long.class)
+            .single();
+        redisTemplate.delete("market:latest:" + assetId);
+        jdbcClient.sql("""
+                insert into market_prices(asset_id, time, price, volume)
+                values (:assetId, now(), :price, 1000)
+                on conflict (asset_id, time) do update set price = excluded.price
+                """)
+            .param("assetId", assetId)
+            .param("price", price)
+            .update();
     }
 
     @Test
