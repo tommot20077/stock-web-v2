@@ -40,6 +40,9 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -166,7 +169,9 @@ class BackfillControllerTest {
                 .header("Idempotency-Key", "dup-key"))
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.success").value(false))
-            .andExpect(jsonPath("$.error.code").value("BACKFILL_ALREADY_RUNNING"));
+            .andExpect(jsonPath("$.error.code").value("BACKFILL_ALREADY_RUNNING"))
+            // 冪等鍵是完全使用者可控的字串，而錯誤訊息是使用者可見的輸出面：不得原樣回射（T-04-03 同一條規則）
+            .andExpect(content().string(not(containsString("dup-key"))));
     }
 
     // ── GET /api/v1/market/backfill/{jobExecutionId} ──────────────────────────
