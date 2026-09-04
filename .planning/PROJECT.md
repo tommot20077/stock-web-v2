@@ -20,6 +20,8 @@ Users can safely sign in, inspect portfolio state, and record trades through one
 - ✓ Deterministic backtest API with strategy validation and persisted run/result records — existing
 - ✓ Trading API for buy/sell transaction creation plus holdings, trade history, and portfolio summary — existing
 - ✓ Vue 3 application shell with routes, portfolio UI, order ticket, mock portfolio state, and mock/API runtime mode conventions — existing
+- ✓ Portfolio overview, positions/holdings, trade history, and order ticket wired to backend APIs in API mode — Phase 3 (read) + Phase 4 (order ticket)
+- ✓ Post-trade refetch of portfolio summary, holdings/positions, and trade history so the UI reflects backend state — Phase 4
 
 ### Active
 
@@ -28,9 +30,7 @@ Users can safely sign in, inspect portfolio state, and record trades through one
 - [ ] Keep bearer-token support available for non-browser/API clients where appropriate, without weakening browser cookie safety.
 - [ ] Update the Vue app to support real register, login, logout, session restore, and protected API calls while keeping mock/API dual mode.
 - [ ] Add shared frontend API client behavior for credentials, CSRF headers, API envelopes, request IDs, 401/403 handling, and domain adapters.
-- [ ] Wire portfolio overview, positions/holdings, trade history, and order ticket flows to backend APIs in API mode.
-- [ ] After successful trade creation, refetch portfolio summary, holdings/positions, and trade history so the UI reflects backend state.
-- [ ] Document the backend/frontend contract in planning or docs before implementation so both repos can evolve against the same expectations.
+- [ ] Document the backend/frontend contract in planning or docs before implementation so both repos can evolve against the same expectations. (auth/CSRF 已有 `ai-docs/browser-auth-contract.md`；**portfolio / trading DTO 兩個 repo 都還沒有契約文件** —— 2026-09-02 功能審查 M-4)
 
 ### Out of Scope
 

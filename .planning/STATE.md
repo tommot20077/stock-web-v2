@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 04 code merged to develop (BE PR #20 @ 334cb34, FE PR #9 @ a00fb29); 04-13 Task 2 (Yuan human-verify) still open
-stopped_at: 2026-09-02 兩個 PR 經 review 修正後合併;04-13 Task 2（Yuan 雙 mode 14 步）待本機虛擬化恢復後執行
-last_updated: "2026-09-02T15:30:00.000Z"
-last_activity: 2026-09-02 -- Phase 04 review fixes (BE C-1/K-1/Q-1/S-1, FE F-1/F-2/F-3 + flushAsync) and both PRs merged; develop full review
+status: Phase 04 COMPLETE (04-13 Task 2 approved by Yuan 2026-09-04); next up Phase 04.1 (no CONTEXT yet)
+stopped_at: Phase 04 全部 13 個 plan 完成並驗收;Phase 04.1 尚未 discuss
+last_updated: "2026-09-04T04:30:00.000Z"
+last_activity: 2026-09-04 -- Docker restored; 106 IT + Playwright 18/18 green; 04-13 Task 2 walkthrough approved by Yuan; Phase 04 closed
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 28
-  completed_plans: 27
-  percent: 61
+  completed_plans: 28
+  percent: 67
 ---
 
 # Project State
@@ -25,15 +25,14 @@ See: .planning/PROJECT.md (updated 2026-05-30)
 
 ## Current Position
 
-Phase: 04 (manual-trade-creation-idempotency-post-trade-refetch) — **程式碼已合併 develop；僅剩 04-13 Task 2（Yuan 人工確認）**
-Plan: 13 of 13 已產出 SUMMARY；**04-13 Task 2 尚未執行**。
-Last activity: 2026-09-02 -- 兩個 PR 經 code review 修正後合併（後端 PR #20 → develop @ 334cb34；前端 PR #9 → develop @ a00fb29）
+Phase: 04 (manual-trade-creation-idempotency-post-trade-refetch) — **COMPLETE**
+Plan: 13 of 13 完成；`04-13` 兩個 task 皆結案（Task 2 於 2026-09-04 由 Yuan 走完 17 步後回覆「都 ok」）。
+Next: **Phase 04.1（Backend Data Gap Backfill）尚無 CONTEXT，需先 discuss。** Phase 5 同樣無 CONTEXT。
+Last activity: 2026-09-04 -- Docker 恢復後補跑 106 IT 與 Playwright 18/18 全綠；人工檢查點通過
 
-> 🚦 **Phase 4 尚未完成，不要標記為 complete。**
-> `04-13-SUMMARY.md` 存在，因此 `gsd-tools query phase-plan-index 04` 會回報 `incomplete: []` ——
-> **那是假訊號**。04-13 Task 2 是 `checkpoint:human-verify gate="blocking"`，需 Yuan 親自在瀏覽器
-> 完成 14 步雙 mode 確認（甲 mock 4 步／乙 API 10 步／丙 雙語 3 步，見 04-13-PLAN.md）。
-> 沒有任何 agent 可以代替 Yuan 通過這一步；SUMMARY 本身不構成通過。
+> ✅ **Phase 4 已完成（2026-09-04）。** 13 個 plan 全數執行完畢，`04-13` 的 blocking human-verify
+> checkpoint 由 Yuan 親自走完甲／乙／丙三段共 17 步後通過（未提出任何不符項）。
+> 走查前修掉一條阻斷問題：dev server 缺 `/api` 代理，導致計畫書步驟乙 的指令連不到後端（前端 PR #11）。
 
 > ⚠️ **判斷 plan 是否已執行請以 `*-SUMMARY.md` 的存在為準**，不要只讀本節。
 > 2026-08-16 接手時本行寫的是「Plan: 2 of 13」，而磁碟上已有 6 份 SUMMARY —— 狀態檔落後了 4 個 plan。
@@ -70,14 +69,12 @@ Last activity: 2026-09-02 -- 兩個 PR 經 code review 修正後合併（後端 
 | `npm run build` | exit 0（含 `vue-tsc --noEmit`） |
 | `TradingApiIT` 連跑 3 次 | 各 29/29 全綠；`concurrentSameKeyCreatesExactlyOneTrade` 累計 8 次零偶發 |
 
-Progress(milestone v1.0):[████████████░░░░░░░░] 3/5 phases (60%)
-Progress(plan):15/15 plans executed(Phase 1-3 全部執行完畢)
+Progress(milestone v1.0):[█████████████░░░░░░░] 4/6 phases (67%)
+Progress(plan):28/28 plans executed(Phase 1-4 全部執行完畢;04.1 與 5 尚未 plan)
 
-> ⚠️ 60% 是 milestone 真實進度(5 個 phase 完成 3 個)。Phase 3 的後端(`./mvnw -pl stock-start -am verify`
-> 80/80 綠)與前端(`npm test` / `VITE_DATA_MODE=api npm test` 各 233/233、`npm run build` exit 0)
-> 兩邊各自綠,但**尚未跑過真實跨 repo 整合** —— 那是 Phase 5 的範圍(judgment §8)。
-> Phase 4 已備妥 CONTEXT / RESEARCH / VALIDATION / UI-SPEC(UI-SPEC 於 2026-07-26 通過 gsd-ui-checker
-> 6 維度驗證,0 BLOCK);**尚未 plan**。Phase 5 仍無 CONTEXT。
+> 67% 是 milestone 真實進度(6 個 phase 完成 4 個;Phase 04.1 於 2026-07-26 插入)。
+> Phase 4 收尾時已跑過真實跨 repo 瀏覽器流程(Playwright 18/18 + 人工 17 步),但 **VER-01/02/03 的正式驗收仍屬 Phase 5**
+> —— 那一步要的是完整 smoke flow 與契約硬化,不是單次走查(judgment §8)。Phase 04.1 與 Phase 5 皆無 CONTEXT。Phase 5 仍無 CONTEXT。
 
 ## Performance Metrics
 

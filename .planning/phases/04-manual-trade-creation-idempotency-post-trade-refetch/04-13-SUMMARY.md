@@ -51,13 +51,13 @@ completed: 2026-08-16
 
 **四項驗證在同一份乾淨程式碼狀態下全綠、六條 TRAD 需求各有可指名的自動化證據、七項 out-of-scope 零 over-claim、D-01 ~ D-16 全覆蓋、Deferred 未被誤做 —— Phase 4 的自動化部分到此可被信任。**
 
-> **本 SUMMARY 只涵蓋 Task 1。** Task 2（Yuan 的雙 mode 人工確認）是 `checkpoint:human-verify gate="blocking"`，
-> **尚未執行，awaiting: Yuan**。本文件的任何一段都不構成該 checkpoint 的通過。
+> **Task 1 於 2026-08-16 完成；Task 2（Yuan 的雙 mode 人工確認）於 2026-09-04 由 Yuan 親自走完並回覆「都 ok」。**
+> 兩個 task 皆完成，`04-13` 結案 —— 詳見文末〈Task 2〉一節。
 
 ## Performance
 
 - **Duration:** 約 95 min
-- **Tasks:** 1/2（Task 2 為 blocking human checkpoint，未執行）
+- **Tasks:** 2/2（Task 2 為 blocking human checkpoint，2026-09-04 由 Yuan 完成）
 - **Files modified:** 1（僅本 SUMMARY；本 plan 依 objective **不寫任何程式碼**，實際確認零程式碼異動）
 
 ---
@@ -478,8 +478,49 @@ Resume signal：輸入「approved」，或逐條描述哪一步與預期不符�
 ## User Setup Required
 
 Task 1：None（Docker 已就緒，Server 29.5.3）。
-**Task 2：需要 Yuan 本人操作瀏覽器，且乙段需要後端在跑並已登入。**
+Task 2：已完成。環境由 `e2e/run-e2e.sh`（`E2E_ENV_ONLY=1`）起，前端兩個 dev server 分別跑 mock（5174）與 API mode（5173）。
+
+---
+
+## Task 2：Yuan 的雙 mode 人工確認（2026-09-04 完成）
+
+**結果：通過。** Yuan 走完甲（mock）／乙（API mode）／丙（雙語）三段共 17 步後回覆「都 ok」，未提出任何不符項。
+
+### 走查環境
+
+| 項目 | 值 |
+|------|-----|
+| 後端 | `develop` @ `27cda9e`，profile `e2e-browser`，port 8080（compose 起 TimescaleDB / Redis / Kafka） |
+| 前端 甲 | mock mode dev server，port 5174（不需登入） |
+| 前端 乙 | API mode dev server，port 5173（帳號 `precheck@example.com`） |
+
+### 走查前修掉的阻斷問題
+
+`04-13-PLAN.md` 步驟乙 的 `VITE_DATA_MODE=api npm run dev` **原本連不到後端**：API mode 沒有任何 base-url 設定（`apiClient.ts` 一律送同源相對路徑），連線完全靠 vite 代理，而代理只設在 `preview`、`server`（dev）沒有。`/api/v1/*` 因此落到 SPA fallback，拿回 index.html 被當成 404，畫面顯示「暫時無法連線到後端」，看起來像後端掛了。
+
+已修：前端 PR #11（RED → GREEN，`vue-app/src/viteConfig.test.ts` 鎖住 dev 與 preview 兩邊都要有 `/api` 與 `/ws` 代理）。修正後計畫書的指令逐字可用。
+
+### Docker 恢復後補跑的自動化驗證
+
+2026-08-16 的四項驗證是在無 Docker 的環境下做的（容器類測試未實際執行）。2026-09-04 Yuan 開啟 BIOS 虛擬化後補跑：
+
+| 驗證 | 結果 |
+|------|------|
+| `./mvnw -pl stock-start -am verify` | **106 IT**，0 failures / 0 errors，exit 0 |
+| 後端各模組單元測試 | common 83 / infra 29 / user 10 / backtest 44 / market-data 187 / trading 75，0 failures |
+| 前端 `npm test`、`VITE_DATA_MODE=api npm test`、Node 20 全套 | 各 **379**，exit 0 |
+| `npm run build`（含 `vue-tsc`） | exit 0 |
+| Playwright browser E2E | **18 / 18**（後端 develop 對前端 develop，真瀏覽器） |
+| 瀏覽器端冪等 | 網路失敗後以同一把 key 重送，帳本只多一筆（最終 3 筆 = BUY 10 + BUY 5 + SELL 5） |
+
+### 三點判定差異（已與 Yuan 對齊，非缺陷）
+
+1. **「新」標記只出現在成交後第一個打開的頁面。** `portfolioRevision` 是跨頁 singleton，`04-UI-SPEC.md` §9 明訂清除時機含「頁面 unmount」，而 `App.vue` 以 `v-if` 切頁（切頁即卸載）。步驟 11 原文「切到 Positions 與 Trades 頁確認兩頁都有標記」在此規格下不可能同時成立；走查改為一頁一筆分開確認。**規格未改，實作未改。**
+2. **`NETWORK_ERROR` 沒有 traceId 是正確的**——請求未抵達伺服器，不會有 `meta.traceId`。步驟 13 原文「code 與追蹤 ID 一列」措辭偏嚴。
+3. **320px 下整頁會水平滾動，但錯誤區塊本身合格。** 溢位來源是 app shell 的 header（`avatar`、`header-logout`、`bell-wrap`），不屬 Phase 4 範圍（Phase 4 只動 OrderTicket、三個 portfolio 頁與 services）。已記為獨立的 RWD 待辦。
+
+完整的 headless 功能預檢逐步結果：`docs/reviews/2026-09-02-develop-full-review/04-13-task2-precheck.md`。
 
 ---
 *Phase: 04-manual-trade-creation-idempotency-post-trade-refetch*
-*Task 1 completed: 2026-08-16 — Task 2 awaiting Yuan*
+*Task 1 completed: 2026-08-16 · Task 2 completed: 2026-09-04（Yuan approved）*
