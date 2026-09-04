@@ -5,6 +5,7 @@ import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
 import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
+import dowob.xyz.stockwebv2.infrastructure.web.AuthenticatedUserResolver;
 import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
 import dowob.xyz.stockwebv2.marketdata.ws.WsTicketService;
 import org.apache.commons.lang3.ObjectUtils;
@@ -75,7 +76,7 @@ public class WsTicketController {
      */
     @PostMapping("/ticket")
     public ApiResponse<WsTicketResponse> issueTicket(Authentication authentication, HttpServletRequest servletRequest) {
-        Long userId = resolveUserId(authentication);
+        Long userId = AuthenticatedUserResolver.resolve(authentication);
         Integer tokenVersion = resolveTokenVersion(userId);
 
         String ticket = ticketService.issue(userId, tokenVersion);
@@ -87,24 +88,6 @@ public class WsTicketController {
             WS_URL
         );
         return ApiResponse.success(body, ApiMetaFactory.current());
-    }
-
-    /**
-     * 從 {@link Authentication} 解析 userId。
-     *
-     * @param authentication 當前請求身份
-     * @return userId
-     * @throws BusinessException 若 authentication 無效
-     */
-    private Long resolveUserId(Authentication authentication) {
-        if (authentication == null || StringUtils.isBlank(authentication.getName())) {
-            throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
-        }
-        try {
-            return Long.valueOf(authentication.getName());
-        } catch (NumberFormatException e) {
-            throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
-        }
     }
 
     /**

@@ -6,6 +6,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
@@ -42,7 +44,41 @@ public class PortfolioCache {
         write(summaryKey(userId), dto);
     }
 
+    /**
+     * 讓該使用者的持倉與 summary 快取失效。
+     *
+     * <p><strong>失效排在 COMMIT 之後</strong>，而不是呼叫當下。{@code TradingService.createTrade}
+     * 帶 {@code @Transactional}，若在交易中就刪：刪掉之後、commit 之前，另一個請求會 miss → 查 DB
+     * 讀到<strong>交易前</strong>的持倉 → 把舊資料寫回快取(TTL 60 秒)。成交後的 refetch 於是最長
+     * 一分鐘看不到自己剛記錄的交易。排到 commit 之後，讀者查 DB 一定看得到新資料。
+     *
+     * <p>沒有進行中的交易時(例如單元測試或非交易路徑呼叫)則立刻失效，不會靜默漏掉。
+     *
+     * @param userId  使用者 id
+     * @param assetId 本次交易的標的 id
+     */
     public void invalidateAfterTrade(Long userId, Long assetId) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    evict(userId, assetId);
+                }
+            });
+            return;
+        }
+        evict(userId, assetId);
+    }
+
+    /**
+     * 實際刪除兩把快取鍵。
+     *
+     * <p>失敗只記 WARN：快取失效不了最多是資料稍舊，不該讓已經成交的交易看起來失敗。
+     *
+     * @param userId  使用者 id
+     * @param assetId 標的 id
+     */
+    private void evict(Long userId, Long assetId) {
         try {
             redisTemplate.delete(holdingKey(userId, assetId));
             redisTemplate.delete(summaryKey(userId));

@@ -4,8 +4,12 @@ import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.model.KlineInterval;
+import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
 import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
+import dowob.xyz.stockwebv2.infrastructure.web.AuthenticatedUserResolver;
+import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
 import dowob.xyz.stockwebv2.marketdata.batch.BackfillJobLauncher;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.batch.core.job.JobExecution;
 import org.springframework.batch.core.repository.explore.JobExplorer;
@@ -50,6 +54,7 @@ public class BackfillController {
     private final BackfillJobLauncher launcher;
     private final BackfillIdempotencyService idempotencyService;
     private final JobExplorer jobExplorer;
+    private final AuditLogger auditLogger;
 
     /**
      * 建構子注入所有依賴。
@@ -57,13 +62,16 @@ public class BackfillController {
      * @param launcher           BackfillJobLauncher，不可 null
      * @param idempotencyService idempotency 追蹤服務，不可 null
      * @param jobExplorer        Spring Batch JobExplorer，不可 null
+     * @param auditLogger        稽核日誌，不可 null
      */
     public BackfillController(BackfillJobLauncher launcher,
                               BackfillIdempotencyService idempotencyService,
-                              JobExplorer jobExplorer) {
+                              JobExplorer jobExplorer,
+                              AuditLogger auditLogger) {
         this.launcher = launcher;
         this.idempotencyService = idempotencyService;
         this.jobExplorer = jobExplorer;
+        this.auditLogger = auditLogger;
     }
 
     /**
@@ -88,7 +96,38 @@ public class BackfillController {
     public ResponseEntity<ApiResponse<BackfillTriggerResponse>> trigger(
             @Valid @RequestBody BackfillTriggerRequest request,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
-            Authentication authentication) throws Exception {
+            Authentication authentication,
+            HttpServletRequest servletRequest) throws Exception {
+        Long operatorId = AuthenticatedUserResolver.resolve(authentication);
+        String ip = ClientIpResolver.resolve(servletRequest);
+        String target = "backfill:" + request.symbol();
+        try {
+            return doTrigger(request, idempotencyKey, authentication, operatorId, target, ip);
+        } catch (BusinessException exception) {
+            auditLogger.log(operatorId, "backfill_trigger", target, "failure:" + exception.errorCode().name(), ip);
+            throw exception;
+        }
+    }
+
+    /**
+     * {@link #trigger} 的實際流程，抽出來讓稽核的 try/catch 保持單層。
+     *
+     * @param request        請求 body
+     * @param idempotencyKey 選填的冪等鍵
+     * @param authentication 當前請求身份
+     * @param operatorId     操作者 userId
+     * @param target         稽核目標字串
+     * @param ip             來源 IP
+     * @return 202 Accepted + 觸發結果
+     * @throws Exception 若 JobLauncher 操作失敗
+     */
+    private ResponseEntity<ApiResponse<BackfillTriggerResponse>> doTrigger(
+            BackfillTriggerRequest request,
+            String idempotencyKey,
+            Authentication authentication,
+            Long operatorId,
+            String target,
+            String ip) throws Exception {
         requireAdmin(authentication);
         validateRange(request);
 
@@ -108,6 +147,7 @@ public class BackfillController {
         JobExecution execution = launcher.launch(request.symbol(), request.from(), request.to(), interval);
         BackfillTriggerResponse body = new BackfillTriggerResponse(
             execution.getId(), execution.getStatus().toString());
+        auditLogger.log(operatorId, "backfill_trigger", target + ":job:" + execution.getId(), "success", ip);
         return ResponseEntity.status(HttpStatus.ACCEPTED)
             .body(ApiResponse.success(body, ApiMetaFactory.current()));
     }

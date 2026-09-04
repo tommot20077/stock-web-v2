@@ -16,6 +16,7 @@ import org.springframework.batch.core.job.JobExecution;
 import org.springframework.batch.core.repository.explore.JobExplorer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
+import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
@@ -72,6 +73,10 @@ class BackfillControllerTest {
     @MockitoBean
     JobExplorer jobExplorer;
 
+    /** BackfillController 現在會寫稽核日誌；切片測試不驗證日誌內容，只需讓 context 起得來。 */
+    @MockitoBean
+    AuditLogger auditLogger;
+
     static final String BASE_URL = "/api/v1/market/backfill";
     static final Instant FROM = Instant.parse("2026-01-01T00:00:00Z");
     static final Instant TO   = Instant.parse("2026-01-15T00:00:00Z");  // 14 天，在 90 天內
@@ -92,7 +97,7 @@ class BackfillControllerTest {
 
     @Test
     @DisplayName("POST /backfill: USER 角色 → 403 AUTH_FORBIDDEN")
-    @WithMockUser(roles = "USER")
+    @WithMockUser(username = "77", roles = "USER")
     void trigger_userRole_returns403() throws Exception {
         mvc.perform(post(BASE_URL)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -104,7 +109,7 @@ class BackfillControllerTest {
 
     @Test
     @DisplayName("POST /backfill: ADMIN + 有效請求 → 202 + jobExecutionId")
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(username = "77", roles = "ADMIN")
     void trigger_admin_validRequest_returns202WithJobId() throws Exception {
         JobExecution execution = mock(JobExecution.class);
         when(execution.getId()).thenReturn(42L);
@@ -124,7 +129,7 @@ class BackfillControllerTest {
 
     @Test
     @DisplayName("POST /backfill: 範圍超過 90 天 → 400 BACKFILL_RANGE_TOO_LARGE")
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(username = "77", roles = "ADMIN")
     void trigger_rangeOver90Days_returns400BackfillRangeTooLarge() throws Exception {
         Instant from = Instant.parse("2026-01-01T00:00:00Z");
         Instant to   = Instant.parse("2026-04-15T00:00:00Z");  // 104 天，超過 90 天
@@ -139,7 +144,7 @@ class BackfillControllerTest {
 
     @Test
     @DisplayName("POST /backfill: interval 無效 → 400 KLINE_INTERVAL_INVALID")
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(username = "77", roles = "ADMIN")
     void trigger_invalidInterval_returns400KlineIntervalInvalid() throws Exception {
         mvc.perform(post(BASE_URL)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -151,7 +156,7 @@ class BackfillControllerTest {
 
     @Test
     @DisplayName("POST /backfill: 相同 Idempotency-Key → 409 BACKFILL_ALREADY_RUNNING")
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(username = "77", roles = "ADMIN")
     void trigger_sameIdempotencyKey_returns409BackfillAlreadyRunning() throws Exception {
         when(idempotencyService.tryAcquire("dup-key")).thenReturn(false);
 
@@ -168,7 +173,7 @@ class BackfillControllerTest {
 
     @Test
     @DisplayName("GET /backfill/{jobExecutionId}: 不存在的 ID → 404 BACKFILL_JOB_NOT_FOUND")
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(username = "77", roles = "ADMIN")
     void status_unknownJobExecutionId_returns404BackfillJobNotFound() throws Exception {
         when(jobExplorer.getJobExecution(999L)).thenReturn(null);
 
@@ -180,7 +185,7 @@ class BackfillControllerTest {
 
     @Test
     @DisplayName("GET /backfill/{jobExecutionId}: ADMIN + 存在的 ID → 200 + 執行詳情")
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(username = "77", roles = "ADMIN")
     void status_admin_returnsExecutionDetails() throws Exception {
         JobExecution execution = mock(JobExecution.class);
         when(execution.getId()).thenReturn(42L);
