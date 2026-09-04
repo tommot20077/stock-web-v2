@@ -140,8 +140,9 @@ public class BackfillController {
         }
 
         if (idempotencyKey != null && !idempotencyService.tryAcquire(idempotencyKey)) {
+            // 訊息刻意不含鍵值：冪等鍵完全由使用者控制，而錯誤訊息是使用者可見的輸出面。
             throw new BusinessException(ErrorCode.BACKFILL_ALREADY_RUNNING,
-                "Backfill with idempotency key '" + idempotencyKey + "' already triggered within 1 hour");
+                "A backfill with the same idempotency key was already triggered within the last hour");
         }
 
         JobExecution execution = launcher.launch(request.symbol(), request.from(), request.to(), interval);
