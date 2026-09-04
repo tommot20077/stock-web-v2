@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Browser Auth Contract & Backend Security Foundation** - 後端提供完整 cookie auth、CSRF、refresh/logout、401/403、bearer compatibility 與契約文件。
 - [x] **Phase 2: Frontend Session & API Client Foundation** - Vue API mode 透過唯一 shared client 處理 credentials、CSRF、envelope、refresh retry、session restore 與 runtime mode。
 - [x] **Phase 3: Portfolio Read API Mode** - Vue API mode 可以讀取 portfolio summary、holdings/positions、trade history 並呈現 loading/empty/error/retry 狀態。
-- [ ] **Phase 4: Manual Trade Creation, Idempotency & Post-Trade Refetch** - API mode order ticket 建立 manual executed trade，後端防重，成功後重新讀取 portfolio 狀態。
+- [x] **Phase 4: Manual Trade Creation, Idempotency & Post-Trade Refetch** - API mode order ticket 建立 manual executed trade，後端防重，成功後重新讀取 portfolio 狀態。
 - [ ] **Phase 04.1: Backend Data Gap Backfill** *(INSERTED 2026-07-26，非緊急)* - 補齊可用現金/帳戶餘額、日級損益、資產分類、watchlist 四個後端資料缺口。
 - [ ] **Phase 5: Cross-Repo Browser Flow Verification & Contract Hardening** - Backend/frontend 測試與真實瀏覽器 smoke flow 驗證完整整合契約。
 
@@ -105,7 +105,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. 交易成功後，Vue API mode 會重新讀取 portfolio summary、holdings/positions、trade history，畫面反映 backend truth。
   5. Trade validation、oversell、permission、CSRF、network 錯誤以使用者可理解的方式顯示，並保留 backend error code/request id。
 
-**Plans**: 13 plans（8 waves；後端 5 + 前端 7 + 收尾閘門 1）。2026-09-02：13 份 SUMMARY 齊、程式碼已合併 develop（BE PR #20 / FE PR #9）；**04-13 Task 2（Yuan 人工確認）未執行，phase 不得標 complete**。
+**Plans**: 13 plans（8 waves；後端 5 + 前端 7 + 收尾閘門 1）。**2026-09-04 完成**：程式碼合併 develop（BE PR #20 / FE PR #9），`04-13` Task 1 稽核與 Task 2 人工檢查點皆通過（Yuan 走完 17 步回覆「都 ok」）。補跑證據：106 IT、Playwright 18/18、前端 379 tests × 三種模式。
 Plans:
 
 - [x] `04-01-PLAN.md` — 契約基石：`TRADE_IDEMPOTENCY_KEY_REUSED`(409) + V10 migration（`idempotency_key` 欄位 + partial unique index）+ DB 層行為 IT（wave 1，backend）
