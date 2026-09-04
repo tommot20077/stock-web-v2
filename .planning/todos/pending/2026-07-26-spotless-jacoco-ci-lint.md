@@ -44,3 +44,58 @@ files:
 ## Scheduling
 
 TBD。不阻擋任何功能開發,但越晚導入,第一次 Spotless 套用的 diff 就越大。
+
+---
+
+## 現成設定（分支已刪除，內容保存於此）
+
+原本 `archive/fullstack-review-q5nvfj`（後端，2026-05-24 起分支）與前端
+`claude/fullstack-review-architecture-q5nvfj`（2026-07-02）各有一套可用設定。兩條分支已於 2026-09-04
+刪除 —— 它們的其餘內容都已由 develop 以別的途徑涵蓋，只有這裡的建置設定沒有。**分支不存在了，要用就照下面重建。**
+
+### 後端（`pom.xml`）
+
+版本屬性：
+
+```xml
+<spotless.version>2.44.5</spotless.version>
+<jacoco.version>0.8.13</jacoco.version>
+```
+
+Spotless 設定重點：
+
+- `includes`：`src/main/java/**/*.java`、`src/test/java/**/*.java`
+- `removeUnusedImports`
+- `importOrder` 的 order 字串：`java|jakarta,org,com,dowob,\#`
+- `trimTrailingWhitespace`
+
+JaCoCo 設定重點：
+
+- `prepare-agent` 與 `report` 兩個 execution
+- 原分支的註解明說「先只出報告不設門檻，auth 測試債還清後再加 check thresholds」——
+  這個判斷現在仍成立，**不要一上來就設覆蓋率門檻**。
+
+> ⚠️ 分支起點是 2026-05-24，develop 之後走了 228 個 commit（Spring Boot 4、Jackson 3、
+> 模組結構都動過）。上面的版本號要重新確認，不能直接照抄。
+
+### 前端（`vue-app/package.json`）
+
+scripts：
+
+```json
+"lint": "eslint src",
+"lint:fix": "eslint src --fix",
+"format": "prettier --write src"
+```
+
+devDependencies：`@eslint/js`、`eslint`、`eslint-config-prettier`、`eslint-plugin-vue`、
+`prettier`、`typescript-eslint`（版本同樣需重新確認）。
+
+### 順帶記錄：兩條分支上「沒被採用」的其他內容
+
+| 項目 | 現況（2026-09-04 實查） |
+|------|------------------------|
+| admin `@PreAuthorize`、`POST /auth/refresh`、JwtService 移除手寫 EC | develop 已由其他 PR 涵蓋 |
+| 移除四個零實作抽象（`EventPublisher` / `EventSubscriber` / `DomainEvent` / `SearchService`） | **develop 仍在**；屬架構審查 M-1，要不要刪需先裁決事件抽象的去留 |
+| 前端刪 `src/store.ts` | 仍是死碼（全 repo 零 import），可獨立清掉 |
+| 前端刪 `src/stores/mockPreview.ts` | **已過時**：現在被 `api-adapter-wiring.test.ts` 與 `task7.test.ts` 使用，不可刪 |
