@@ -6,6 +6,7 @@ import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
 import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
+import dowob.xyz.stockwebv2.infrastructure.web.AuthenticatedUserResolver;
 import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
 import dowob.xyz.stockwebv2.trading.service.TradingService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -69,7 +70,7 @@ public class TradingController {
         Authentication authentication,
         HttpServletRequest servletRequest
     ) {
-        Long userId = authenticatedUserId(authentication);
+        Long userId = AuthenticatedUserResolver.resolve(authentication);
         String ip = ClientIpResolver.resolve(servletRequest);
         try {
             TradeDto trade = tradingService.createTrade(userId, request, idempotencyKey);
@@ -118,7 +119,7 @@ public class TradingController {
         Authentication authentication
     ) {
         return ApiResponse.success(tradingService.listTrades(
-            authenticatedUserId(authentication),
+            AuthenticatedUserResolver.resolve(authentication),
             symbol,
             type,
             dateFrom,
@@ -133,24 +134,13 @@ public class TradingController {
     @GetMapping("/portfolio/holdings")
     @PreAuthorize("hasAuthority('PORTFOLIO_VIEW')")
     public ApiResponse<List<HoldingDto>> holdings(Authentication authentication) {
-        return ApiResponse.success(tradingService.listHoldings(authenticatedUserId(authentication)), ApiMetaFactory.current());
+        return ApiResponse.success(tradingService.listHoldings(AuthenticatedUserResolver.resolve(authentication)), ApiMetaFactory.current());
     }
 
     @GetMapping("/portfolio/summary")
     @PreAuthorize("hasAuthority('PORTFOLIO_VIEW')")
     public ApiResponse<PortfolioSummaryDto> summary(Authentication authentication) {
-        return ApiResponse.success(tradingService.summary(authenticatedUserId(authentication)), ApiMetaFactory.current());
-    }
-
-    private Long authenticatedUserId(Authentication authentication) {
-        if (authentication == null || StringUtils.isBlank(authentication.getName())) {
-            throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
-        }
-        try {
-            return Long.valueOf(authentication.getName());
-        } catch (NumberFormatException exception) {
-            throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
-        }
+        return ApiResponse.success(tradingService.summary(AuthenticatedUserResolver.resolve(authentication)), ApiMetaFactory.current());
     }
 
     private int parseQueryInt(String value, String field) {

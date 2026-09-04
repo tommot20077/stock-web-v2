@@ -9,6 +9,7 @@ import dowob.xyz.stockwebv2.infrastructure.security.JwtService;
 import dowob.xyz.stockwebv2.infrastructure.security.RateLimitProperties;
 import dowob.xyz.stockwebv2.infrastructure.security.RateLimitService;
 import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
+import dowob.xyz.stockwebv2.infrastructure.web.AuthenticatedUserResolver;
 import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
 import dowob.xyz.stockwebv2.user.domain.User;
 import dowob.xyz.stockwebv2.user.service.AuthService;
@@ -129,7 +130,7 @@ public class AuthController {
 
     @GetMapping("/me")
     public ApiResponse<MeResponse> me(Authentication authentication) {
-        Long userId = authenticatedUserId(authentication);
+        Long userId = AuthenticatedUserResolver.resolve(authentication);
         User user = authService.requireById(userId);
         return ApiResponse.success(user.toMeResponse(), ApiMetaFactory.current());
     }
@@ -154,7 +155,7 @@ public class AuthController {
             return ApiResponse.empty(ApiMetaFactory.current());
         }
 
-        Long userId = authenticatedUserId(authentication);
+        Long userId = AuthenticatedUserResolver.resolve(authentication);
         String refreshToken = request == null ? null : request.refreshToken();
         if (StringUtils.isBlank(refreshToken)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage());
@@ -181,16 +182,5 @@ public class AuthController {
         String accessToken = jwtService.createAccessToken(user.id(), user.role(), user.tokenVersion());
         String refreshToken = refreshTokenService.issue(user, servletRequest.getHeader("User-Agent"));
         return new TokenResponse(accessToken, refreshToken, user.toMeResponse());
-    }
-
-    private Long authenticatedUserId(Authentication authentication) {
-        if (authentication == null || StringUtils.isBlank(authentication.getName())) {
-            throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
-        }
-        try {
-            return Long.valueOf(authentication.getName());
-        } catch (NumberFormatException exception) {
-            throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
-        }
     }
 }

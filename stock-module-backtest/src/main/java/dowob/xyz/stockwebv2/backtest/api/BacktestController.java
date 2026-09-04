@@ -6,6 +6,7 @@ import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
+import dowob.xyz.stockwebv2.infrastructure.web.AuthenticatedUserResolver;
 import jakarta.validation.Valid;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.security.core.Authentication;
@@ -31,7 +32,7 @@ public class BacktestController {
         @Valid @RequestBody CreateBacktestRunRequest request,
         Authentication authentication
     ) {
-        Long userId = authenticatedUserId(authentication);
+        Long userId = AuthenticatedUserResolver.resolve(authentication);
         return ApiResponse.success(backtestService.createRun(userId, request), ApiMetaFactory.current());
     }
 
@@ -42,13 +43,13 @@ public class BacktestController {
 
     @GetMapping("/runs/{runId}")
     public ApiResponse<BacktestRunDto> getRun(@PathVariable String runId, Authentication authentication) {
-        Long userId = authenticatedUserId(authentication);
+        Long userId = AuthenticatedUserResolver.resolve(authentication);
         return ApiResponse.success(backtestService.getRun(userId, runId), ApiMetaFactory.current());
     }
 
     @GetMapping("/runs/{runId}/result")
     public ApiResponse<BacktestResultDto> getResult(@PathVariable String runId, Authentication authentication) {
-        Long userId = authenticatedUserId(authentication);
+        Long userId = AuthenticatedUserResolver.resolve(authentication);
         return ApiResponse.success(backtestService.getResult(userId, runId), ApiMetaFactory.current());
     }
 
@@ -59,24 +60,13 @@ public class BacktestController {
         @RequestParam(defaultValue = "20") String size,
         Authentication authentication
     ) {
-        Long userId = authenticatedUserId(authentication);
+        Long userId = AuthenticatedUserResolver.resolve(authentication);
         return ApiResponse.success(backtestService.listRuns(
             userId,
             symbol,
             parseQueryInt(page, "page"),
             parseQueryInt(size, "size")
         ), ApiMetaFactory.current());
-    }
-
-    private Long authenticatedUserId(Authentication authentication) {
-        if (authentication == null || StringUtils.isBlank(authentication.getName())) {
-            throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
-        }
-        try {
-            return Long.valueOf(authentication.getName());
-        } catch (NumberFormatException exception) {
-            throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
-        }
     }
 
     private int parseQueryInt(String value, String field) {
