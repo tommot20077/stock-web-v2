@@ -4,6 +4,7 @@
 > 方式:四位獨立 reviewer 各審一個維度(安全 / 性能 / 架構 / 功能),主線逐條抽查 HIGH 與關鍵 MEDIUM 的 `file:line` 後才採信。
 > 所有結論皆為**靜態閱讀**;本機當日無 Docker(BIOS 虛擬化關閉),IT / E2E 以 CI 為準。
 > 各維度完整報告:[security.md](security.md)、[performance.md](performance.md)、[architecture.md](architecture.md)、[functionality.md](functionality.md);合併前的 PR review:[pr20-backend-review.md](pr20-backend-review.md)、[pr9-frontend-review.md](pr9-frontend-review.md)。
+> 2026-09-04 追加:[04-13-task2-precheck.md](04-13-task2-precheck.md)——Docker 恢復後對人工檢查點 14 步做的 headless 功能預檢(含一條阻斷問題的修正與三點提醒)。
 
 ## 1. 總覽
 
@@ -84,7 +85,9 @@
 | 前端 #9 → `a00fb29` | Phase 4 前端 7 plan | F-1 review 步驟 oversell 可見錯誤、F-2「新」標記三個清除時機、F-3、`flushAsync` Node 20 假紅 | Node 20 / 24 雙模式 377 / 377、build 綠;CI 綠 |
 | 後端 #22、前端 #10 | 狀態回填與 LESSONS | — | 純文件 |
 
-**仍開著的事**:`04-13` Task 2(Yuan 的雙 mode 14 步瀏覽器確認)未執行——本機 BIOS 虛擬化關閉,Docker / WSL2 起不來;重開機後跑 `E2E_ENV_ONLY=1 bash e2e/run-e2e.sh` 起環境即可照 `04-13-PLAN.md` 走。
+**仍開著的事**:`04-13` Task 2(Yuan 的雙 mode 14 步瀏覽器確認)未執行。
+
+2026-09-04 更新:Yuan 已開啟 BIOS 虛擬化,Docker 恢復。補跑的驗證——後端 `./mvnw -pl stock-start -am verify` **106 IT 全綠**;Playwright browser E2E **18/18 全過**(後端 develop 對前端 develop)。另做了 headless 功能預檢並修掉一條會讓步驟乙走不下去的問題(dev server 缺 `/api` 代理,前端 PR #11),細節見 [04-13-task2-precheck.md](04-13-task2-precheck.md)。Task 2 本身仍需 Yuan 親自判斷版面、動畫與文案可讀性。
 
 ## 6. 殘留未確認
 
