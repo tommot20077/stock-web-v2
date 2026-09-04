@@ -3,8 +3,6 @@ package dowob.xyz.stockwebv2.marketdata.ws;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.ObjectMapper;
 
 import java.security.SecureRandom;
 import java.time.Duration;
@@ -12,6 +10,9 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.Objects;
 import java.util.Optional;
+
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 簽發與消耗 WebSocket 連線用一次性 ticket。

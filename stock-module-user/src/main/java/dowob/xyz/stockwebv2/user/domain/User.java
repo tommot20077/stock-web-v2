@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.user.domain;
 import dowob.xyz.stockwebv2.common.model.Role;
 import dowob.xyz.stockwebv2.common.model.UserStatus;
 import dowob.xyz.stockwebv2.user.api.MeResponse;
+
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Table;
 

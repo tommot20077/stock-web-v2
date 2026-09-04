@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.trading.domain;
 
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.function.Function;

@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.start;
 
 import dowob.xyz.stockwebv2.start.support.ContainerIT;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;

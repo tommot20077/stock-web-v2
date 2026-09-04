@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.marketdata.consumer;
 
 import dowob.xyz.stockwebv2.common.model.KlineInterval;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.marketdata.consumer;
 
 import dowob.xyz.stockwebv2.common.model.KlineInterval;
+
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;

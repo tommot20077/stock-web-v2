@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.marketdata.batch;
 
 import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.batch.core.job.JobExecution;

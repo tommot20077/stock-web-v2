@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.asset.service;
 
 import dowob.xyz.stockwebv2.common.model.AssetType;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
+
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;

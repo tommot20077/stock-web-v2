@@ -3,12 +3,12 @@ package dowob.xyz.stockwebv2.marketdata.api;
 import dowob.xyz.stockwebv2.infrastructure.marketdata.LatestMarketPrice;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPrice;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPriceRepository;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
-import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -21,6 +21,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * {@link MarketDataFacadeImpl} 單元測試 —— 取價的來源順序與降級行為。

@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.start.e2e;
 
 import dowob.xyz.stockwebv2.start.e2e.support.AbstractStockE2ETest;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

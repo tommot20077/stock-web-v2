@@ -4,6 +4,7 @@ import dowob.xyz.stockwebv2.common.event.PriceTickEvent;
 import dowob.xyz.stockwebv2.marketdata.config.KafkaConfig;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPrice;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPriceRepository;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;

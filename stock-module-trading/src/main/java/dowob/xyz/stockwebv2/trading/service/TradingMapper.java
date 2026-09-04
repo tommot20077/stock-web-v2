@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.trading.service;
 
 import dowob.xyz.stockwebv2.trading.api.TradeDto;
 import dowob.xyz.stockwebv2.trading.domain.TradeTransaction;
+
 import org.springframework.stereotype.Component;
 
 @Component

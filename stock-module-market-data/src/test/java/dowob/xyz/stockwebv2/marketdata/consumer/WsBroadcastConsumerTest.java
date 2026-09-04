@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.marketdata.consumer;
 import dowob.xyz.stockwebv2.common.event.PriceTickEvent;
 import dowob.xyz.stockwebv2.marketdata.ws.MarketWebSocketHandler;
 import dowob.xyz.stockwebv2.marketdata.ws.SubscriptionManager;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,10 +13,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
-import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
-import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -26,6 +25,8 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * {@link WsBroadcastConsumer} 單元測試（Mockito-based）。

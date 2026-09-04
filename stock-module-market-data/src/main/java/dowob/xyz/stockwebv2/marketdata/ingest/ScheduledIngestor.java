@@ -6,7 +6,9 @@ import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 import dowob.xyz.stockwebv2.marketdata.provider.DataProvider;
 import dowob.xyz.stockwebv2.marketdata.provider.PriceTick;
 import dowob.xyz.stockwebv2.marketdata.provider.ProviderRegistry;
+
 import jakarta.annotation.PostConstruct;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

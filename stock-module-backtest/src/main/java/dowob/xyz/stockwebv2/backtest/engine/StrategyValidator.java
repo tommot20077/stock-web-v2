@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.backtest.engine;
 
 import dowob.xyz.stockwebv2.backtest.api.StrategyValidationDto;
+
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 

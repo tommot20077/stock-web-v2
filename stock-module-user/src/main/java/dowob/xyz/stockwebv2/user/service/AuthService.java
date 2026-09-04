@@ -8,6 +8,7 @@ import dowob.xyz.stockwebv2.common.model.UserStatus;
 import dowob.xyz.stockwebv2.user.api.RegisterRequest;
 import dowob.xyz.stockwebv2.user.domain.User;
 import dowob.xyz.stockwebv2.user.repository.UserRepository;
+
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

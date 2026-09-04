@@ -15,9 +15,11 @@ import dowob.xyz.stockwebv2.user.domain.User;
 import dowob.xyz.stockwebv2.user.service.AuthService;
 import dowob.xyz.stockwebv2.user.service.BrowserAuthCookieService;
 import dowob.xyz.stockwebv2.user.service.RefreshTokenService;
+
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;

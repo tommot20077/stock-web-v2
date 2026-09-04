@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.marketdata.provider;
 import dowob.xyz.stockwebv2.common.model.AssetType;
 import dowob.xyz.stockwebv2.common.model.KlineInterval;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

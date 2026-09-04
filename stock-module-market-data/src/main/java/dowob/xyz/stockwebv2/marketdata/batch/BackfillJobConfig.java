@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.marketdata.batch;
 
 import dowob.xyz.stockwebv2.common.event.PriceTickEvent;
 import dowob.xyz.stockwebv2.marketdata.provider.PriceTick;
+
 import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;

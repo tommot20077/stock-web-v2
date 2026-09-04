@@ -34,6 +34,8 @@
         <springdoc.version>3.0.2</springdoc.version>
         <testcontainers.version>1.21.4</testcontainers.version>
         <archunit.version>1.3.0</archunit.version>
+        <spotless.version>2.44.5</spotless.version>
+        <jacoco.version>0.8.13</jacoco.version>
     </properties>
 
     <dependencyManagement>
@@ -66,5 +68,65 @@
                 </plugin>
             </plugins>
         </pluginManagement>
+        <plugins>
+            <!--
+                Spotless 只鎖 import 與空白衛生規則，不做完整 formatter。
+                importOrder 依現行 codebase 的實際慣例（dowob → jakarta → org/com → java），
+                照別的順序設定會讓整個專案被重排成一個無法審查的巨大 diff。
+                完整 formatter 若要導入，需要獨立的全量 reformat commit。
+            -->
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>${spotless.version}</version>
+                <configuration>
+                    <java>
+                        <includes>
+                            <include>src/main/java/**/*.java</include>
+                            <include>src/test/java/**/*.java</include>
+                        </includes>
+                        <removeUnusedImports/>
+                        <importOrder>
+                            <order>dowob,jakarta,org,com,java,\#</order>
+                        </importOrder>
+                        <trimTrailingWhitespace/>
+                        <endWithNewline/>
+                    </java>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <phase>validate</phase>
+                    </execution>
+                </executions>
+            </plugin>
+            <!--
+                JaCoCo 先只出報告、不設門檻：現在就設覆蓋率門檻只會逼人寫湊數的測試。
+                等測試債清完再加 check thresholds。
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                        <phase>verify</phase>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+
     </build>
 </project>

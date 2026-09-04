@@ -4,14 +4,15 @@ import dowob.xyz.stockwebv2.backtest.api.StrategyValidationDto;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestPeriod;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestResult;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestStrategyId;
+
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DeterministicBacktestEngineTest {

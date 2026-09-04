@@ -4,6 +4,7 @@ import dowob.xyz.stockwebv2.common.error.DuplicateResourceException;
 import dowob.xyz.stockwebv2.common.model.Role;
 import dowob.xyz.stockwebv2.common.model.UserStatus;
 import dowob.xyz.stockwebv2.user.domain.User;
+
 import org.springframework.context.annotation.Primary;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;

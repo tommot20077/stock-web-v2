@@ -1,6 +1,5 @@
 package dowob.xyz.stockwebv2.marketdata.api;
 
-import tools.jackson.databind.ObjectMapper;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.model.AssetType;
@@ -8,6 +7,7 @@ import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPrice;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPriceRepository;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -22,6 +22,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
+
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * {@link MarketLatestService} 單元測試。

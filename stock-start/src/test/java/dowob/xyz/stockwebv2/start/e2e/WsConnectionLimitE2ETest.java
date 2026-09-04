@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.start.e2e;
 
 import dowob.xyz.stockwebv2.start.e2e.support.AbstractWsE2ETest;
+
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

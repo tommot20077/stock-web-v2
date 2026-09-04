@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.marketdata.observability;
 
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
 import dowob.xyz.stockwebv2.marketdata.provider.MockDataProvider;
+
 import org.springframework.boot.actuate.info.Info;
 import org.springframework.boot.actuate.info.InfoContributor;
 import org.springframework.stereotype.Component;

@@ -6,12 +6,12 @@ import dowob.xyz.stockwebv2.common.model.AssetType;
 import dowob.xyz.stockwebv2.common.model.KlineInterval;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;

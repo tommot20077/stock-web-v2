@@ -7,6 +7,7 @@ import dowob.xyz.stockwebv2.backtest.domain.BacktestResult.DrawdownPoint;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestResult.EquityPoint;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestResult.MonthlyReturn;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestStrategyId;
+
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;

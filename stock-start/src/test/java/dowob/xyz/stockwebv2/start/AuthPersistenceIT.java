@@ -1,7 +1,7 @@
 package dowob.xyz.stockwebv2.start;
 
-import dowob.xyz.stockwebv2.common.error.DuplicateResourceException;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
+import dowob.xyz.stockwebv2.common.error.DuplicateResourceException;
 import dowob.xyz.stockwebv2.common.model.UserStatus;
 import dowob.xyz.stockwebv2.infrastructure.security.JwtProperties;
 import dowob.xyz.stockwebv2.start.support.ContainerIT;
@@ -10,6 +10,7 @@ import dowob.xyz.stockwebv2.user.domain.User;
 import dowob.xyz.stockwebv2.user.repository.UserRepository;
 import dowob.xyz.stockwebv2.user.service.AuthService;
 import dowob.xyz.stockwebv2.user.service.RefreshTokenService;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

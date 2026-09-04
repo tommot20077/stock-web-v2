@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.asset.repository;
 import dowob.xyz.stockwebv2.asset.domain.Asset;
 import dowob.xyz.stockwebv2.common.model.AssetType;
 import dowob.xyz.stockwebv2.common.model.CurrencyCode;
+
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;

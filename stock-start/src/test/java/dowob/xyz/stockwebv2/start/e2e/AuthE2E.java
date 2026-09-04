@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.start.e2e;
 import dowob.xyz.stockwebv2.start.e2e.support.AbstractStockE2ETest;
 import dowob.xyz.stockwebv2.start.e2e.support.AuthE2EHelper;
 import dowob.xyz.stockwebv2.start.e2e.support.DatabaseCleaner;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
