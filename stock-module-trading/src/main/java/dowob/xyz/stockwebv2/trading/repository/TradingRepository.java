@@ -66,5 +66,4 @@ public interface TradingRepository {
      */
     BigDecimal sumRealizedPnl(Long userId);
 
-    Optional<LatestAssetPrice> findLatestPrice(Long assetId);
 }
