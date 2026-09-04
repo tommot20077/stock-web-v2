@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.marketdata.batch;
 
 import dowob.xyz.stockwebv2.common.event.PriceTickEvent;
 import dowob.xyz.stockwebv2.marketdata.ingest.MarketDataIngestService;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.batch.infrastructure.item.Chunk;

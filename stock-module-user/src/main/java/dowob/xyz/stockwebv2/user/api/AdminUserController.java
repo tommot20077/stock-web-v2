@@ -7,8 +7,10 @@ import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
 import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
 import dowob.xyz.stockwebv2.infrastructure.web.AuthenticatedUserResolver;
 import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
-import jakarta.servlet.http.HttpServletRequest;
 import dowob.xyz.stockwebv2.user.service.AuthService;
+
+import jakarta.servlet.http.HttpServletRequest;
+
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PathVariable;

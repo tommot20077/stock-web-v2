@@ -1,12 +1,13 @@
 package dowob.xyz.stockwebv2.marketdata.observability;
 
+import org.springframework.stereotype.Component;
+
+import java.util.concurrent.atomic.AtomicInteger;
+
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
-import org.springframework.stereotype.Component;
-
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Market-data 模組業務 metrics 註冊與存取點。集中此處方便文件化與測試。

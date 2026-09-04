@@ -1,9 +1,10 @@
 package dowob.xyz.stockwebv2.infrastructure.security;
 
-import com.nimbusds.jose.jwk.Curve;
-import com.nimbusds.jose.jwk.ECKey;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import com.nimbusds.jose.jwk.Curve;
+import com.nimbusds.jose.jwk.ECKey;
 
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;

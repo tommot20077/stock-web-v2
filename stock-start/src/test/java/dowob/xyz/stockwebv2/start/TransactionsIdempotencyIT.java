@@ -4,6 +4,7 @@ import dowob.xyz.stockwebv2.start.support.ContainerIT;
 import dowob.xyz.stockwebv2.trading.domain.TradeTransaction;
 import dowob.xyz.stockwebv2.trading.domain.TradeType;
 import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

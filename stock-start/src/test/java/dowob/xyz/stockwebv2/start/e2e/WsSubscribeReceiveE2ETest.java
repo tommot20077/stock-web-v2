@@ -4,6 +4,7 @@ import dowob.xyz.stockwebv2.common.event.PriceTickEvent;
 import dowob.xyz.stockwebv2.marketdata.ingest.MarketDataIngestService;
 import dowob.xyz.stockwebv2.start.e2e.support.AbstractWsE2ETest;
 import dowob.xyz.stockwebv2.start.e2e.support.DatabaseCleaner;
+
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -18,7 +19,6 @@ import org.springframework.web.socket.handler.AbstractWebSocketHandler;
 
 import java.math.BigDecimal;
 import java.net.URI;
-import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;

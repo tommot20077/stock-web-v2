@@ -9,6 +9,7 @@ import dowob.xyz.stockwebv2.backtest.engine.DeterministicBacktestEngine;
 import dowob.xyz.stockwebv2.backtest.engine.StrategyValidator;
 import dowob.xyz.stockwebv2.backtest.repository.JdbcBacktestRepository;
 import dowob.xyz.stockwebv2.start.support.ContainerIT;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;

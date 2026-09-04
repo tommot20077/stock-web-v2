@@ -1,13 +1,14 @@
 package dowob.xyz.stockwebv2.user.service;
 
-import dowob.xyz.stockwebv2.common.error.DuplicateResourceException;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
+import dowob.xyz.stockwebv2.common.error.DuplicateResourceException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.model.Role;
 import dowob.xyz.stockwebv2.common.model.UserStatus;
 import dowob.xyz.stockwebv2.user.api.RegisterRequest;
 import dowob.xyz.stockwebv2.user.domain.User;
 import dowob.xyz.stockwebv2.user.repository.UserRepository;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;

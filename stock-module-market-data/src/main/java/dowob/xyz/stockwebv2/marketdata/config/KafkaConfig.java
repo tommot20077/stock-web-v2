@@ -1,6 +1,5 @@
 package dowob.xyz.stockwebv2.marketdata.config;
 
-import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.context.annotation.Bean;
@@ -13,6 +12,8 @@ import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.FixedBackOff;
+
+import io.micrometer.core.instrument.MeterRegistry;
 
 /**
  * Kafka 設定 — 自動建立 market-data 模組使用的兩個主要 topic 與對應的

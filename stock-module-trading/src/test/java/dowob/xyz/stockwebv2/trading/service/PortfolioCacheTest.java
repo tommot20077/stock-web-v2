@@ -7,11 +7,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionSynchronizationUtils;
-import tools.jackson.databind.ObjectMapper;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * {@link PortfolioCache} 的失效時機。

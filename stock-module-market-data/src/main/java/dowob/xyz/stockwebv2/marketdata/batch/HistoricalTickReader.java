@@ -8,6 +8,7 @@ import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 import dowob.xyz.stockwebv2.marketdata.provider.DataProvider;
 import dowob.xyz.stockwebv2.marketdata.provider.PriceTick;
 import dowob.xyz.stockwebv2.marketdata.provider.ProviderRegistry;
+
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.infrastructure.item.ItemReader;
 import org.springframework.beans.factory.annotation.Value;

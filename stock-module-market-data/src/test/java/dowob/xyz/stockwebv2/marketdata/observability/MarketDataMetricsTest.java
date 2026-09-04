@@ -1,6 +1,5 @@
 package dowob.xyz.stockwebv2.marketdata.observability;
 
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -8,6 +7,8 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
  * {@link MarketDataMetrics} 單元測試 — 驗證 metric 計數器、gauge 與 timer 的正確性。

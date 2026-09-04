@@ -19,6 +19,7 @@ import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.model.AssetType;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
+
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;

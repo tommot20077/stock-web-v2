@@ -1,11 +1,12 @@
 package dowob.xyz.stockwebv2.marketdata.api;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import tools.jackson.databind.annotation.JsonSerialize;
-import tools.jackson.databind.ser.std.ToStringSerializer;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+
+import tools.jackson.databind.annotation.JsonSerialize;
+import tools.jackson.databind.ser.std.ToStringSerializer;
 
 /**
  * REST {@code /api/v1/market/{symbol}/latest} 與批次端點的單一資產回應。

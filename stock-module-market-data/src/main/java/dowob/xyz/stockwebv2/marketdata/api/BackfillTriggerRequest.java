@@ -1,7 +1,8 @@
 package dowob.xyz.stockwebv2.marketdata.api;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.NotNull;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
 

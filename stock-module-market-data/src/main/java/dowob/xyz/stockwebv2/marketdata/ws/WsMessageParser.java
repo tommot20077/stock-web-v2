@@ -2,14 +2,15 @@ package dowob.xyz.stockwebv2.marketdata.ws;
 
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;
+
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * WebSocket 客戶端訊息解析器：將 JSON 文字解析為 {@link ClientMessage} 物件。

@@ -7,6 +7,7 @@ import dowob.xyz.stockwebv2.trading.domain.Holding;
 import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
 import dowob.xyz.stockwebv2.trading.domain.TradeTransaction;
 import dowob.xyz.stockwebv2.trading.domain.TradeType;
+
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 

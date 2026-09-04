@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.marketdata.provider;
 
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
+
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 

@@ -7,6 +7,7 @@ import dowob.xyz.stockwebv2.common.model.KlineInterval;
 import dowob.xyz.stockwebv2.common.time.ApiTimeParser;
 import dowob.xyz.stockwebv2.common.time.ApiTimeParser.RangeBound;
 import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
+
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;

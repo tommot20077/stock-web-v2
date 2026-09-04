@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.start.e2e;
 
 import dowob.xyz.stockwebv2.start.e2e.support.AbstractStockE2ETest;
 import dowob.xyz.stockwebv2.start.e2e.support.DatabaseCleaner;
+
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -11,7 +12,6 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MvcResult;
-import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -25,6 +25,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import tools.jackson.databind.JsonNode;
 
 /**
  * Backfill 管理員流程 E2E 測試。

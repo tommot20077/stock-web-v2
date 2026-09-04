@@ -16,6 +16,27 @@ permissions:
   checks: write
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      # spotless:check 也綁在 validate 階段，每個 maven job 都會跑；
+      # 這個獨立 job 只是為了在 15 分鐘的測試 job 之前先給出格式問題的訊號。
+      - name: Check formatting
+        run: ./mvnw -B spotless:check --no-transfer-progress
+
   unit:
     name: Unit Tests
     runs-on: ubuntu-latest

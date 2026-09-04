@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.marketdata.batch;
 
 import dowob.xyz.stockwebv2.common.event.PriceTickEvent;
 import dowob.xyz.stockwebv2.marketdata.ingest.MarketDataIngestService;
+
 import org.springframework.batch.infrastructure.item.Chunk;
 import org.springframework.batch.infrastructure.item.ItemWriter;
 import org.springframework.kafka.support.SendResult;
