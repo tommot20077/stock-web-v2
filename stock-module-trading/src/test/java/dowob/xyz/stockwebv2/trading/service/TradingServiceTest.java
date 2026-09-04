@@ -7,9 +7,13 @@ import dowob.xyz.stockwebv2.common.error.FieldValidationException;
 import dowob.xyz.stockwebv2.common.model.AssetType;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
+import dowob.xyz.stockwebv2.infrastructure.marketdata.LatestMarketPrice;
+import dowob.xyz.stockwebv2.infrastructure.marketdata.MarketDataFacade;
 import dowob.xyz.stockwebv2.trading.api.CreateTradeRequest;
+import dowob.xyz.stockwebv2.trading.api.HoldingDto;
 import dowob.xyz.stockwebv2.trading.api.TradeDto;
 import dowob.xyz.stockwebv2.trading.domain.Holding;
+import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
 import dowob.xyz.stockwebv2.trading.domain.SortDirection;
 import dowob.xyz.stockwebv2.trading.domain.TradeSortKey;
 import dowob.xyz.stockwebv2.trading.domain.TradeTransaction;
@@ -66,6 +70,7 @@ class TradingServiceTest {
     private static final OffsetDateTime SENT_EXECUTED_AT = OffsetDateTime.parse("2026-01-10T08:00:00+08:00");
 
     private TradingRepository repository;
+    private MarketDataFacade marketDataFacade;
     private AssetFacade assetFacade;
     private PortfolioCache portfolioCache;
     private TradingService service;
@@ -73,11 +78,69 @@ class TradingServiceTest {
     @BeforeEach
     void setup() {
         repository = mock(TradingRepository.class);
+        marketDataFacade = mock(MarketDataFacade.class);
         assetFacade = mock(AssetFacade.class);
         portfolioCache = mock(PortfolioCache.class);
-        service = new TradingService(repository, assetFacade, portfolioCache, new TradingMapper());
+        service = new TradingService(repository, assetFacade, marketDataFacade, portfolioCache, new TradingMapper());
         when(repository.listTransactions(any(TradeQuery.class)))
             .thenReturn(PageResponse.of(List.<TradeTransaction>of(), 0, 20, 0L));
+    }
+
+    @Test
+    @DisplayName("持倉估值用 market-data 的即時價，不是自己查 asset_latest_prices")
+    void holdingValuationUsesLiveMarketPrice() {
+        /*
+         * 原本 trading 以自己的 SQL 查 asset_latest_prices —— 那張表只有 V2 seed 寫過一次，
+         * 全 repo 沒有任何程式更新它，於是市值永遠停在種子價。真正的即時價在 market-data 手上
+         * （Redis market:latest:{assetId} → market_prices），只能經 MarketDataFacade 取得。
+         */
+        HoldingPosition position = position(new BigDecimal("10"), new BigDecimal("100"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(position));
+        when(portfolioCache.readHolding(7L, 42L)).thenReturn(Optional.empty());
+        when(marketDataFacade.findLatestPrice(42L)).thenReturn(Optional.of(
+            new LatestMarketPrice(new BigDecimal("150"), OffsetDateTime.parse("2026-09-04T10:00:00+08:00"))));
+
+        List<HoldingDto> holdings = service.listHoldings(7L);
+
+        assertThat(holdings).hasSize(1);
+        HoldingDto dto = holdings.getFirst();
+        assertThat(dto.marketPrice()).isEqualByComparingTo("150");
+        assertThat(dto.marketValue()).isEqualByComparingTo("1500");
+        assertThat(dto.unrealizedPnl()).isEqualByComparingTo("500");
+        assertThat(dto.priceTime()).isEqualTo(OffsetDateTime.parse("2026-09-04T10:00:00+08:00"));
+    }
+
+    @Test
+    @DisplayName("市場沒有這檔的價格時退回平均成本，市值等於成本、未實現損益為零")
+    void holdingValuationFallsBackToAverageCostWhenNoMarketPrice() {
+        /*
+         * 「查不到行情」與「行情剛好等於某個數字」必須可區分，所以 facade 回 empty 而不是塞預設價；
+         * 退場策略由這裡決定：以平均成本估值 → 未實現損益 0，不會假裝賺賠。
+         */
+        HoldingPosition position = position(new BigDecimal("10"), new BigDecimal("100"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(position));
+        when(portfolioCache.readHolding(7L, 42L)).thenReturn(Optional.empty());
+        when(marketDataFacade.findLatestPrice(42L)).thenReturn(Optional.empty());
+
+        HoldingDto dto = service.listHoldings(7L).getFirst();
+
+        assertThat(dto.marketPrice()).isEqualByComparingTo("100");
+        assertThat(dto.marketValue()).isEqualByComparingTo("1000");
+        assertThat(dto.unrealizedPnl()).isEqualByComparingTo("0");
+    }
+
+    /**
+     * 建立一筆測試用持倉。
+     *
+     * @param quantity 持有數量
+     * @param avgCost  平均成本
+     * @return 持倉位置
+     */
+    private HoldingPosition position(BigDecimal quantity, BigDecimal avgCost) {
+        return new HoldingPosition(
+            1L, 7L, 42L, UUID.fromString("11111111-1111-1111-1111-111111111111"),
+            "AAPL", "Apple Inc.", quantity, avgCost, BigDecimal.ZERO, 0,
+            OffsetDateTime.parse("2026-09-01T00:00:00+08:00"));
     }
 
     @Test

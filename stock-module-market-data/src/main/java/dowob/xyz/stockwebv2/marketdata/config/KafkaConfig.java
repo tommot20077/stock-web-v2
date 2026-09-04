@@ -144,13 +144,43 @@ public class KafkaConfig {
     }
 
     /**
+     * 單筆 Kafka Listener Container Factory — 供 {@code WsBroadcastConsumer} 使用。
+     *
+     * <p>Ack mode 明確設為 {@link ContainerProperties.AckMode#RECORD}：每筆處理成功後由
+     * Spring Kafka commit offset。<strong>不可省略而改用預設 factory</strong> —— 預設 factory 會套用
+     * {@code application.yaml} 的全域 {@code spring.kafka.listener.ack-mode}，而
+     * {@code WsBroadcastConsumer.onTick} 的簽章沒有 {@link org.springframework.kafka.support.Acknowledgment}
+     * 參數。若全域值是 {@code manual}，這個 listener 就<strong>永遠不會 commit offset</strong>，
+     * 搭配 {@code auto-offset-reset: earliest} 會讓 consumer group 在每次應用重啟時重播整個 tick topic
+     * （Redis latest cache 被舊價覆寫、WS 客戶端收到歷史 tick 洪流）。此不變量由
+     * {@code KafkaAckModeTest} 鎖住。
+     *
+     * <p>失敗路徑沿用與批次消費相同的 {@link DefaultErrorHandler}：retry 3 次後進 DLT，
+     * 由錯誤處理器負責推進 offset，不會卡在同一筆。
+     *
+     * @param consumerFactory   Spring Boot auto-config 建立的 consumer factory
+     * @param kafkaErrorHandler 包含 DLT recoverer 與 backoff retry 的錯誤處理器
+     * @return 單筆模式且每筆 commit offset 的 {@link ConcurrentKafkaListenerContainerFactory}
+     */
+    @Bean(name = "wsBroadcastKafkaListenerContainerFactory")
+    public ConcurrentKafkaListenerContainerFactory<String, Object> wsBroadcastKafkaListenerContainerFactory(
+            ConsumerFactory<String, Object> consumerFactory,
+            DefaultErrorHandler kafkaErrorHandler) {
+        ConcurrentKafkaListenerContainerFactory<String, Object> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(consumerFactory);
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.RECORD);
+        factory.setCommonErrorHandler(kafkaErrorHandler);
+        return factory;
+    }
+
+    /**
      * 批次 Kafka Listener Container Factory — 供 {@code PriceWriterConsumer} 使用。
      *
      * <p>啟用 {@code batchListener = true}，讓 {@code @KafkaListener} 可接收
      * {@code List<PriceTickEvent>}，一次 batch insert 避免 N 次 round-trip。
      * Ack mode 設為 {@link ContainerProperties.AckMode#BATCH}，
-     * 整批成功後由 Spring Kafka 自動 commit offset，與 global {@code manual}
-     * 設定分離，不需手動呼叫 {@code Acknowledgment}。
+     * 整批成功後由 Spring Kafka 自動 commit offset，不需手動呼叫 {@code Acknowledgment}。
      *
      * <p>{@code consumerFactory} 由 Spring Boot auto-config 根據
      * {@code spring.kafka.consumer.*} 屬性自動建立並注入。

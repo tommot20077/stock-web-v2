@@ -24,8 +24,9 @@ spring:
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         "[spring.json.trusted.packages]": "dowob.xyz.stockwebv2.common.event"
-    listener:
-      ack-mode: manual
+    # 不設全域 ack-mode:兩個 listener 都以 containerFactory 明確指定(RECORD / BATCH)。
+    # 這裡曾設為 manual,而 WsBroadcastConsumer 沒收 Acknowledgment,結果是永不 commit offset、
+    # 每次重啟從 earliest 重播整個 tick topic。留空讓未來新增的 listener 落在會自動 commit 的預設值。
 
 server:
   port: ${SERVER_PORT:11180}

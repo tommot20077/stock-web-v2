@@ -310,21 +310,6 @@ public class JdbcTradingRepository implements TradingRepository {
             .single();
     }
 
-    @Override
-    public Optional<LatestAssetPrice> findLatestPrice(Long assetId) {
-        return jdbcClient.sql("""
-                select price, price_time
-                from asset_latest_prices
-                where asset_id = :assetId
-                """)
-            .param("assetId", assetId)
-            .query((rs, rowNum) -> new LatestAssetPrice(
-                rs.getBigDecimal("price"),
-                rs.getObject("price_time", java.time.OffsetDateTime.class)
-            ))
-            .optional();
-    }
-
     private TradeTransaction mapTransaction(ResultSet rs, int rowNum) throws SQLException {
         return new TradeTransaction(
             rs.getLong("id"),

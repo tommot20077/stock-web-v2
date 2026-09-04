@@ -7,6 +7,8 @@ import dowob.xyz.stockwebv2.common.error.FieldValidationException;
 import dowob.xyz.stockwebv2.common.time.ApiTimeParser;
 import dowob.xyz.stockwebv2.common.time.ApiTimeParser.RangeBound;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
+import dowob.xyz.stockwebv2.infrastructure.marketdata.LatestMarketPrice;
+import dowob.xyz.stockwebv2.infrastructure.marketdata.MarketDataFacade;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 import dowob.xyz.stockwebv2.trading.api.CreateTradeRequest;
 import dowob.xyz.stockwebv2.trading.api.HoldingDto;
@@ -20,7 +22,6 @@ import dowob.xyz.stockwebv2.trading.domain.TradePayloadMatcher;
 import dowob.xyz.stockwebv2.trading.domain.TradeSortKey;
 import dowob.xyz.stockwebv2.trading.domain.TradeTransaction;
 import dowob.xyz.stockwebv2.trading.domain.TradeType;
-import dowob.xyz.stockwebv2.trading.repository.LatestAssetPrice;
 import dowob.xyz.stockwebv2.trading.repository.TradeQuery;
 import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
 import org.apache.commons.lang3.StringUtils;
@@ -63,6 +64,7 @@ public class TradingService {
 
     private final TradingRepository repository;
     private final AssetFacade assetFacade;
+    private final MarketDataFacade marketDataFacade;
     private final PortfolioCache portfolioCache;
     private final TradingMapper mapper;
     private final HoldingCalculator calculator;
@@ -70,11 +72,13 @@ public class TradingService {
     public TradingService(
         TradingRepository repository,
         AssetFacade assetFacade,
+        MarketDataFacade marketDataFacade,
         PortfolioCache portfolioCache,
         TradingMapper mapper
     ) {
         this.repository = repository;
         this.assetFacade = assetFacade;
+        this.marketDataFacade = marketDataFacade;
         this.portfolioCache = portfolioCache;
         this.mapper = mapper;
         this.calculator = new HoldingCalculator();
@@ -340,9 +344,22 @@ public class TradingService {
         });
     }
 
+    /**
+     * 為單一持倉估值並寫入快取。
+     *
+     * <p>最新價一律經 {@link MarketDataFacade} 取得（Redis latest → {@code market_prices}）。
+     * <strong>不得改回自己查 {@code asset_latest_prices}</strong> —— 那張表只有 V2 seed 寫過一次，
+     * 沒有任何程式更新它，讀它等於讓市值永遠停在種子價；何況跨模組取資料本來就該走 Facade。
+     *
+     * <p>查無行情時退回平均成本估值：市值等於成本、未實現損益為零。這是刻意的——寧可顯示「沒有變化」，
+     * 也不要拿一個不知道多舊的價格假裝賺賠。
+     *
+     * @param position 持倉位置
+     * @return 估值後的持倉 DTO
+     */
     private HoldingDto calculateAndCacheHolding(HoldingPosition position) {
-        LatestAssetPrice latest = repository.findLatestPrice(position.assetId())
-            .orElse(new LatestAssetPrice(position.avgCost(), position.lastUpdated()));
+        LatestMarketPrice latest = marketDataFacade.findLatestPrice(position.assetId())
+            .orElseGet(() -> new LatestMarketPrice(position.avgCost(), position.lastUpdated()));
         BigDecimal costBasis = position.totalQuantity().multiply(position.avgCost()).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
         BigDecimal marketValue = position.totalQuantity().multiply(latest.price()).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
         BigDecimal unrealized = marketValue.subtract(costBasis);
