@@ -88,11 +88,16 @@ public class WsBroadcastConsumer {
      *   <li>更新 KLINE bucket 並廣播 5 個 interval 訊息</li>
      * </ol>
      *
+     * <p>offset 由 {@code wsBroadcastKafkaListenerContainerFactory} 的 RECORD ack mode 在每筆處理成功後
+     * 自動 commit。<strong>不可拿掉 {@code containerFactory}</strong> —— 預設 factory 套用全域 ack-mode，
+     * 而本方法沒有 {@code Acknowledgment} 參數，會變成永不 commit（重啟即重播整個 topic）。
+     *
      * @param event 來自 Kafka 的 tick 事件
      */
     @KafkaListener(
             groupId = "market-data.ws-broadcast",
-            topics = KafkaConfig.TOPIC_PRICE_TICK
+            topics = KafkaConfig.TOPIC_PRICE_TICK,
+            containerFactory = "wsBroadcastKafkaListenerContainerFactory"
     )
     public void onTick(PriceTickEvent event) {
         // Step 1: 更新 Redis latest cache
