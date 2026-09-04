@@ -5,8 +5,11 @@ import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
 import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
 import dowob.xyz.stockwebv2.infrastructure.web.AuthenticatedUserResolver;
+import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.security.core.Authentication;
@@ -22,18 +25,39 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/backtests")
 public class BacktestController {
     private final BacktestService backtestService;
+    private final AuditLogger auditLogger;
 
-    public BacktestController(BacktestService backtestService) {
+    public BacktestController(BacktestService backtestService, AuditLogger auditLogger) {
         this.backtestService = backtestService;
+        this.auditLogger = auditLogger;
     }
 
+    /**
+     * 建立一次回測。
+     *
+     * <p>回測會佔用運算資源並產生持久化紀錄，屬於改變系統狀態的寫入操作，因此成功與失敗都留稽核。
+     *
+     * @param request        建立回測的請求
+     * @param authentication 當前請求身份
+     * @param servletRequest 用於解析來源 IP
+     * @return 建立完成的回測
+     */
     @PostMapping("/runs")
     public ApiResponse<BacktestRunDto> createRun(
         @Valid @RequestBody CreateBacktestRunRequest request,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
         Long userId = AuthenticatedUserResolver.resolve(authentication);
-        return ApiResponse.success(backtestService.createRun(userId, request), ApiMetaFactory.current());
+        String ip = ClientIpResolver.resolve(servletRequest);
+        try {
+            BacktestRunDto run = backtestService.createRun(userId, request);
+            auditLogger.log(userId, "backtest_create", "backtest:" + run.id(), "success", ip);
+            return ApiResponse.success(run, ApiMetaFactory.current());
+        } catch (BusinessException exception) {
+            auditLogger.log(userId, "backtest_create", "backtest", "failure:" + exception.errorCode().name(), ip);
+            throw exception;
+        }
     }
 
     @PostMapping("/strategies/validate")
