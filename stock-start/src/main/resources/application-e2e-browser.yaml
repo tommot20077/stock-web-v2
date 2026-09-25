@@ -51,6 +51,12 @@ stock:
       refresh:
         limit: 10000
         window: PT1M
+      api:
+        limit: 10000
+        window: PT1M
+      public-api:
+        limit: 10000
+        window: PT1M
       lockout:
         threshold: ${STOCK_LOCKOUT_THRESHOLD:3}
         duration: ${STOCK_LOCKOUT_DURATION:PT2M}
