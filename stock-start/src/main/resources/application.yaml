@@ -46,9 +46,9 @@ management:
 
 springdoc:
   api-docs:
-    enabled: ${STOCK_OPENAPI_ENABLED:true}
+    enabled: ${STOCK_OPENAPI_ENABLED:false}
   swagger-ui:
-    enabled: ${STOCK_SWAGGER_UI_ENABLED:true}
+    enabled: ${STOCK_SWAGGER_UI_ENABLED:false}
 
 stock:
   auth:
