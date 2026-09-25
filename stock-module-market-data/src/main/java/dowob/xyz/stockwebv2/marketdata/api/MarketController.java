@@ -8,6 +8,7 @@ import dowob.xyz.stockwebv2.common.time.ApiTimeParser;
 import dowob.xyz.stockwebv2.common.time.ApiTimeParser.RangeBound;
 import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,6 +36,12 @@ import java.util.Optional;
  * @author Yuan
  * @version 1.0.0
  */
+/*
+ * 方法層授權：URL 層（SecurityConfig anyRequest().authenticated()）已要求登入，這裡再明確宣告一次，
+ * 讓「這些端點需要登入」跟著程式碼走，不因 URL 規則調整而無聲變成公開（安全審查 M-4）。
+ * 目前沒有對應的細粒度 Permission；要新增權限屬於權限模型的變更，另案討論。
+ */
+@PreAuthorize("isAuthenticated()")
 @RestController
 @RequestMapping("/api/v1/market")
 public class MarketController {
