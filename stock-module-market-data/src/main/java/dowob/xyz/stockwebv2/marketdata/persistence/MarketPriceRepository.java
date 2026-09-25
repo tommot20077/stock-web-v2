@@ -10,6 +10,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,6 +42,14 @@ public class MarketPriceRepository {
             WHERE asset_id = :assetId
             ORDER BY time DESC
             LIMIT 1
+            """;
+
+    /** 每個 asset 取最新一列；DISTINCT ON 配合 (asset_id, time DESC) 索引，一次查詢完成。 */
+    private static final String FIND_LATEST_BATCH_SQL = """
+            SELECT DISTINCT ON (asset_id) asset_id, time, price, volume
+            FROM market_prices
+            WHERE asset_id IN (:assetIds)
+            ORDER BY asset_id, time DESC
             """;
 
     private static final String FIND_RANGE_SQL = """
@@ -110,6 +119,22 @@ public class MarketPriceRepository {
                 .param("assetId", assetId)
                 .query(this::map)
                 .optional();
+    }
+
+    /**
+     * 批次查詢多個 asset 各自的最新 tick。
+     *
+     * @param assetIds 資產 ID 集合；空集合直接回傳空 list（{@code IN ()} 在 PostgreSQL 是語法錯誤）
+     * @return 每個有資料的 asset 各一筆；查無資料的 asset 不出現
+     */
+    public List<MarketPrice> findLatestBatch(Collection<Long> assetIds) {
+        if (assetIds.isEmpty()) {
+            return List.of();
+        }
+        return jdbcClient.sql(FIND_LATEST_BATCH_SQL)
+                .param("assetIds", assetIds)
+                .query(this::map)
+                .list();
     }
 
     /**
