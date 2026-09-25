@@ -124,10 +124,18 @@ class SessionSendDispatcherTest {
         verify(broken, timeout(1000)).close(new CloseStatus(4500, "Send failure"));
     }
 
-    private static WebSocketSession openSession(String id) {
+    /**
+     * 建立一個行為貼近真實的 session mock：{@code close()} 之後 {@code isOpen()} 回 false。
+     */
+    private static WebSocketSession openSession(String id) throws Exception {
         WebSocketSession session = mock(WebSocketSession.class);
-        when(session.isOpen()).thenReturn(true);
+        java.util.concurrent.atomic.AtomicBoolean open = new java.util.concurrent.atomic.AtomicBoolean(true);
+        when(session.isOpen()).thenAnswer(inv -> open.get());
         when(session.getId()).thenReturn(id);
+        doAnswer(inv -> {
+            open.set(false);
+            return null;
+        }).when(session).close(any(CloseStatus.class));
         return session;
     }
 }

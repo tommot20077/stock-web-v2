@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.marketdata.consumer;
 
 import dowob.xyz.stockwebv2.common.event.PriceTickEvent;
 import dowob.xyz.stockwebv2.marketdata.ws.MarketWebSocketHandler;
+import dowob.xyz.stockwebv2.marketdata.ws.SessionSendDispatcher;
 import dowob.xyz.stockwebv2.marketdata.ws.SubscriptionManager;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -70,7 +71,9 @@ class WsBroadcastConsumerTest {
         accumulator = new KlineBucketAccumulator();
         objectMapper = new ObjectMapper();
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        consumer = new WsBroadcastConsumer(subscriptionManager, handler, accumulator, redisTemplate, objectMapper);
+        // 派發器用同步執行（Runnable::run），讓既有斷言維持同步；非同步隔離另由 SessionSendDispatcherTest 驗證
+        consumer = new WsBroadcastConsumer(subscriptionManager, handler, accumulator, redisTemplate, objectMapper,
+                new SessionSendDispatcher(Runnable::run, 256));
     }
 
     // ── Redis latest cache ────────────────────────────────────────────────────
