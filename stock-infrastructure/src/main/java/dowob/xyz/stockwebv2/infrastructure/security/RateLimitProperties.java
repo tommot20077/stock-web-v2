@@ -23,7 +23,9 @@ public record RateLimitProperties(
     Rule login,
     Rule register,
     Rule refresh,
-    Lockout lockout
+    Lockout lockout,
+    Rule api,
+    Rule publicApi
 ) {
 
     public RateLimitProperties {
@@ -34,6 +36,9 @@ public record RateLimitProperties(
         register = Objects.requireNonNullElseGet(register, () -> new Rule(5, Duration.ofHours(1)));
         refresh = Objects.requireNonNullElseGet(refresh, () -> new Rule(5, Duration.ofMinutes(1)));
         lockout = Objects.requireNonNullElseGet(lockout, () -> new Lockout(5, Duration.ofMinutes(15)));
+        // security.md §15 General API Rate Limiting：已登入每位使用者 100/min、公開端點每 IP 60/min
+        api = Objects.requireNonNullElseGet(api, () -> new Rule(100, Duration.ofMinutes(1)));
+        publicApi = Objects.requireNonNullElseGet(publicApi, () -> new Rule(60, Duration.ofMinutes(1)));
     }
 
     /**

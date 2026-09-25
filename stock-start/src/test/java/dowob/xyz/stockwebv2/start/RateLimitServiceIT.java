@@ -45,7 +45,7 @@ class RateLimitServiceIT extends ContainerIT {
 
     @BeforeEach
     void setup() {
-        RateLimitProperties properties = new RateLimitProperties(true, null, null, null, null);
+        RateLimitProperties properties = new RateLimitProperties(true, null, null, null, null, null, null);
         service = new RateLimitService(redisTemplate, properties);
     }
 
