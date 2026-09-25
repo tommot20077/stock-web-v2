@@ -184,6 +184,35 @@ class MarketPriceRepositoryIT {
         assertThat(result).isEmpty();
     }
 
+    // ── findLatestBatch ──────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("findLatestBatch：多個 asset 各取時間最晚的一筆，一次查詢完成")
+    void findLatestBatch_returnsMostRecentPerAsset() {
+        repo.insertAll(List.of(
+                price(ASSET_A, T0, "100.00", "10.00"),
+                price(ASSET_A, T2, "102.00", "12.00"),
+                price(ASSET_B, T1, "200.00", "20.00"),
+                price(ASSET_B, T0, "199.00", "19.00")
+        ));
+
+        List<MarketPrice> latest = repo.findLatestBatch(List.of(ASSET_A, ASSET_B, 999L));
+
+        assertThat(latest).hasSize(2);
+        assertThat(latest).filteredOn(p -> p.assetId().equals(ASSET_A))
+                .singleElement()
+                .satisfies(p -> assertThat(p.price()).isEqualByComparingTo("102.00"));
+        assertThat(latest).filteredOn(p -> p.assetId().equals(ASSET_B))
+                .singleElement()
+                .satisfies(p -> assertThat(p.price()).isEqualByComparingTo("200.00"));
+    }
+
+    @Test
+    @DisplayName("findLatestBatch：空輸入回空 list，不送 SQL（IN () 在 PostgreSQL 是語法錯誤）")
+    void findLatestBatch_emptyInput_returnsEmpty() {
+        assertThat(repo.findLatestBatch(List.of())).isEmpty();
+    }
+
     // ── findRange ────────────────────────────────────────────────────────────
 
     @Test

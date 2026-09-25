@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.infrastructure.marketdata;
 
+import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -30,4 +32,15 @@ public interface MarketDataFacade {
      * @return 最新價與其時間戳；查無資料時 {@link Optional#empty()}
      */
     Optional<LatestMarketPrice> findLatestPrice(Long assetId);
+
+    /**
+     * 批次取得多個資產的最新成交價。
+     *
+     * <p>語意與 {@link #findLatestPrice(Long)} 相同，但以固定次數的往返完成（一次快取批次讀取，未命中者一次查詢），
+     * 供需要同時估值多筆持倉的呼叫端使用，避免逐筆查詢的 N+1。
+     *
+     * @param assetIds 資產 id 集合，不可為 null；可為空
+     * @return 資產 id → 最新價；查無行情的資產<strong>不出現在結果中</strong>（不塞預設價）
+     */
+    Map<Long, LatestMarketPrice> findLatestPrices(Collection<Long> assetIds);
 }

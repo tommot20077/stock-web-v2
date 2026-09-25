@@ -1,16 +1,26 @@
 package dowob.xyz.stockwebv2.trading.service;
 
+import dowob.xyz.stockwebv2.trading.api.HoldingDto;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionSynchronizationUtils;
 
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import tools.jackson.databind.ObjectMapper;
 
@@ -75,5 +85,35 @@ class PortfolioCacheTest {
 
         verify(redisTemplate).delete("portfolio:valuation:7:42");
         verify(redisTemplate).delete("portfolio:summary:7");
+    }
+
+    @Test
+    @DisplayName("批次讀取持倉快取：一次 MGET，只回傳命中的項目")
+    @SuppressWarnings("unchecked")
+    void readHoldingsUsesSingleMultiGet() {
+        ValueOperations<String, String> valueOps = mock(ValueOperations.class);
+        when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        when(valueOps.multiGet(List.of("portfolio:valuation:7:41", "portfolio:valuation:7:42"))).thenReturn(Arrays.asList(
+            null,
+            "{\"assetId\":\"u\",\"symbol\":\"MSFT\",\"assetName\":\"MSFT\",\"totalQuantity\":5,\"avgCost\":200,"
+                + "\"costBasis\":1000,\"marketPrice\":210,\"marketValue\":1050,\"realizedPnl\":0,\"unrealizedPnl\":50,"
+                + "\"roi\":0.05,\"priceTime\":null,\"lastUpdated\":null}"));
+
+        Map<Long, HoldingDto> cached = cache.readHoldings(7L, List.of(41L, 42L));
+
+        assertThat(cached).containsOnlyKeys(42L);
+        assertThat(cached.get(42L).symbol()).isEqualTo("MSFT");
+        verify(valueOps, times(1)).multiGet(List.of("portfolio:valuation:7:41", "portfolio:valuation:7:42"));
+    }
+
+    @Test
+    @DisplayName("批次讀取持倉快取：Redis 失敗時回空，讓呼叫端全部重算而不是整頁失敗")
+    @SuppressWarnings("unchecked")
+    void readHoldingsReturnsEmptyWhenRedisFails() {
+        ValueOperations<String, String> valueOps = mock(ValueOperations.class);
+        when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        when(valueOps.multiGet(org.mockito.ArgumentMatchers.anyList())).thenThrow(new IllegalStateException("redis down"));
+
+        assertThat(cache.readHoldings(7L, List.of(41L))).isEmpty();
     }
 }

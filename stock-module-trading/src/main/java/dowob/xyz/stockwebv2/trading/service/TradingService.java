@@ -315,9 +315,32 @@ public class TradingService {
         return requested;
     }
 
+    /**
+     * 列出使用者的持倉與估值。
+     *
+     * <p>以固定次數的往返完成：一次批次讀持倉快取、對未命中者一次批次取價，再逐筆寫回快取。
+     * 原本每筆持倉各自讀快取、取價、寫快取，N 筆約 3N 次往返，成交後三個頁面同時 refetch 還會放大
+     * （性能審查 MED-5）。回傳順序與 {@code repository.listHoldings} 相同。
+     *
+     * @param userId 使用者 id
+     * @return 持倉 DTO 列表
+     */
     public List<HoldingDto> listHoldings(Long userId) {
-        return repository.listHoldings(userId).stream()
-            .map(position -> portfolioCache.readHolding(userId, position.assetId()).orElseGet(() -> calculateAndCacheHolding(position)))
+        List<HoldingPosition> positions = repository.listHoldings(userId);
+        if (positions.isEmpty()) {
+            return List.of();
+        }
+        List<Long> assetIds = positions.stream().map(HoldingPosition::assetId).toList();
+        Map<Long, HoldingDto> cached = portfolioCache.readHoldings(userId, assetIds);
+        List<Long> misses = assetIds.stream().filter(id -> !cached.containsKey(id)).toList();
+        Map<Long, LatestMarketPrice> prices = misses.isEmpty()
+            ? Map.of()
+            : marketDataFacade.findLatestPrices(misses);
+        return positions.stream()
+            .map(position -> {
+                HoldingDto hit = cached.get(position.assetId());
+                return hit != null ? hit : calculateAndCacheHolding(position, prices.get(position.assetId()));
+            })
             .toList();
     }
 
@@ -355,12 +378,14 @@ public class TradingService {
      * <p>查無行情時退回平均成本估值：市值等於成本、未實現損益為零。這是刻意的——寧可顯示「沒有變化」，
      * 也不要拿一個不知道多舊的價格假裝賺賠。
      *
-     * @param position 持倉位置
+     * @param position    持倉位置
+     * @param marketPrice 已批次取得的最新價；null 表示查無行情
      * @return 估值後的持倉 DTO
      */
-    private HoldingDto calculateAndCacheHolding(HoldingPosition position) {
-        LatestMarketPrice latest = marketDataFacade.findLatestPrice(position.assetId())
-            .orElseGet(() -> new LatestMarketPrice(position.avgCost(), position.lastUpdated()));
+    private HoldingDto calculateAndCacheHolding(HoldingPosition position, LatestMarketPrice marketPrice) {
+        LatestMarketPrice latest = marketPrice != null
+            ? marketPrice
+            : new LatestMarketPrice(position.avgCost(), position.lastUpdated());
         BigDecimal costBasis = position.totalQuantity().multiply(position.avgCost()).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
         BigDecimal marketValue = position.totalQuantity().multiply(latest.price()).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
         BigDecimal unrealized = marketValue.subtract(costBasis);
