@@ -30,6 +30,12 @@ spring:
 
 server:
   port: ${SERVER_PORT:11180}
+  # 部署在 K3s ingress 後面時，直接連線端永遠是 ingress。不設這個，ClientIpResolver 拿到的
+  # getRemoteAddr() 就是 ingress 的 IP，以 IP 為鍵的登入限流與鎖定會把全站使用者當成同一人一起鎖
+  # （安全審查 M-2）。native 交給 Tomcat 的 RemoteIpValve：只有直接連線端屬於內網位址
+  # （10/8、172.16/12、192.168/16、127/8 等）時才採信 X-Forwarded-For，外部直連偽造的標頭不會被採信。
+  # 若 ingress 不在上述網段，需以 server.tomcat.remoteip.internal-proxies 補上。
+  forward-headers-strategy: ${STOCK_FORWARD_HEADERS_STRATEGY:native}
 
 management:
   server:
