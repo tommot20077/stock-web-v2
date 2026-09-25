@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.marketdata.consumer;
 import dowob.xyz.stockwebv2.common.event.PriceTickEvent;
 import dowob.xyz.stockwebv2.marketdata.config.KafkaConfig;
 import dowob.xyz.stockwebv2.marketdata.ws.MarketWebSocketHandler;
+import dowob.xyz.stockwebv2.marketdata.ws.SessionSendDispatcher;
 import dowob.xyz.stockwebv2.marketdata.ws.SubscriptionManager;
 
 import org.slf4j.Logger;
@@ -10,9 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
-import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
-import org.springframework.web.socket.WebSocketSession;
 
 import java.time.Duration;
 import java.util.LinkedHashMap;
@@ -52,14 +51,12 @@ public class WsBroadcastConsumer {
     /** Redis latest cache 存活時間：5 分鐘。 */
     private static final Duration LATEST_TTL = Duration.ofMinutes(5);
 
-    /** 廣播傳送失敗時使用的自訂 WS 關閉碼。 */
-    private static final CloseStatus CLOSE_SEND_FAILURE = new CloseStatus(4500, "Send failure");
-
     private final SubscriptionManager subscriptionManager;
     private final MarketWebSocketHandler handler;
     private final KlineBucketAccumulator klineAccumulator;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final SessionSendDispatcher sendDispatcher;
 
     /**
      * 建構子注入所有依賴。
@@ -69,17 +66,20 @@ public class WsBroadcastConsumer {
      * @param klineAccumulator    K-線 bucket 累加器，不可為 null
      * @param redisTemplate       Redis 操作模板，不可為 null
      * @param objectMapper        JSON 序列化器，不可為 null
+     * @param sendDispatcher      WS 送出派發器：實際寫出不在 consumer 執行緒上做，不可為 null
      */
     public WsBroadcastConsumer(SubscriptionManager subscriptionManager,
                                MarketWebSocketHandler handler,
                                KlineBucketAccumulator klineAccumulator,
                                StringRedisTemplate redisTemplate,
-                               ObjectMapper objectMapper) {
+                               ObjectMapper objectMapper,
+                               SessionSendDispatcher sendDispatcher) {
         this.subscriptionManager = Objects.requireNonNull(subscriptionManager, "subscriptionManager must not be null");
         this.handler = Objects.requireNonNull(handler, "handler must not be null");
         this.klineAccumulator = Objects.requireNonNull(klineAccumulator, "klineAccumulator must not be null");
         this.redisTemplate = Objects.requireNonNull(redisTemplate, "redisTemplate must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
+        this.sendDispatcher = Objects.requireNonNull(sendDispatcher, "sendDispatcher must not be null");
     }
 
     /**
@@ -164,30 +164,8 @@ public class WsBroadcastConsumer {
 
         TextMessage message = new TextMessage(text);
         for (String sessionId : sessionIds) {
-            handler.findSession(sessionId).ifPresent(session -> sendToSession(session, sessionId, message));
-        }
-    }
-
-    /**
-     * 向單一 session 傳送訊息；若 session 已關閉則跳過；若傳送失敗則以 4500 關閉。
-     *
-     * @param session   目標 WebSocket session
-     * @param sessionId session ID（用於日誌）
-     * @param message   要傳送的文字訊息
-     */
-    private void sendToSession(WebSocketSession session, String sessionId, TextMessage message) {
-        if (!session.isOpen()) {
-            return;
-        }
-        try {
-            session.sendMessage(message);
-        } catch (Exception ex) {
-            log.warn("Send to session {} failed, closing with 4500: {}", sessionId, ex.toString());
-            try {
-                session.close(CLOSE_SEND_FAILURE);
-            } catch (Exception ignore) {
-                // 若 close 也失敗，靜默忽略
-            }
+            // 只入列、不做 I/O：慢客戶端不會卡住 consumer 執行緒與其他 session（性能審查 MED-1）
+            handler.findSession(sessionId).ifPresent(session -> sendDispatcher.send(session, sessionId, message));
         }
     }
 
