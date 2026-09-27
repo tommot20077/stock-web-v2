@@ -133,6 +133,8 @@ In API mode, Vue must:
 
 Portfolio and trading DTOs remain owned by their backend APIs. Phase 1 only defines how authenticated browser requests reach those APIs; Phase 2+ frontend adapters should continue using typed service clients and the common `ApiResponse<T>` envelope.
 
+The portfolio and trading contract itself (endpoints, DTO fields, validation, error codes, number/time serialization) is documented in [trading-portfolio-contract.md](trading-portfolio-contract.md).
+
 ## Verification Responsibilities
 
 Backend verification covers:
