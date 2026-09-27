@@ -6,8 +6,8 @@
 
 *   **Modular Monolith**: Distinct modules (`user`, `asset`, `trading`, `market-data`) with strict boundaries.
 *   **Facade Pattern**: Modules interact ONLY via Service Interfaces defined in `stock-infrastructure`, never direct Repository/SQL access.
-*   **DDD-Lite**: Rich Domain Models (Entity encapsulates logic), Aggregate Roots enforce consistency.
-*   **Deployable Module**: `stock-module-market-data` can run independently or as part of the full application.
+*   **DDD-Lite (as implemented: transaction script)**: Domain objects are immutable `record`s with no behaviour (e.g. `Holding`, `TradeTransaction`); business rules live in pure calculators (`HoldingCalculator`, `TradePayloadMatcher`) and application services (`TradingService`). Aggregate boundaries below still govern persistence. This is a deliberate fit for Spring Data JDBC — do not describe it as "rich domain models".
+*   **Switchable module (not independently deployable)**: `stock-module-market-data` can be *turned off* piecewise (`market-data.ingestor.enabled`, `market-data.scheduling.enabled`, mock provider) but there is only one runnable application (`stock-start`); market-data has no `@SpringBootApplication` or repackage config. True standalone deployment is not implemented.
 
 ## Module Structure
 
@@ -19,7 +19,7 @@ stock-web-v2/                        ← parent pom
 ├── stock-module-user/               ← L2: User management
 ├── stock-module-asset/              ← L2: Asset definitions (metadata)
 ├── stock-module-trading/            ← L2: Trade records, portfolios, ROI
-├── stock-module-market-data/        ← L2: Market data collection ★ independently deployable ★
+├── stock-module-market-data/        ← L2: Market data collection, K-lines, WebSocket push (switchable)
 └── stock-start/                     ← L3: Aggregating starter
 ```
 
@@ -29,27 +29,33 @@ stock-web-v2/                        ← parent pom
 *   **Security**:
     *   **ECDSA (ES256)** for JWT (Never use RSA).
     *   **Stateful JWT**: Redis `user:auth:{id}` stores Token Version.
-*   **Infrastructure**: K3s, PostgreSQL, **TimescaleDB** (time-series), Redis, Kafka, Elasticsearch.
-*   **Batch Processing**: **Spring Batch** for ROI calculation, risk indicators. K-line aggregation uses **TimescaleDB Continuous Aggregates**.
+*   **Infrastructure**: K3s, PostgreSQL, **TimescaleDB** (time-series), Redis, Kafka. Elasticsearch is planned for Phase 3 (not present).
+*   **Batch Processing**: **Spring Batch** is used only for historical market-data backfill (`marketdata/batch`). K-line aggregation uses **TimescaleDB Continuous Aggregates** (`kline_1m`…`kline_1d`, real-time aggregation on since V12). ROI / risk batch jobs are not implemented.
 *   **Frontend Communication**: Pure REST API + **WebSocket** for real-time market data push (K-line with dynamic interval switching, real-time prices, system notifications). Login required — no anonymous connections.
 *   **API**: Always return `ApiResponse<T>`. All external IDs must be **UUIDs**.
 
 ## Data Flow
 
+As implemented (2026-09-27):
+
 ```
-External Sources → DataProvider (pluggable) → DataNormalizer → Kafka
-                                                                 │
-                     ┌───────────────────────────────────────────┤
-                     ▼                    ▼                      ▼
-              asset module        trading module           TimescaleDB
-                                                                 │
-                                                          Spring Batch
-                                                          (pre-computation)
-                                                                 │
-                                                           Redis Cache
-                                                                 │
-                                                     REST API + WebSocket
+DataProvider (pluggable; mock today) ─ ScheduledIngestor (parallel, per-call timeout)
+        │
+        ▼
+Kafka  market.price.tick.v1   (key = assetId)
+        │
+        ├─► PriceWriterConsumer ──► market_prices (TimescaleDB hypertable)
+        │                                 └─► kline_1m / 5m / 15m / 1h / 1d (continuous aggregates)
+        │
+        └─► WsBroadcastConsumer ──► Redis market:latest:{assetId} (TTL 5 min)
+                                 └─► WebSocket push (TICK + KLINE, per-session send queue)
+
+Readers in other modules go through MarketDataFacade (L1):
+  latest price  = Redis market:latest → market_prices
+  daily quote   = latest + previous close (market_prices) + intraday range (kline_1h), by TradingDay
 ```
+
+Historical backfill: `POST /api/v1/market/backfill` → Spring Batch job → Kafka `market.price.backfill.v1` → `market_prices`.
 
 ## Cross-Module Communication (Dual-Channel Model)
 
@@ -58,7 +64,7 @@ Inter-module communication uses two independent channels, each with clearly defi
 | Channel | Method | Use Case | Definition Location |
 |---------|--------|----------|---------------------|
 | **Facade** (synchronous pull) | `XxxFacade` interface call | Queries, CRUD, synchronous data retrieval | `stock-infrastructure` (L1) |
-| **Event** (asynchronous push) | `EventPublisher` publishes events | State change notifications, cross-module async processing | Event classes defined in `stock-common` (L0) |
+| **Event** (asynchronous push) | Kafka (`KafkaTemplate` in the producing module) | Market-data fan-out today; cross-module domain events are not used yet | Event classes defined in `stock-common` (L0) |
 
 **Rules:**
 - Facade interfaces may only be called by Application Services — Controllers must NOT call them directly
@@ -77,8 +83,8 @@ Inter-module communication uses two independent channels, each with clearly defi
 
 | Interface | Phase 1 Implementation | Future Implementation |
 |-----------|----------------------|----------------------|
-| `EventPublisher` / `EventSubscriber` | `SpringEventPublisher` (ApplicationEvent + `@TransactionalEventListener(AFTER_COMMIT)` + `@Async`) | `KafkaEventPublisher` (Phase 2, `@Profile("kafka")`) |
-| `SearchService` | `PgSearchService` (ILIKE / tsvector + GIN index) | `ElasticsearchSearchService` (Phase 3) |
+| `EventPublisher` / `EventSubscriber` | **Not implemented** — interfaces exist in `infrastructure/event` with no implementation or caller. market-data injects `KafkaTemplate` directly. | `KafkaEventPublisher` (open decision: implement or delete, see 2026-09-02 architecture review M-1) |
+| `SearchService` | **Not implemented** — asset search is plain SQL `ILIKE` in `AssetRepository` (wildcards escaped, 64-char cap) | `ElasticsearchSearchService` (Phase 3) |
 
 ### Sprint 0 (Foundation Validation)
 
@@ -115,14 +121,14 @@ Added alongside each feature implementation — never retrofitted. See [security
 
 *   **Market data isolation**: `market-data` module handles all exchange connections. Crashes don't affect business logic.
 *   **Subscription decoupled**: Data collection is independent of user subscriptions. "Watchlist" is just a UI preference toggle (user_id + asset_id), not a data pipeline trigger.
-*   **Pre-computation**: K-line aggregation via TimescaleDB Continuous Aggregates. ROI/portfolio updated in real-time via Kafka events. Risk indicators computed daily by Spring Batch. Results cached in Redis.
-*   **Kafka ordering**: Asset symbol as partition key ensures per-asset event ordering.
+*   **Pre-computation**: K-line aggregation via TimescaleDB Continuous Aggregates (real-time aggregation on). Portfolio valuation is computed **on read** from `holdings` + `MarketDataFacade` prices and cached in Redis (`PortfolioCache`, TTL 60 s, invalidated after commit); trades do not emit events. Risk indicators are not implemented.
+*   **Kafka ordering**: `assetId` (as string) is the partition key, ensuring per-asset event ordering.
 *   **Pluggable data sources**: `DataProvider` interface allows adding new data sources without changing core logic.
-*   **WebSocket ownership**: WebSocket push endpoint (`ws(s)://{host}/ws/v1/market`) resides in the `market-data` module. Supports multiplexed subscriptions (max 10 per connection) with dynamic K-line interval switching. Standalone mode uses `@ConditionalOnBean(UserFacade.class)` to conditionally disable. Implementation: native `TextWebSocketHandler` (no STOMP).
-*   **Portfolio concurrent writes**: Optimistic locking (`@Version` column) + `@Retryable` + idempotent full recalculation.
-*   **SecurityConfig ownership**: Centralized in `stock-start` (L3), using `@Order` to control FilterChain loading order. `stock-infrastructure` holds shared components (JwtAuthFilter, SecurityContextHelper).
-*   **High-frequency computation → Redis first**: All event-driven computed data (portfolio valuations, ROI, dashboard) is written to Redis immediately. DB is the eventual-consistency store via daily batch. See [code-standards.md](code-standards.md).
-*   **Portfolio table split**: `holdings` (trade-triggered, low frequency, in DB) + `portfolio_valuations` (price-triggered, high frequency, Redis-first + daily batch to DB). Eliminates lock contention between trades and price updates.
+*   **WebSocket ownership**: WebSocket push endpoint (`ws(s)://{host}/ws/v1/market`) resides in the `market-data` module. Supports multiplexed subscriptions (max 10 per connection) with dynamic K-line interval switching. Implementation: native `TextWebSocketHandler` (no STOMP); sends go through `SessionSendDispatcher` so a slow client cannot block others. Allowed origins = `stock.cors.allowed-origins` (same list as REST CORS). Daily K-line buckets follow the asset's `TradingDay` (exchange time zone; FX 17:00 New York; crypto UTC).
+*   **Portfolio concurrent writes**: `SELECT … FOR UPDATE` on the `holdings` row plus a `version` column checked in the `UPDATE … WHERE version = :version` SQL; new positions use `INSERT … ON CONFLICT DO NOTHING`. Trade creation is idempotent via `Idempotency-Key` (see [trading-portfolio-contract.md](trading-portfolio-contract.md)). No `@Version` / `@Retryable`.
+*   **SecurityConfig ownership**: Centralized in `stock-start` (L3). The security filters (`JwtAuthenticationFilter`, `BrowserCsrfFilter`, `ApiSecurityErrorWriter`) are currently inner classes of `SecurityConfig`; `stock-infrastructure` holds `JwtService`, `RateLimitService`, `ClientIpResolver`, `AuthenticatedUserResolver`. Moving the filters into infrastructure is an open refactor (review M-4).
+*   **Redis for hot reads**: latest prices (`market:latest:*`) and portfolio views (`portfolio:*`) are cached in Redis; the DB remains the source of truth. There is no daily write-back batch.
+*   **Portfolio storage**: only `holdings` (trade-triggered) is persisted; valuations are derived on read. A separate `portfolio_valuations` table does not exist.
 
 ## Aggregate Root Boundaries (Spring Data JDBC)
 
@@ -130,14 +136,14 @@ Spring Data JDBC requires explicit Aggregate Root definitions. Each Aggregate is
 
 | Module | Aggregate Root | Value Objects / Child Entities | Cross-Aggregate Reference |
 |--------|---------------|-------------------------------|--------------------------|
-| user | `User` | `UserPermission` (embedded) | — |
-| asset | `Asset` | `StockTwDetail` / `CryptoDetail` / `CurrencyDetail` (1:1 child) | — |
-| trading | `Transaction` | — (standalone, append-only) | `userId` (Long), `assetId` (Long) |
+| user | `User` | — (per-user permissions are not implemented) | — |
+| asset | `Asset` | — (type-specific detail tables are not implemented) | — |
+| trading | `TradeTransaction` (`transactions` table) | — (standalone, append-only) | `userId` (Long), `assetId` (Long) |
 | trading | `Holding` | — | `userId` (Long), `assetId` (Long) |
 | market-data | `MarketPrice` | — (TimescaleDB hypertable row) | `assetId` (Long) |
 
 **Rules:**
 - Cross-Aggregate references use **ID only** (Long), never object references
 - Each Aggregate has exactly ONE Repository
-- `Transaction` Repository only exposes `insert()` + `findXxx()` — no `save()` for update (append-only)
-- `Holding` uses `@Version` for optimistic locking
+- Transactions are insert-only — `transactions` is append-only (DB trigger, V8)
+- `Holding` updates check the `version` column in SQL (see Portfolio concurrent writes)
