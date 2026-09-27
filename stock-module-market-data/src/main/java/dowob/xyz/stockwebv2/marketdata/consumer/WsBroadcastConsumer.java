@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.marketdata.consumer;
 
 import dowob.xyz.stockwebv2.common.event.PriceTickEvent;
+import dowob.xyz.stockwebv2.marketdata.api.TradingDayResolver;
 import dowob.xyz.stockwebv2.marketdata.config.KafkaConfig;
 import dowob.xyz.stockwebv2.marketdata.ws.MarketWebSocketHandler;
 import dowob.xyz.stockwebv2.marketdata.ws.SessionSendDispatcher;
@@ -57,6 +58,7 @@ public class WsBroadcastConsumer {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final SessionSendDispatcher sendDispatcher;
+    private final TradingDayResolver tradingDays;
 
     /**
      * 建構子注入所有依賴。
@@ -67,19 +69,22 @@ public class WsBroadcastConsumer {
      * @param redisTemplate       Redis 操作模板，不可為 null
      * @param objectMapper        JSON 序列化器，不可為 null
      * @param sendDispatcher      WS 送出派發器：實際寫出不在 consumer 執行緒上做，不可為 null
+     * @param tradingDays         資產交易日解析器：1d K 線依市場交易日切，不可為 null
      */
     public WsBroadcastConsumer(SubscriptionManager subscriptionManager,
                                MarketWebSocketHandler handler,
                                KlineBucketAccumulator klineAccumulator,
                                StringRedisTemplate redisTemplate,
                                ObjectMapper objectMapper,
-                               SessionSendDispatcher sendDispatcher) {
+                               SessionSendDispatcher sendDispatcher,
+                               TradingDayResolver tradingDays) {
         this.subscriptionManager = Objects.requireNonNull(subscriptionManager, "subscriptionManager must not be null");
         this.handler = Objects.requireNonNull(handler, "handler must not be null");
         this.klineAccumulator = Objects.requireNonNull(klineAccumulator, "klineAccumulator must not be null");
         this.redisTemplate = Objects.requireNonNull(redisTemplate, "redisTemplate must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
         this.sendDispatcher = Objects.requireNonNull(sendDispatcher, "sendDispatcher must not be null");
+        this.tradingDays = Objects.requireNonNull(tradingDays, "tradingDays must not be null");
     }
 
     /**
@@ -112,8 +117,8 @@ public class WsBroadcastConsumer {
         broadcast(tickChannel, tickPayload);
 
         // Step 3: 更新 KLINE bucket 並廣播
-        List<KlineBucket> buckets = klineAccumulator.updateAndSnapshot(
-                event.assetId(), event.occurredAt(), event.price(), event.volume());
+        List<KlineBucket> buckets = klineAccumulator.updateAndSnapshot(event.assetId(),
+                tradingDays.forSymbol(event.symbol()), event.occurredAt(), event.price(), event.volume());
         for (KlineBucket bucket : buckets) {
             String klineChannel = "kline." + event.symbol() + "." + bucket.interval().code();
             Map<String, Object> klineData = buildKlineData(event.symbol(), bucket);

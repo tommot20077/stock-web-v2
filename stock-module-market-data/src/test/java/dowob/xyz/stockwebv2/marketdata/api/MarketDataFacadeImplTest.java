@@ -1,6 +1,10 @@
 package dowob.xyz.stockwebv2.marketdata.api;
 
+import dowob.xyz.stockwebv2.common.model.AssetType;
+import dowob.xyz.stockwebv2.common.model.TradingDay;
+import dowob.xyz.stockwebv2.infrastructure.marketdata.DailyQuote;
 import dowob.xyz.stockwebv2.infrastructure.marketdata.LatestMarketPrice;
+import dowob.xyz.stockwebv2.marketdata.persistence.DailyStats;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPrice;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPriceRepository;
 
@@ -174,5 +178,40 @@ class MarketDataFacadeImplTest {
         assertThat(facade.findLatestPrices(List.of())).isEmpty();
         verify(redisTemplate, never()).opsForValue();
         verify(repository, never()).findLatestBatch(anyList());
+    }
+
+    // ── findDailyQuotes ───────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("findDailyQuotes:以最新價時間決定交易日,前收與高低量取自該交易日,高低點涵蓋最新價")
+    void findDailyQuotes_combinesLatestPriceWithTradingDayStats() {
+        when(valueOps.multiGet(anyList())).thenReturn(java.util.Arrays.asList((String) null));
+        when(repository.findLatestBatch(anyList())).thenReturn(List.of(
+            new MarketPrice(ASSET_ID, Instant.parse("2026-01-05T15:00:00Z"), new BigDecimal("105"), BigDecimal.ONE)));
+        // 美股:紐約 1/5 的交易日從 05:00Z 開始
+        Instant dayStart = Instant.parse("2026-01-05T05:00:00Z");
+        when(repository.findDailyStats(Map.of(ASSET_ID, dayStart))).thenReturn(Map.of(ASSET_ID,
+            new DailyStats(ASSET_ID, new BigDecimal("100"), new BigDecimal("104"), new BigDecimal("99"),
+                new BigDecimal("7"))));
+
+        Map<Long, DailyQuote> quotes = facade.findDailyQuotes(Map.of(ASSET_ID, TradingDay.of(AssetType.STOCK, "US")));
+
+        DailyQuote q = quotes.get(ASSET_ID);
+        assertThat(q.latestPrice()).isEqualByComparingTo("105");
+        assertThat(q.previousClose()).isEqualByComparingTo("100");
+        // 最新價 105 高於 K 線彙總的 104(兩條寫入路徑有時間差):高點必須涵蓋最新價
+        assertThat(q.high()).isEqualByComparingTo("105");
+        assertThat(q.low()).isEqualByComparingTo("99");
+        assertThat(q.volume()).isEqualByComparingTo("7");
+    }
+
+    @Test
+    @DisplayName("findDailyQuotes:沒有最新價的資產不出現,也不查交易日統計")
+    void findDailyQuotes_assetWithoutPrice_isAbsent() {
+        when(valueOps.multiGet(anyList())).thenReturn(java.util.Arrays.asList((String) null));
+        when(repository.findLatestBatch(anyList())).thenReturn(List.of());
+
+        assertThat(facade.findDailyQuotes(Map.of(ASSET_ID, TradingDay.UTC))).isEmpty();
+        verify(repository, never()).findDailyStats(org.mockito.ArgumentMatchers.anyMap());
     }
 }

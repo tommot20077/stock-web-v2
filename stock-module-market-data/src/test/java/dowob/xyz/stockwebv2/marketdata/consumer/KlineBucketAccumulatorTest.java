@@ -1,6 +1,8 @@
 package dowob.xyz.stockwebv2.marketdata.consumer;
 
+import dowob.xyz.stockwebv2.common.model.AssetType;
 import dowob.xyz.stockwebv2.common.model.KlineInterval;
+import dowob.xyz.stockwebv2.common.model.TradingDay;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -245,5 +247,26 @@ class KlineBucketAccumulatorTest {
         Instant t = Instant.parse("2026-01-01T10:45:00Z");
         var buckets = acc.updateAndSnapshot(1L, t, new BigDecimal("100"), new BigDecimal("1"));
         assertThat(buckets.get(3).bucketStart()).isEqualTo(Instant.parse("2026-01-01T10:00:00Z"));
+    }
+
+    // ── 1D 依市場交易日切 ─────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("1d bucket:美股依紐約午夜切日,UTC 午夜後仍屬紐約前一天")
+    void oneDay_followsTradingDayOfMarket() {
+        TradingDay us = TradingDay.of(AssetType.STOCK, "US");
+
+        // 2026-01-05T04:30Z = 紐約 1/4 23:30
+        var late = acc.updateAndSnapshot(1L, us, Instant.parse("2026-01-05T04:30:00Z"),
+                new BigDecimal("100"), new BigDecimal("1"));
+        assertThat(late.get(4).bucketStart()).isEqualTo(Instant.parse("2026-01-04T05:00:00Z"));
+
+        // 紐約 1/5 01:00 → 新的日 K,open 重置
+        var next = acc.updateAndSnapshot(1L, us, Instant.parse("2026-01-05T06:00:00Z"),
+                new BigDecimal("120"), new BigDecimal("1"));
+        assertThat(next.get(4).bucketStart()).isEqualTo(Instant.parse("2026-01-05T05:00:00Z"));
+        assertThat(next.get(4).open()).isEqualByComparingTo("120");
+        // 分鐘級 bucket 不受交易日政策影響
+        assertThat(next.get(0).bucketStart()).isEqualTo(Instant.parse("2026-01-05T06:00:00Z"));
     }
 }

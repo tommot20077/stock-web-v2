@@ -28,9 +28,8 @@ public class AssetRepository {
         String like = likePattern(query);
         long offset = (long) page * size;
         return jdbcClient.sql("""
-                select a.*, p.price latest_price, p.change, p.change_percent, p.volume_text, p.high, p.low
+                select a.*
                 from assets a
-                left join asset_latest_prices p on p.asset_id = a.id
                 where a.active = true
                   and (:query = '%%' or a.symbol ilike :query or a.name ilike :query)
                 order by a.symbol asc
@@ -81,13 +80,7 @@ public class AssetRepository {
             CurrencyCode.valueOf(rs.getString("currency")),
             rs.getString("sector"),
             rs.getBoolean("tradeable"),
-            rs.getBoolean("active"),
-            rs.getBigDecimal("latest_price"),
-            rs.getBigDecimal("change"),
-            rs.getBigDecimal("change_percent"),
-            rs.getString("volume_text"),
-            rs.getBigDecimal("high"),
-            rs.getBigDecimal("low")
+            rs.getBoolean("active")
         );
     }
 }
