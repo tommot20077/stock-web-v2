@@ -13,7 +13,11 @@ files:
 回應時 job 已跑完,整段期間佔住 Tomcat 執行緒(上限 90 天範圍)。mock provider 下只要幾秒,
 換真實 provider 會跑數分鐘,撞 proxy / LB 逾時。已有 `GET /{jobExecutionId}` 狀態端點。
 
-## 需要 Yuan 決定
+## 更正與結案(2026-09-28)
+
+端點**本來就回 202 + jobExecutionId**,問題只在底層 JobLauncher 同步執行;改用 `@BatchTaskExecutor` 專用執行緒池後回應格式不變,只是 `status` 由「幾乎總是 COMPLETED」變為剛啟動 —— 屬行為修正,不是契約變更。Yuan 同意實作。
+
+## 原記錄(已更正:下段「屬 API 契約變更」不成立)
 
 改成 `TaskExecutorJobLauncher` + 有界 executor、回 **202** + `jobExecutionId` 屬 API 契約變更
 (狀態碼與回應語意改變,judgment §9)。前端目前沒有呼叫 backfill(admin 功能)。

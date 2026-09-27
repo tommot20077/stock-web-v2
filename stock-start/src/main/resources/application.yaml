@@ -10,6 +10,9 @@ spring:
       initialize-schema: never
   kafka:
     bootstrap-servers: ${STOCK_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    admin:
+      # 讓 TopicBuilder 上的設定(例如 retention.ms)也套用到已存在的 topic,而不只在新建時生效
+      modify-topic-configs: true
     producer:
       acks: all
       properties:

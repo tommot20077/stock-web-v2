@@ -18,7 +18,7 @@ spring:
     redis:
       host: ${STOCK_REDIS_HOST:localhost}
       port: ${STOCK_REDIS_PORT:16379}
-      database: ${STOCK_REDIS_DATABASE:0}
+      database: ${STOCK_REDIS_DATABASE:1}
       password: ${STOCK_REDIS_PASSWORD:}
   flyway:
     enabled: true
