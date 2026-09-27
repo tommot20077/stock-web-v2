@@ -17,7 +17,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Frontend Session & API Client Foundation** - Vue API mode 透過唯一 shared client 處理 credentials、CSRF、envelope、refresh retry、session restore 與 runtime mode。
 - [x] **Phase 3: Portfolio Read API Mode** - Vue API mode 可以讀取 portfolio summary、holdings/positions、trade history 並呈現 loading/empty/error/retry 狀態。
 - [x] **Phase 4: Manual Trade Creation, Idempotency & Post-Trade Refetch** - API mode order ticket 建立 manual executed trade，後端防重，成功後重新讀取 portfolio 狀態。
-- [ ] **Phase 04.1: Backend Data Gap Backfill** *(INSERTED 2026-07-26，非緊急)* - 補齊可用現金/帳戶餘額、日級損益、資產分類、watchlist 四個後端資料缺口。
+- [ ] **Phase 04.1: Backend Data Gap Backfill** *(INSERTED 2026-07-26，非緊急)* - 基準幣與匯率折算、手動現金帳、今日損益、資產配置與產業分組(2026-09-28 discuss 後範圍;股利與 watchlist 移至 04.2)。
+- [ ] **Phase 04.2: Dividends, Share Adjustments & Watchlist** *(INSERTED 2026-09-28)* - 現金股利、配股、拆股 / 合股與多清單 watchlist 的後端 API 與前端 API mode。
 - [ ] **Phase 5: Cross-Repo Browser Flow Verification & Contract Hardening** - Backend/frontend 測試與真實瀏覽器 smoke flow 驗證完整整合契約。
 
 ## Phase Details
@@ -137,9 +138,19 @@ Plans:
   3. **資產分類（sector / assetClass）** — **後端其實有**：`assets.sector` 與 `assets.asset_type` 欄位存在且 V2 seed 有值，`AssetDto` 已回傳 `sector`。缺的只是 portfolio SQL 沒 JOIN、`HoldingDto` 無此欄位。成本接近「JOIN + DTO 欄位」，**最便宜的一條**（原 todo 檔描述為「新增領域模型」，過度悲觀，已於 04-CONTEXT.md 更正）。
   4. **watchlist API 化** — 後端**沒有**（整個 repo 只有 `Permission.WATCHLIST_MANAGE` 一個 enum 值，無表無 endpoint）。屬 PORT-06（原列 v2）。
 
-**Success Criteria** (what must be TRUE): TBD（discuss 時依上列四條逐項定義；每條都需明確「後端有資料 → API mode 顯示真實值」而非解除隱藏卻顯示 0）
+**Scope update**(2026-09-28 discuss):第 1、2、3 條留在 04.1 並新增「基準幣與匯率折算」;第 4 條 watchlist 與 DIV 股利移至 **Phase 04.2**。決策見 `04.1-CONTEXT.md`。
+**Success Criteria** (what must be TRUE): TBD（plan-phase 依 04.1-CONTEXT.md 定義；每條都需明確「後端有資料 → API mode 顯示真實值」而非解除隱藏卻顯示 0）
 **Plans**: TBD
 **UI hint**: yes（受影響畫面：Overview 今日損益/可用現金/資產配置 donut、Positions sector breakdown、Chart/Markets watchlist）
+
+### Phase 04.2: Dividends, Share Adjustments & Watchlist (INSERTED)
+
+**Goal**: 補齊「股利與股數調整」(現金股利、配股、拆股 / 合股)與 Watchlist(多個具名清單)的後端資料與前端 API mode,讓 Trades 的股利頁籤、Chart / Markets / Watchlist 頁不再依賴 mock。
+**Depends on**: Phase 04.1(現金帳與今日損益是股利入帳與拆股前收調整的基礎)
+**Requirements**: TBD(`/gsd-plan-phase 04.2` 時定)
+**Insertion note**(2026-09-28):04.1 discuss 時範圍擴大(現金帳、基準幣、股利三種事件、多清單 watchlist),Yuan 決定拆成 04.1 / 04.2;決策見 `.planning/phases/04.2-dividends-share-adjustments-watchlist/04.2-CONTEXT.md`。
+**Plans**: TBD
+**UI hint**: yes(Positions「股利與股數調整」對話框、Trades 頁籤、Chart / Markets 星號選清單、Watchlist 頁)
 
 ### Phase 5: Cross-Repo Browser Flow Verification & Contract Hardening
 
@@ -160,7 +171,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 4.1 -> 5
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 4.1 -> 4.2 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -168,5 +179,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 4.1 -> 5
 | 2. Frontend Session & API Client Foundation | 5/5 | Completed | 2026-05-31 |
 | 3. Portfolio Read API Mode | 5/5 | Completed | 2026-07-26 |
 | 4. Manual Trade Creation, Idempotency & Post-Trade Refetch | 12/13 | In Progress|  |
-| 04.1 Backend Data Gap Backfill (INSERTED) | 0/TBD | Not started | - |
+| 04.1 Backend Data Gap Backfill (INSERTED) | 0/TBD | Context gathered | - |
+| 04.2 Dividends, Share Adjustments & Watchlist (INSERTED) | 0/TBD | Context gathered | - |
 | 5. Cross-Repo Browser Flow Verification & Contract Hardening | 0/TBD | Not started | - |

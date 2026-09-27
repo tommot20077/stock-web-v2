@@ -37,7 +37,7 @@ Users can safely sign in, inspect portfolio state, and record trades through one
 - Real broker integration — current backend trades are manual recorded transactions, not broker orders.
 - Full order lifecycle with pending orders, partial fills, cancellations, time-in-force, and broker execution states — defer until the manual-trade vertical slice is stable.
 - AI-assisted trading policy enforcement and broker credential APIs — the current frontend AI/broker settings are mock UX and need a separate security design.
-- Complete API integration for alerts, notifications, analytics, settings, watchlists, and ops dashboards — defer after auth and core portfolio/trading API mode are reliable.
+- Complete API integration for alerts, notifications, analytics, settings, and ops dashboards — defer after auth and core portfolio/trading API mode are reliable. (Watchlists moved in-scope for Phase 04.2 on 2026-09-28; Settings gets only the base-currency field in Phase 04.1.)
 - Replacing the existing Vue visual shell — this milestone is integration-first, not a redesign.
 
 ## Context
@@ -67,6 +67,7 @@ The codebase has a dirty worktree with prior implementation changes. Planning co
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
+| Cash is a manual ledger, not a broker account (2026-09-28, Phase 04.1 D-01) | Trades remain recorded executed transactions (judgment §1); cash is derived from deposits/withdrawals plus trades, may go negative, never blocks a trade | - Pending |
 | Use a safe vertical slice for the next milestone | Auth, CSRF, API client behavior, and portfolio/trading integration are tightly coupled and should be proven end-to-end before expanding scope | - Pending |
 | Use httpOnly cookies plus `/auth/refresh` for browser sessions | Reduces refresh-token exposure to JavaScript and supports session restore across browser refresh | - Pending |
 | Use double-submit CSRF token for unsafe cookie-authenticated browser requests | Required because credentialed browser requests otherwise make unsafe endpoints vulnerable to cross-site submission | - Pending |
