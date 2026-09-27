@@ -59,6 +59,10 @@ springdoc:
     enabled: ${STOCK_SWAGGER_UI_ENABLED:false}
 
 stock:
+  auth:
+    cookie:
+      # 非開發 profile 的 auth cookie 必須 secure,否則 BrowserAuthCookieSecureGuard 拒絕啟動
+      secure: ${STOCK_AUTH_COOKIE_SECURE:true}
   cors:
     allowed-origins: ${STOCK_CORS_ALLOWED_ORIGINS:http://localhost:5173}
   jwt:

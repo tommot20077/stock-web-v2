@@ -155,7 +155,21 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 - 持倉與摘要有 60 秒快取；成交後在交易 **commit 之後**失效，所以成交後立即重讀一定看得到新交易。
 - 前端成交後應重讀 summary、holdings 與 trades（Phase 4 post-trade refetch）。
 
+## GET /api/v1/assets — 標的報價欄位
+
+報價卡的六個欄位由 market-data 提供,依**該資產市場的交易日**計算(`TradingDay`,對齊 TradingView):
+股票依交易所時區午夜(US 紐約、TW 台北、JP 東京、DE 柏林)、外匯紐約 17:00、加密 UTC 00:00。
+
+| 欄位 | 定義 |
+|------|------|
+| `latestPrice` | 最新成交價(Redis latest → `market_prices`) |
+| `change` / `changePercent` | `latestPrice` − 前收;百分比取兩位。前收 = 交易日起點前最後一筆成交,與 1D K 線前一根的 close 相同 |
+| `high` / `low` | 目前交易日的最高 / 最低,涵蓋 `latestPrice` |
+| `volumeText` | 目前交易日累計量的縮寫(`3.0K`、`52.1M`);無量為 `null` |
+
+目前交易日以最新成交時間決定:收盤後或週末停在最後一個有成交的交易日。
+**沒有任何行情的資產六個欄位皆為 `null`**(不塞預設價);沒有前收時只有 `change` / `changePercent` 為 `null`。
+
 ## 尚未提供
 
 - 現金 / 帳戶餘額、日級損益、資產分類、股利交易類型——見 ROADMAP Phase 04.1 與 `.planning/todos/pending/`。
-- 標的報價卡的 `latestPrice` 等欄位目前仍讀種子表，不隨行情更新——見 todo `2026-09-04-asset-latest-price-also-stale.md`。

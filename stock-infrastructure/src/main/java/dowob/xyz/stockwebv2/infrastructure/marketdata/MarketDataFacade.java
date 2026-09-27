@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.infrastructure.marketdata;
 
+import dowob.xyz.stockwebv2.common.model.TradingDay;
+
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
@@ -43,4 +45,15 @@ public interface MarketDataFacade {
      * @return 資產 id → 最新價；查無行情的資產<strong>不出現在結果中</strong>（不塞預設價）
      */
     Map<Long, LatestMarketPrice> findLatestPrices(Collection<Long> assetIds);
+
+    /**
+     * 批次取得多個資產在「目前交易日」的報價。
+     *
+     * <p>目前交易日以各資產<strong>最新成交的時間</strong>決定(依其 {@link TradingDay}):收盤後或週末,
+     * 報價停在最後一個有成交的交易日,與 1D K 線最後一根一致。前收與 1D K 線前一根的 close 為同一定義。
+     *
+     * @param assets 資產 id → 該資產市場的交易日規則,不可為 null;可為空
+     * @return 資產 id → 報價;沒有任何行情的資產<strong>不出現在結果中</strong>(不塞預設價)
+     */
+    Map<Long, DailyQuote> findDailyQuotes(Map<Long, TradingDay> assets);
 }
