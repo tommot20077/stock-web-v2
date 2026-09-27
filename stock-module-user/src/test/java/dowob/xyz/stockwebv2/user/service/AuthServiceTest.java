@@ -209,4 +209,21 @@ class AuthServiceTest {
             return updated.tokenVersion();
         }
     }
+
+    /**
+     * email 不存在時若直接回錯、跳過 BCrypt,回應時間就洩漏「帳號是否存在」(安全審查 L-3)。
+     */
+    @Test
+    void verifyCredentialsRunsPasswordHashEvenWhenEmailIsUnknown() {
+        org.springframework.security.crypto.password.PasswordEncoder encoder =
+            org.mockito.Mockito.spy(new BCryptPasswordEncoder(4));
+        AuthService service = new AuthService(new InMemoryUserRepository(), encoder, mock(RefreshTokenService.class),
+            mock(LoginAttemptService.class));
+
+        assertThatThrownBy(() -> service.verifyCredentials("nobody@example.com", "Password1"))
+            .isInstanceOf(dowob.xyz.stockwebv2.common.error.BusinessException.class);
+
+        org.mockito.Mockito.verify(encoder).matches(org.mockito.ArgumentMatchers.eq("Password1"),
+            org.mockito.ArgumentMatchers.anyString());
+    }
 }

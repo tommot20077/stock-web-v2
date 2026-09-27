@@ -137,8 +137,8 @@ public class BackfillController {
         try {
             interval = KlineInterval.fromCode(request.interval());
         } catch (IllegalArgumentException ex) {
-            throw new BusinessException(ErrorCode.KLINE_INTERVAL_INVALID,
-                "Invalid interval: " + request.interval());
+            throw new BusinessException(ErrorCode.KLINE_INTERVAL_INVALID, "Invalid interval",
+                java.util.Map.of("interval", "unsupported"));
         }
 
         if (idempotencyKey != null && !idempotencyService.tryAcquire(idempotencyKey)) {
@@ -171,8 +171,7 @@ public class BackfillController {
 
         JobExecution execution = jobExplorer.getJobExecution(jobExecutionId);
         if (execution == null) {
-            throw new BusinessException(ErrorCode.BACKFILL_JOB_NOT_FOUND,
-                "Backfill job execution not found: " + jobExecutionId);
+            throw new BusinessException(ErrorCode.BACKFILL_JOB_NOT_FOUND, "Backfill job execution not found");
         }
 
         long readCount = execution.getStepExecutions().stream()

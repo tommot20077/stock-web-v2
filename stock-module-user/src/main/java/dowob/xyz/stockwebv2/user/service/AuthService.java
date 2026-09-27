@@ -20,6 +20,8 @@ import java.util.UUID;
 public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    /** 帳號不存在時也比對一次,讓回應時間不洩漏「email 是否已註冊」(安全審查 L-3)。 */
+    private final String dummyPasswordHash;
     private final RefreshTokenService refreshTokenService;
     private final LoginAttemptService loginAttemptService;
 
@@ -31,6 +33,8 @@ public class AuthService {
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        // 用同一個 encoder 產生,成本與真實密碼雜湊一致,時間差才會真的消失
+        this.dummyPasswordHash = passwordEncoder.encode("dummy-password-for-timing-equalization");
         this.refreshTokenService = refreshTokenService;
         this.loginAttemptService = loginAttemptService;
     }
@@ -94,8 +98,11 @@ public class AuthService {
     }
 
     public User verifyCredentials(String email, String password) {
-        User user = userRepository.findByEmail(normalizeEmail(email))
-            .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage()));
+        User user = userRepository.findByEmail(normalizeEmail(email)).orElse(null);
+        if (user == null) {
+            passwordEncoder.matches(password, dummyPasswordHash);
+            throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS, ErrorCode.AUTH_INVALID_CREDENTIALS.defaultMessage());
+        }
         loginAttemptService.assertNotLocked(user.id());
         if (!passwordEncoder.matches(password, user.passwordHash())) {
             loginAttemptService.recordFailure(user.id());
