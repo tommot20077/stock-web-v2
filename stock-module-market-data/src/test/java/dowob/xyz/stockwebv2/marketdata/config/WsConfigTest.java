@@ -38,7 +38,7 @@ class WsConfigTest {
     void setUp() {
         handler = mock(MarketWebSocketHandler.class);
         interceptor = mock(MarketHandshakeInterceptor.class);
-        wsConfig = new WsConfig(handler, interceptor);
+        wsConfig = new WsConfig(handler, interceptor, "http://localhost:5173, https://app.example.com");
     }
 
     // ── 路徑常數 ─────────────────────────────────────────────────────────────
@@ -94,5 +94,19 @@ class WsConfigTest {
         wsConfig.registerWebSocketHandlers(registry);
 
         verify(registration).setAllowedOriginPatterns("*");
+    }
+
+    @Test
+    @DisplayName("WS 只允許 stock.cors.allowed-origins 內的來源,不再是 *(安全審查 L-4)")
+    void registerWebSocketHandlers_usesCorsAllowedOrigins() {
+        WebSocketHandlerRegistry registry = mock(WebSocketHandlerRegistry.class);
+        WebSocketHandlerRegistration registration = mock(WebSocketHandlerRegistration.class);
+        when(registry.addHandler(any(), any(String.class))).thenReturn(registration);
+        when(registration.addInterceptors(any())).thenReturn(registration);
+
+        wsConfig.registerWebSocketHandlers(registry);
+
+        verify(registration).setAllowedOrigins("http://localhost:5173", "https://app.example.com");
+        verify(registration, org.mockito.Mockito.never()).setAllowedOriginPatterns(any());
     }
 }

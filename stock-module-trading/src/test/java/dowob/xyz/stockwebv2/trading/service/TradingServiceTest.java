@@ -660,4 +660,33 @@ class TradingServiceTest {
         verify(repository, org.mockito.Mockito.atLeastOnce()).listTransactions(captor.capture());
         return captor.getValue();
     }
+
+    @Test
+    @DisplayName("找不到標的:訊息為靜態文字,不回射使用者輸入的 symbol(安全審查 L-1)")
+    void unknownSymbol_messageDoesNotEchoInput() {
+        CreateTradeRequest request = new CreateTradeRequest("<b>EVIL</b>", "BUY", BigDecimal.ONE,
+            BigDecimal.TEN, BigDecimal.ZERO, null, null);
+
+        assertThatThrownBy(() -> service.createTrade(7L, request, java.util.UUID.randomUUID().toString()))
+            .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                assertThat(ex.errorCode()).isEqualTo(ErrorCode.ASSET_NOT_FOUND);
+                assertThat(ex.getMessage()).isEqualTo("Asset not found").doesNotContain("EVIL");
+                assertThat(ex.fields()).containsEntry("symbol", "not found");
+            });
+    }
+
+    @Test
+    @DisplayName("不可交易標的:訊息為靜態文字,fields 指名 symbol")
+    void notTradeableSymbol_messageDoesNotEchoInput() {
+        when(assetFacade.findBySymbol("US10Y")).thenReturn(java.util.Optional.of(new AssetSummary(
+            9L, "US10Y", "US 10Y", dowob.xyz.stockwebv2.common.model.AssetType.BOND, "US", false, true)));
+        CreateTradeRequest request = new CreateTradeRequest("US10Y", "BUY", BigDecimal.ONE,
+            BigDecimal.TEN, BigDecimal.ZERO, null, null);
+
+        assertThatThrownBy(() -> service.createTrade(7L, request, java.util.UUID.randomUUID().toString()))
+            .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                assertThat(ex.getMessage()).isEqualTo("Asset is not tradeable");
+                assertThat(ex.fields()).containsEntry("symbol", "not tradeable");
+            });
+    }
 }
