@@ -82,5 +82,5 @@ Establish foundational ArchUnit rules (3-5 rules) from Phase 1 Sprint 1:
 1. **Module isolation**: No direct dependencies between L2 modules
 2. **Facade boundary**: L2 modules interact only through `stock-infrastructure` Facade interfaces
 3. **DDD layering**: Controllers must not call Repositories directly
-4. **Ownership check**: Service layer methods must call `SecurityUtils.assertOwnerOrAdmin`
+4. **Ownership**: user-owned data is only reachable through queries scoped by `user_id` (security.md §4); every such endpoint has a "non-owner returns 404" test
 5. **Controller → Facade**: Controllers must not call Facades directly (go through Application Service)
