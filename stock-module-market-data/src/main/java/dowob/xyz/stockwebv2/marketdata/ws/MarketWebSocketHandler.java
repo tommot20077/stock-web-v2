@@ -103,6 +103,9 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
      */
     private final ConcurrentMap<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
 
+    /** 送出派發器；由 setter 注入，未注入時（單元測試）略過佇列清理。 */
+    private volatile SessionSendDispatcher sendDispatcher;
+
     /**
      * 建構子注入所有依賴。
      *
@@ -280,6 +283,21 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
         connectionManager.unregister(session.getId());
         subscriptionManager.removeSession(session.getId());
         heartbeat.unregister(session.getId());
+        if (sendDispatcher != null) {
+            sendDispatcher.discard(session.getId());
+        }
+    }
+
+    /**
+     * 注入 WS 送出派發器，讓連線關閉時能丟棄其待送佇列。
+     *
+     * <p>用 setter 而非建構子：派發器與 handler 的生命週期各自獨立，且不改動既有建構子與其測試。
+     *
+     * @param sendDispatcher WS 送出派發器
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSendDispatcher(SessionSendDispatcher sendDispatcher) {
+        this.sendDispatcher = sendDispatcher;
     }
 
     /**
