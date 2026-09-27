@@ -166,12 +166,24 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <!-- 單元測試;*IT 需要容器,交給 failsafe 在 verify 階段跑,`./mvnw test` 不起容器 -->
                     <includes>
                         <include>**/*Test.java</include>
                         <include>**/*Tests.java</include>
-                        <include>**/*IT.java</include>
                     </includes>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
