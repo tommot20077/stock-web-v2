@@ -83,8 +83,8 @@ Inter-module communication uses two independent channels, each with clearly defi
 
 | Interface | Phase 1 Implementation | Future Implementation |
 |-----------|----------------------|----------------------|
-| `EventPublisher` / `EventSubscriber` | **Not implemented** — interfaces exist in `infrastructure/event` with no implementation or caller. market-data injects `KafkaTemplate` directly. | `KafkaEventPublisher` (open decision: implement or delete, see 2026-09-02 architecture review M-1) |
-| `SearchService` | **Not implemented** — asset search is plain SQL `ILIKE` in `AssetRepository` (wildcards escaped, 64-char cap) | `ElasticsearchSearchService` (Phase 3) |
+| `EventPublisher` / `EventSubscriber` / `DomainEvent` | **Reserved, not implemented** (kept by decision 2026-09-28) — no implementation or caller. market-data injects `KafkaTemplate` directly; trades emit no events. | `KafkaEventPublisher` — implement only when a real business event consumer appears |
+| `SearchService` | **Reserved, not implemented** (kept 2026-09-28) — asset search is plain SQL `ILIKE` in `AssetRepository` (wildcards escaped, 64-char cap) | `ElasticsearchSearchService` (Phase 3) |
 
 ### Sprint 0 (Foundation Validation)
 

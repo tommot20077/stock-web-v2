@@ -42,28 +42,28 @@ Loading logic: `Role default permissions ∪ Individual GRANTs − Individual RE
 ### 4. Capability vs Ownership Separation
 
 *   `@PreAuthorize("hasAuthority('TRADE_EXECUTE')")` only checks whether the caller *can* execute trades.
-*   Whether *this portfolio belongs to the caller* is determined in the **Service layer**. ADMIN automatically bypasses ownership checks.
-*   **Never perform ownership checks in the Controller layer.**
+*   Whether *this resource belongs to the caller* is enforced by **scoping the data access to the caller** (decided 2026-09-28).
+*   **Never perform ownership checks in the Controller layer** — the controller only resolves the caller (`AuthenticatedUserResolver`) and passes `userId` down.
 
-#### Ownership Check Mechanism
+#### Ownership Mechanism (query scoping)
 
-Use `SecurityUtils.assertOwnerOrAdmin(currentUserId, resourceOwnerId)` utility method.
+Every repository query for a user-owned resource filters by the caller:
 
 ```java
-// Service layer example
-public PortfolioDto getPortfolio(Long portfolioId) {
-    Portfolio portfolio = portfolioRepository.findById(portfolioId)
-        .orElseThrow(() -> new ResourceNotFoundException("Portfolio"));
-    SecurityUtils.assertOwnerOrAdmin(SecurityContextHelper.getCurrentUserId(), portfolio.getUserId());
-    return mapper.toDto(portfolio);
-}
+// Repository — the caller's id is part of the WHERE clause, never a post-hoc check
+jdbcClient.sql("select ... from backtest_runs where user_id = :userId and uuid = :uuid")
+    .param("userId", userId)
+    .param("uuid", runUuid)
+    .query(this::mapRun)
+    .optional();                      // empty → service throws ResourceNotFoundException / *_NOT_FOUND
 ```
 
 **Rules:**
-- Ownership check failure throws `ResourceNotFoundException` (not `AccessDeniedException`) to avoid leaking resource existence
-- ADMIN automatically bypasses ownership check
-- ArchUnit rules automatically scan to ensure Service methods do not omit ownership checks
+- Another user's resource is simply *not found* → **404** with a static message (resource type only, never the id), so existence is not leaked
+- **ADMIN does not bypass** ownership on user-owned resources. If admin support / audit views are ever needed, add **dedicated admin endpoints** (`@PreAuthorize` ADMIN, audit-logged) instead of a bypass inside the normal endpoints
+- Why query scoping instead of a post-hoc `assertOwnerOrAdmin` check: a forgotten check cannot leak data because the query never returns it, and nothing is over-fetched
 - Every ownership scenario must have a "non-owner returns 404" test
+- (History: the original design called for `SecurityUtils.assertOwnerOrAdmin` with an ADMIN bypass; it was never implemented and was retired on 2026-09-28.)
 
 ### 5. Stateful JWT
 
