@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 04 COMPLETE (04-13 Task 2 approved by Yuan 2026-09-04); next up Phase 04.1 (no CONTEXT yet)
-stopped_at: Phase 04 全部 13 個 plan 完成並驗收;Phase 04.1 尚未 discuss
-last_updated: "2026-09-04T04:30:00.000Z"
-last_activity: 2026-09-04 -- Docker restored; 106 IT + Playwright 18/18 green; 04-13 Task 2 walkthrough approved by Yuan; Phase 04 closed
+status: Phase 04.1 CONTEXT ready (04.2 split out 2026-09-28); next up /gsd-plan-phase 04.1
+stopped_at: Phase 04.1 context gathered (04.2 split out)
+last_updated: "2026-09-27T16:37:42.762Z"
+last_activity: 2026-09-28 -- Phase 04.1 discuss 完成並拆出 04.2;04.1 / 04.2 CONTEXT 已寫入
 progress:
-  total_phases: 6
+  total_phases: 7
   completed_phases: 4
   total_plans: 28
   completed_plans: 28
-  percent: 67
+  percent: 57
 ---
 
 # Project State
@@ -137,22 +137,28 @@ Recent decisions affecting current work:
   缺 header 回 400 `VALIDATION_FAILED` 且 `error.fields['Idempotency-Key']` 非空 —— 獨立的
   `MissingRequestHeaderException` handler 存在的唯一理由就是這個 `fields`:落到 catch-all 也有 400 與正確 code,
   但 `fields` 為空,前端無法區分「缺 header」與「body 欄位錯」(D-16)。
+
 - [Phase 4 Plan 04]: DP-3 新 handler 插在 `handleBusiness` 與 `handleValidation` 之間,避開 draft PR #15 的 hunk;
   `handleValidation` 本體零改動。
+
 - [Phase 4 Plan 05]: RESEARCH Q1.8 的 `[ASSUMED]`(「`ON CONFLICT DO NOTHING` 回零列後衝突列在同一
   READ COMMITTED 交易中可見」)在本專案環境下**實測成立** —— 8 併發同 key 的 IT 連跑四次全綠。
   **維持方案 A,未切換方案 E**(`pg_advisory_xact_lock`)。若日後偶發紅燈,處置是切方案 E,
   **不是**調 timeout / 加重試 / 放寬斷言(判準已寫進測試註解)。
+
 - [Phase 4 Plan 05]: 前端契約凍結 —— header 名 `Idempotency-Key`(1–128 字元、不得全空白)、
   409 `TRADE_IDEMPOTENCY_KEY_REUSED`、payload 比對含 assetId/type/quantity/price/fee/executedAt 但
   **不含 note**、成功回應的 `data` 不含 `idempotencyKey`。
+
 - [Phase 4 Plan 09]: OrderTicket 的連點防護改為**雙層** —— `:disabled="submitting"`(視覺/a11y)
   加上 `submitTrade` 開頭的 `if (submitting.value) return;`(實際保證)。原本靠「placing 期間按鈕
   從畫面消失」是假進度的副作用,U-16 移除假進度後就不存在了。`task4.test.ts` 對應 case 的**意圖**
   隨之改變並在測試名反映;被保護的不變量(連點兩次只記一筆)逐字不變。
+
 - [Phase 4 Plan 09]: `toLocalIso` 從 `Trades.vue` 抽成 `services/localTime.ts` 共用,另立
   `toLocalInputValue` —— `datetime-local` 不接受 offset 也不接受秒,直接塞 `toLocalIso` 的輸出
   會被瀏覽器判為無效值而顯示空白。這個轉換的錯法(UTC 位移)會直接寫進 append-only 帳本。
+
 - [Phase 4]: DP-1 裁定採 (c):以 develop 為基準,Phase 4 只做冪等,不等 PR #15。executedAt 未來時間驗證與 ApiTimeParser 不屬 Phase 4 範圍,留給 PR #15(仍為 OPEN draft)。理由:PR #15 修改了已在 origin/develop 的 V9 migration,違反 flyway-convention「Never modify an applied migration」,等它合併會把 checksum 債帶進 Phase 4 的時程。同時排除 Docker blocker:實跑 docker info → Server 29.5.3 可用,Testcontainers 路徑可行。
 
 ### Pending Todos
@@ -192,10 +198,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-16
-Stopped at: Completed 04-09-PLAN.md(前端 OrderTicket 骨架)。**後端 Phase 4 已於 04-05 收尾**,
+Last session: 2026-09-27T16:37:42.750Z
+Stopped at: Phase 04.1 context gathered (04.2 split out)
 前端契約凍結(見 04-05-SUMMARY 末節)。
-Resume file: .planning/phases/04-manual-trade-creation-idempotency-post-trade-refetch/04-10-PLAN.md
+Resume file: .planning/phases/04.1-backend-data-gap-backfill/04.1-CONTEXT.md
 Next action: 執行 04-10(symbol typeahead 七態 / debounce / AbortController)。
 
 **前端 repo 的狀態**(`../../vue/stock-v2`,分支 `feature/phase-04-manual-trade-creation`):
@@ -209,11 +215,13 @@ Next action: 執行 04-10(symbol typeahead 七態 / debounce / AbortController)�
    04-01/04-02 文件裡殘留的 `V10__transactions_idempotency_key` 是歷史與偏離記錄,**不要改**。
    若不慎再建一個 V10,實測是硬失敗:`Found more than one migration with version 10`
    → flywayInitializer bean 建立失敗 → Spring context 起不來,錯誤訊息會誤導除錯方向。
+
 2. **本機跑 IT 前必須先開 Docker Desktop**。沒開的話 Testcontainers 丟
    `Could not find a valid Docker environment`,連鎖成 `ExceptionInInitializerError` →
    `NoClassDefFoundError`,看起來像程式碼壞掉但不是。判準:看 Failures 而非 Errors ——
    `Failures: 0` 表示零斷言失敗,全是環境問題。另外 `*E2E` 類別(如 `ValidationBoundaryE2E`)
    繼承 `ContainerIT` 也需要 Docker,但名稱不帶 IT 後綴,`-Dtest='!*IT'` 排不掉它們。
+
 3. **`mvn -pl` 沒帶 `-am` 就是在測 m2 裡的舊 JAR**,跨模組改動務必加 `-am`。
 4. failsafe 多類別參數用逗號不是 `+`。
 
