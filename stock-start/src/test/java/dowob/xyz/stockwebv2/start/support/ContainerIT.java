@@ -60,5 +60,11 @@ public abstract class ContainerIT {
         registry.add("spring.flyway.mixed", () -> true);
         registry.add("management.server.port", () -> 11180);
         registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+        // IT 沒有啟用任何 profile，會落到 application.yaml 的 profiles.default: dev；application-test.yaml
+        // 裡關掉行情排程的設定因此從未生效。而 ScheduledIngestor 是 matchIfMissing = true，於是整個 IT
+        // 期間模擬行情都在背景產生 tick，非同步寫進 Redis latest 與 market_prices——任何斷言市價的測試
+        // 都會隨執行時序漂移（TradingApiIT 曾因此讀到 135.94 而非自己寫入的 200）。IT 需要確定的環境。
+        registry.add("market-data.scheduling.enabled", () -> false);
+        registry.add("market-data.ingestor.enabled", () -> false);
     }
 }

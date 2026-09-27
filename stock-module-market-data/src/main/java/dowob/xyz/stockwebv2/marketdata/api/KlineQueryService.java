@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.marketdata.api;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.model.KlineInterval;
+import dowob.xyz.stockwebv2.common.model.TradingDay;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 
@@ -18,7 +19,7 @@ import java.util.List;
  * 查詢 K 線 Continuous Aggregate view 的服務層。
  *
  * <p>依 {@link KlineInterval} 路由至對應的 view（{@code kline_1m} / {@code kline_5m} /
- * {@code kline_15m} / {@code kline_1h} / {@code kline_1d}），
+ * {@code kline_15m} / {@code kline_1h}）；日 K 由 {@code kline_1h} 依資產市場的交易日彙總，
  * 使用 {@link JdbcClient} 執行參數化查詢，結果對映為 {@link KlineDto} list。
  *
  * <p>SQL 中 view 名稱由 switch expression 從 enum 常數映射而來，
@@ -69,7 +70,7 @@ public class KlineQueryService {
                                      Instant from, Instant to, Integer limit) {
         AssetSummary asset = assetFacade.findBySymbol(symbol)
             .orElseThrow(() -> new BusinessException(
-                ErrorCode.ASSET_NOT_FOUND, "Asset not found: " + symbol));
+                ErrorCode.ASSET_NOT_FOUND, "Asset not found", java.util.Map.of("symbol", "not found")));
 
         if (from == null) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "from is required");
@@ -81,6 +82,10 @@ public class KlineQueryService {
         int effectiveLimit = (limit == null)
             ? DEFAULT_LIMIT
             : Math.min(Math.max(1, limit), MAX_LIMIT);
+
+        if (interval == KlineInterval.ONE_DAY) {
+            return findTradingDayKlines(asset, from, effectiveTo, effectiveLimit);
+        }
 
         String view = viewName(interval);
         String sql = """
@@ -96,6 +101,57 @@ public class KlineQueryService {
             .param("from", java.sql.Timestamp.from(from))
             .param("to", java.sql.Timestamp.from(effectiveTo))
             .param("limit", effectiveLimit)
+            .query(this::map)
+            .list();
+    }
+
+    /**
+     * 日 K:由 {@code kline_1h} 依資產市場的交易日彙總。
+     *
+     * <p>{@code kline_1d} 以 UTC 午夜切日,美股的一個交易日會被切成兩根;各市場的換日點
+     * (見 {@link TradingDay})在當地時鐘上都落在整點,所以用 1 小時 K 組成當地日 K 是精確的,
+     * 不必為每個時區各建一個 continuous aggregate。{@code time_bucket} 帶時區時會以當地時鐘
+     * 計算夏令時間與 offset。
+     *
+     * <p>語意與其他 interval 一致:回傳 bucket 起點落在 {@code [from, to)} 的日 K;內層多取前後一天
+     * 的小時 K,確保邊界那幾天的彙總完整。
+     *
+     * @param asset 資產
+     * @param from  起始(含)
+     * @param to    結束(不含)
+     * @param limit 最大筆數
+     * @return 日 K,依 bucket 升冪
+     */
+    private List<KlineDto> findTradingDayKlines(AssetSummary asset, Instant from, Instant to, int limit) {
+        TradingDay tradingDay = TradingDayResolver.of(asset);
+        String sql = """
+                select day as bucket, open, high, low, close, volume
+                from (
+                    select time_bucket(interval '1 day', bucket, :tz,
+                                       "offset" => make_interval(secs => :offsetSeconds)) as day,
+                           first(open, bucket) as open,
+                           max(high)           as high,
+                           min(low)            as low,
+                           last(close, bucket) as close,
+                           sum(volume)         as volume
+                    from kline_1h
+                    where asset_id = :assetId
+                      and bucket >= cast(:from as timestamptz) - interval '1 day'
+                      and bucket <  cast(:to as timestamptz) + interval '1 day'
+                    group by day
+                ) d
+                where day >= :from and day < :to
+                order by day asc
+                limit :limit
+                """;
+
+        return jdbcClient.sql(sql)
+            .param("tz", tradingDay.zone().getId())
+            .param("offsetSeconds", tradingDay.startOffset().toSeconds())
+            .param("assetId", asset.id())
+            .param("from", java.sql.Timestamp.from(from))
+            .param("to", java.sql.Timestamp.from(to))
+            .param("limit", limit)
             .query(this::map)
             .list();
     }
@@ -133,7 +189,7 @@ public class KlineQueryService {
             case FIVE_MINUTES   -> "kline_5m";
             case FIFTEEN_MINUTES -> "kline_15m";
             case ONE_HOUR       -> "kline_1h";
-            case ONE_DAY        -> "kline_1d";
+            case ONE_DAY        -> throw new IllegalArgumentException("1d is served by findTradingDayKlines");
         };
     }
 }

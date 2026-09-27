@@ -11,6 +11,10 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import tools.jackson.databind.ObjectMapper;
@@ -32,6 +36,46 @@ public class PortfolioCache {
 
     public Optional<HoldingDto> readHolding(Long userId, Long assetId) {
         return read(holdingKey(userId, assetId), HoldingDto.class);
+    }
+
+    /**
+     * 一次 MGET 讀多筆持倉快取。
+     *
+     * <p>整批失敗時回空 map：呼叫端會把全部持倉當作未命中重算，頁面照常顯示而不是整頁失敗。
+     *
+     * @param userId   使用者 id
+     * @param assetIds 標的 id 集合
+     * @return 命中的標的 id → 持倉 DTO；未命中者不出現
+     */
+    public Map<Long, HoldingDto> readHoldings(Long userId, Collection<Long> assetIds) {
+        if (assetIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> ids = List.copyOf(assetIds);
+        List<String> keys = ids.stream().map(assetId -> holdingKey(userId, assetId)).toList();
+        List<String> values;
+        try {
+            values = redisTemplate.opsForValue().multiGet(keys);
+        } catch (RuntimeException exception) {
+            log.warn("Portfolio cache batch read failed for userId={}: {}", userId, exception.toString());
+            return Map.of();
+        }
+        Map<Long, HoldingDto> hits = new LinkedHashMap<>();
+        if (values == null) {
+            return hits;
+        }
+        for (int i = 0; i < ids.size() && i < values.size(); i++) {
+            String json = values.get(i);
+            if (json == null) {
+                continue;
+            }
+            try {
+                hits.put(ids.get(i), objectMapper.readValue(json, HoldingDto.class));
+            } catch (Exception exception) {
+                log.warn("Portfolio cache entry unreadable for key={}: {}", keys.get(i), exception.toString());
+            }
+        }
+        return hits;
     }
 
     public void writeHolding(Long userId, Long assetId, HoldingDto dto) {

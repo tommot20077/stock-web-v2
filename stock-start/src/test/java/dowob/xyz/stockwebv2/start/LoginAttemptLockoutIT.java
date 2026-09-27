@@ -48,7 +48,7 @@ class LoginAttemptLockoutIT extends ContainerIT {
     @BeforeEach
     void setup() {
         RateLimitProperties properties = new RateLimitProperties(
-            true, null, null, null, new RateLimitProperties.Lockout(THRESHOLD, DURATION));
+            true, null, null, null, new RateLimitProperties.Lockout(THRESHOLD, DURATION), null, null);
         service = new LoginAttemptService(redisTemplate, properties);
     }
 

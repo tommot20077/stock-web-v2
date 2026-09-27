@@ -42,6 +42,36 @@ Pattern: `{category}:{entity}:{identifier}`
 |------------|-------|---------|
 | `cache:market:latest:{assetId}` | `{ price, volume, time }` | Latest market price |
 
+## As Implemented (2026-09-27) — read this before adding a key
+
+The tables above are the original design. The code has drifted from them; until Yuan decides whether to
+rename the code or amend the design (see "Open decisions"), **new keys should follow the existing
+prefixes below** rather than introduce a third style.
+
+| Key pattern | TTL | Owner | Notes |
+|-------------|-----|-------|-------|
+| `user:auth:{userId}` | none | user / security | token version (matches design) |
+| `user:refresh:{token}`, `user:refresh:index:{userId}` | refresh TTL | user | matches design |
+| `user:refresh:used:{token}` | refresh TTL | user | replay detection; not in design |
+| `user:login:fail:{userId}` | lockout window | user | matches design |
+| `rl:{bucket}:{identity}` | rule window | infrastructure `RateLimitService` | rate-limit counters; not in design |
+| `ws:ticket:{ticket}` | 30 s | market-data | one-time WebSocket ticket; not in design |
+| `market:latest:{assetId}` | 5 min | market-data | design says `cache:market:latest:*`, 30 s |
+| `market:backfill:idem:{key}` | 1 h | market-data | backfill idempotency; not in design |
+| `portfolio:valuation:{userId}:{assetId}` | 60 s | trading | design says `cache:portfolio:*`, 5 min |
+| `portfolio:summary:{userId}` | 60 s | trading | design says `cache:dashboard:*`, 5 min |
+
+Not implemented: `user:permissions:*`, `cache:risk:*`.
+
+Redis DB index: `dev` and `demo` default to **1** (`STOCK_REDIS_DATABASE`); `e2e-browser` defaults to **0**
+(throw-away compose stack) — this contradicts the "all profiles use DB 1" rule above.
+
+### Open decisions (need Yuan)
+
+1. Cache prefix: keep `market:` / `portfolio:` as implemented, or migrate to `cache:*` so eviction-safe and
+   cache keys are distinguishable by prefix?
+2. `e2e-browser` Redis DB 0: allowed exception for the isolated E2E stack, or must be 1?
+
 ## Eviction Policy
 
 Use **`volatile-lru`** (only evict keys with TTL set):

@@ -17,25 +17,20 @@ import java.util.Objects;
  * @version 1.0
  */
 public class FieldValidationException extends BusinessException {
-    private final Map<String, String> fields;
 
     /**
      * @param message 錯誤訊息（靜態描述，不含使用者輸入）
      * @param fields  欄位／header 名稱 → 原因；不得為 null 或空
      */
     public FieldValidationException(String message, Map<String, String> fields) {
-        super(ErrorCode.VALIDATION_FAILED, message);
+        super(ErrorCode.VALIDATION_FAILED, message, requireNonEmpty(fields));
+    }
+
+    private static Map<String, String> requireNonEmpty(Map<String, String> fields) {
         Objects.requireNonNull(fields, "fields");
         if (fields.isEmpty()) {
             throw new IllegalArgumentException("fields must not be empty");
         }
-        this.fields = Map.copyOf(fields);
-    }
-
-    /**
-     * @return 欄位／header 名稱 → 原因（不可變）
-     */
-    public Map<String, String> fields() {
         return fields;
     }
 }

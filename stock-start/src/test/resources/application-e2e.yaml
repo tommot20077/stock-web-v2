@@ -20,3 +20,12 @@ market-data:
     enabled: false
   mock:
     enabled: true
+
+# SmokeE2E 驗證 /v3/api-docs 可用，因此 e2e profile 明確開啟。主設定預設關閉（security.md：production
+# 必須關閉）；dev 也不開——application.yaml 設了 profiles.default: dev，忘了指定 profile 的部署會以 dev
+# 跑起來，若 dev 開啟文件就等於把洞留著。本機要看文件請設 STOCK_OPENAPI_ENABLED=true。
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true

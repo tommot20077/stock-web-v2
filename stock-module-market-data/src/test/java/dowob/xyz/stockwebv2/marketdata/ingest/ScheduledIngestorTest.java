@@ -9,15 +9,20 @@ import dowob.xyz.stockwebv2.marketdata.provider.PriceTick;
 import dowob.xyz.stockwebv2.marketdata.provider.ProviderRegistry;
 import dowob.xyz.stockwebv2.marketdata.provider.UnknownSymbolException;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -51,6 +56,7 @@ class ScheduledIngestorTest {
     );
 
     private ScheduledIngestor ingestor;
+    private ExecutorService fetchPool;
 
     @BeforeEach
     void setup() {
@@ -63,7 +69,8 @@ class ScheduledIngestorTest {
         });
         when(ingest.publishTick(any())).thenReturn(CompletableFuture.completedFuture(null));
 
-        ingestor = new ScheduledIngestor(assetFacade, registry, ingest);
+        fetchPool = Executors.newFixedThreadPool(4);
+        ingestor = new ScheduledIngestor(assetFacade, registry, ingest, fetchPool, Duration.ofMillis(300));
         ingestor.loadAssets();
     }
 
@@ -125,5 +132,62 @@ class ScheduledIngestorTest {
 
         assertThat(ingestor.successCount()).isZero();
         assertThat(ingestor.failureCount()).isEqualTo(3);
+    }
+
+    @AfterEach
+    void shutdown() {
+        fetchPool.shutdownNow();
+    }
+
+    // ── 逾時與平行(效能審查 MED-7) ─────────────────────────────────────────────
+
+    @Test
+    void tickAll_slowProvider_timesOutWithoutBlockingOthers() {
+        when(provider.fetchLatest("AAPL")).thenAnswer(inv -> {
+            Thread.sleep(3_000);
+            return null;
+        });
+
+        assertTimeoutPreemptively(Duration.ofSeconds(1), () -> ingestor.tickAll());
+
+        verify(ingest, times(2)).publishTick(any());
+        assertThat(ingestor.successCount()).isEqualTo(2);
+        assertThat(ingestor.failureCount()).isEqualTo(1);
+    }
+
+    @Test
+    void tickAll_fetchesAssetsInParallel() {
+        org.mockito.Mockito.doAnswer(inv -> {
+            Thread.sleep(250);
+            String sym = inv.getArgument(0);
+            return new PriceTick(sym, Instant.now(), new BigDecimal("100.0"), new BigDecimal("500"));
+        }).when(provider).fetchLatest(any());
+
+        // 序列抓 3 檔各 250ms 至少 750ms;平行應在一檔的時間內完成
+        assertTimeoutPreemptively(Duration.ofMillis(600), () -> ingestor.tickAll());
+
+        assertThat(ingestor.successCount()).isEqualTo(3);
+    }
+
+    // ── 資產清單刷新 ─────────────────────────────────────────────────────────
+
+    @Test
+    void refreshAssets_picksUpNewlyListedAssets() {
+        when(assetFacade.findAllTradeable()).thenReturn(List.of(
+                assets.get(0), assets.get(1), assets.get(2),
+                new AssetSummary(4L, "ETH", "Ethereum", AssetType.CRYPTO, "CRYPTO", true, true)));
+
+        ingestor.refreshAssets();
+
+        assertThat(ingestor.cachedAssetCount()).isEqualTo(4);
+    }
+
+    @Test
+    void refreshAssets_facadeFailure_keepsPreviousList() {
+        when(assetFacade.findAllTradeable()).thenThrow(new IllegalStateException("db down"));
+
+        ingestor.refreshAssets();
+
+        assertThat(ingestor.cachedAssetCount()).isEqualTo(3);
     }
 }

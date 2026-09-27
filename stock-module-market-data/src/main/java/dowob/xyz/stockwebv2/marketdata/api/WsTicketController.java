@@ -15,6 +15,7 @@ import org.apache.commons.lang3.ObjectUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,6 +36,12 @@ import java.util.Map;
  * @author Yuan
  * @version 1.0.0
  */
+/*
+ * 方法層授權：URL 層（SecurityConfig anyRequest().authenticated()）已要求登入，這裡再明確宣告一次，
+ * 讓「這些端點需要登入」跟著程式碼走，不因 URL 規則調整而無聲變成公開（安全審查 M-4）。
+ * 目前沒有對應的細粒度 Permission；要新增權限屬於權限模型的變更，另案討論。
+ */
+@PreAuthorize("isAuthenticated()")
 @RestController
 @RequestMapping("/api/v1/market/ws")
 public class WsTicketController {

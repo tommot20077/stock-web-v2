@@ -21,6 +21,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -131,6 +132,7 @@ public class AuthController {
     }
 
     @GetMapping("/me")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<MeResponse> me(Authentication authentication) {
         Long userId = AuthenticatedUserResolver.resolve(authentication);
         User user = authService.requireById(userId);

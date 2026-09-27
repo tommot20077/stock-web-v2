@@ -19,7 +19,7 @@ import java.time.OffsetDateTime;
  * 同一把 Idempotency-Key 的合法重試在 payload 比對時就會吃到假性 409。</p>
  */
 public record CreateTradeRequest(
-    @NotBlank String symbol,
+    @NotBlank @Size(max = 32) String symbol,
     @NotBlank String type,
     @NotNull @DecimalMin(value = "0.00000001") @DecimalMax(value = "1000000000")
     @Digits(integer = 10, fraction = 8) BigDecimal quantity,

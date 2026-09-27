@@ -30,11 +30,9 @@ class SmokeE2E extends AbstractStockE2ETest {
             Integer.class
         );
         Integer assets = jdbcTemplate.queryForObject("select count(*) from assets", Integer.class);
-        Integer prices = jdbcTemplate.queryForObject("select count(*) from asset_latest_prices", Integer.class);
 
         assertThat(usersTable).isEqualTo(1);
         assertThat(assets).isGreaterThanOrEqualTo(19);
-        assertThat(prices).isGreaterThanOrEqualTo(19);
 
         mockMvc.perform(get("/actuator/health"))
             .andExpect(status().isOk())

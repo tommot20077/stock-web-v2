@@ -1,7 +1,11 @@
 package dowob.xyz.stockwebv2.marketdata.api;
 
+import dowob.xyz.stockwebv2.common.model.TradingDay;
+import dowob.xyz.stockwebv2.infrastructure.marketdata.DailyQuote;
 import dowob.xyz.stockwebv2.infrastructure.marketdata.LatestMarketPrice;
 import dowob.xyz.stockwebv2.infrastructure.marketdata.MarketDataFacade;
+import dowob.xyz.stockwebv2.marketdata.persistence.DailyStats;
+import dowob.xyz.stockwebv2.marketdata.persistence.MarketPrice;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPriceRepository;
 
 import org.slf4j.Logger;
@@ -13,6 +17,10 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -66,6 +74,79 @@ public class MarketDataFacadeImpl implements MarketDataFacade {
         return readFromCache(assetId).or(() -> readFromDatabase(assetId));
     }
 
+    @Override
+    public Map<Long, LatestMarketPrice> findLatestPrices(Collection<Long> assetIds) {
+        Objects.requireNonNull(assetIds, "assetIds must not be null");
+        if (assetIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> ids = List.copyOf(new LinkedHashSet<>(assetIds));
+        Map<Long, LatestMarketPrice> result = new LinkedHashMap<>(readManyFromCache(ids));
+        List<Long> misses = ids.stream().filter(id -> !result.containsKey(id)).toList();
+        if (!misses.isEmpty()) {
+            for (MarketPrice price : repository.findLatestBatch(misses)) {
+                result.put(price.assetId(), new LatestMarketPrice(price.price(), toOffsetDateTime(price.time())));
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public Map<Long, DailyQuote> findDailyQuotes(Map<Long, TradingDay> assets) {
+        Objects.requireNonNull(assets, "assets must not be null");
+        Map<Long, LatestMarketPrice> latest = findLatestPrices(assets.keySet());
+        if (latest.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, Instant> dayStarts = new LinkedHashMap<>();
+        latest.forEach((id, price) -> dayStarts.put(id, assets.get(id).dayStart(price.priceTime().toInstant())));
+        Map<Long, DailyStats> stats = repository.findDailyStats(dayStarts);
+
+        Map<Long, DailyQuote> quotes = new LinkedHashMap<>();
+        latest.forEach((id, price) -> {
+            DailyStats day = stats.get(id);
+            BigDecimal last = price.price();
+            // Redis latest 與 market_prices 由兩個 consumer 各自寫入,彙總可能還沒看到最新那筆:
+            // 高低點一律涵蓋最新價,避免出現「最新價高於今日最高」
+            BigDecimal high = day == null || day.high() == null ? last : day.high().max(last);
+            BigDecimal low = day == null || day.low() == null ? last : day.low().min(last);
+            quotes.put(id, new DailyQuote(last, price.priceTime(),
+                day == null ? null : day.previousClose(), high, low, day == null ? null : day.volume()));
+        });
+        return quotes;
+    }
+
+    /**
+     * 一次 MGET 讀多筆 latest cache。
+     *
+     * <p>整批讀取失敗時回空 map，讓呼叫端整批降級查資料庫——與單筆版本「快取不可用就退回 DB」的策略一致。
+     *
+     * @param ids 資產 id（已去重，順序即 MGET 的 key 順序）
+     * @return 命中的資產 id → 最新價
+     */
+    private Map<Long, LatestMarketPrice> readManyFromCache(List<Long> ids) {
+        List<String> keys = ids.stream().map(id -> REDIS_LATEST_KEY + id).toList();
+        List<String> values;
+        try {
+            values = redisTemplate.opsForValue().multiGet(keys);
+        } catch (Exception ex) {
+            log.warn("Redis latest cache batch read failed for {} assets: {}", ids.size(), ex.toString());
+            return Map.of();
+        }
+        Map<Long, LatestMarketPrice> hits = new LinkedHashMap<>();
+        if (values == null) {
+            return hits;
+        }
+        for (int i = 0; i < ids.size() && i < values.size(); i++) {
+            String json = values.get(i);
+            Long assetId = ids.get(i);
+            if (json != null) {
+                parse(assetId, json).ifPresent(price -> hits.put(assetId, price));
+            }
+        }
+        return hits;
+    }
+
     /**
      * 讀 Redis latest cache。
      *
@@ -75,9 +156,22 @@ public class MarketDataFacadeImpl implements MarketDataFacade {
     private Optional<LatestMarketPrice> readFromCache(Long assetId) {
         try {
             String json = redisTemplate.opsForValue().get(REDIS_LATEST_KEY + assetId);
-            if (json == null) {
-                return Optional.empty();
-            }
+            return json == null ? Optional.empty() : parse(assetId, json);
+        } catch (Exception ex) {
+            log.warn("Redis latest cache read failed for assetId={}: {}", assetId, ex.toString());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * 解析一筆 latest cache JSON；欄位缺漏或格式錯誤視為 miss。
+     *
+     * @param assetId 資產 id（僅供日誌）
+     * @param json    {@code WsBroadcastConsumer.buildTickData} 寫入的內容
+     * @return 解析成功的最新價
+     */
+    private Optional<LatestMarketPrice> parse(Long assetId, String json) {
+        try {
             @SuppressWarnings("unchecked")
             Map<String, Object> cached = objectMapper.readValue(json, Map.class);
             Object price = cached.get("price");
@@ -89,7 +183,7 @@ public class MarketDataFacadeImpl implements MarketDataFacade {
                 new BigDecimal(price.toString()),
                 toOffsetDateTime(Instant.parse(time.toString()))));
         } catch (Exception ex) {
-            log.warn("Redis latest cache read failed for assetId={}: {}", assetId, ex.toString());
+            log.warn("Malformed latest cache entry for assetId={}: {}", assetId, ex.toString());
             return Optional.empty();
         }
     }

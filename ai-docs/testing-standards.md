@@ -33,6 +33,8 @@ void methodNameInChinese() { ... }
 | Web layer | `*ControllerTest.java` | `@WebMvcTest` + MockitoBean | Controller + Security |
 | Integration | `*IT.java` | `@SpringBootTest` + Testcontainers | Full API flow |
 
+`*IT.java` 一律由 **failsafe** 在 `verify` 階段執行,不得加進 surefire 的 includes:`./mvnw test` 只跑不需容器的單元 / Web 層測試(2026-09-27 起,IT 移出 surefire 後 `./mvnw test` 由約 5 分鐘降到約 2.5 分鐘)。需要容器的測試必須以 `IT` 結尾,否則會跑在 surefire、拖慢單元迴圈。
+
 ## Testcontainers Shared Container Pattern
 
 Use **singleton pattern** + `withReuse(true)` to share containers across test classes:

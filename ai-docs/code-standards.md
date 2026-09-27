@@ -49,38 +49,44 @@ Prefer the following utility classes for null/empty checks to improve readabilit
 ## Error Handling & HTTP Status Codes (CRITICAL)
 
 *   **Always use `ResponseEntity`**: All `@ExceptionHandler` methods MUST return `ResponseEntity<ApiResponse<Void>>` with an explicit HTTP status. Returning `ApiResponse` directly results in HTTP 200 regardless of the error.
-*   **Status code mapping**:
-    *   `BusinessException` → **HTTP 400** (`HttpStatus.BAD_REQUEST`)
-    *   `MethodArgumentNotValidException` / `BindException` → **HTTP 400** (`HttpStatus.BAD_REQUEST`)
-    *   `SystemException` → **HTTP 500** (`HttpStatus.INTERNAL_SERVER_ERROR`)
-    *   Catch-all `Exception` → **HTTP 500** (`HttpStatus.INTERNAL_SERVER_ERROR`)
-    *   `ResponseStatusException` → preserve original status code via `e.getStatusCode()`
+*   **Status code mapping** (all handlers live in `stock-start/.../error/GlobalExceptionHandler.java`):
+    *   `BusinessException` → status from **`ErrorCode.httpStatus()`** (e.g. `VALIDATION_FAILED` 400, `ASSET_NOT_FOUND` 404, `TRADE_CONFLICT` 409); `error.fields` carries `BusinessException.fields()`
+    *   `FieldValidationException` (subclass) → 400 `VALIDATION_FAILED` with `fields`
+    *   `MethodArgumentNotValidException` / `MissingRequestHeaderException` / `MethodArgumentTypeMismatchException` → **HTTP 400**
+    *   `RateLimitExceededException` → 429 + `Retry-After`
+    *   Anything implementing Spring's `ErrorResponse` → its own status, mapped to an `ErrorCode`
+    *   Catch-all `Exception` → **HTTP 500** `INTERNAL_ERROR`, fixed message; details only in the log with `traceId`
     *   `AccessDeniedException` → re-throw to let Spring Security handle (returns HTTP 403)
-*   **Forbidden pattern**: `return ApiResponse.failed(...)` in an `@ExceptionHandler` — this is always HTTP 200.
-*   **Correct pattern**: `return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.failed(...))`
+*   **Forbidden pattern**: returning `ApiResponse.failure(...)` directly from an `@ExceptionHandler` — this is always HTTP 200.
+*   **Correct pattern**: `return ResponseEntity.status(code.httpStatus()).body(ApiResponse.failure(error, ApiMetaFactory.current()))`
+*   There is no `SystemException`; unexpected failures fall through to the catch-all.
 
 ## Facade Call Rules
 
 Application layer (Controller / Application Service) Facade calls are limited to **≤ 3 per request**. When exceeding this limit:
 - Core metrics (total market value, P&L, allocation ratios) → Redis pre-computation
-- Batch queries → Facade provides batch methods (e.g., `findByIds(Set<Long>)`) to avoid N+1
+- Batch queries → Facade provides batch methods (e.g., `MarketDataFacade.findLatestPrices(Collection<Long>)`, `findDailyQuotes(Map<Long, TradingDay>)`) to avoid N+1
 - Complex aggregations → Spring Batch pre-computation written to Redis
 
 ## Ownership Check Pattern
 
-Use `SecurityUtils.assertOwnerOrAdmin(currentUserId, resourceOwnerId)` utility method:
-- Failure throws `ResourceNotFoundException` (not `AccessDeniedException`)
-- ADMIN automatically bypasses
-- ArchUnit rules automatically scan to ensure no omissions
-- See [security.md §4](security.md)
+**Design (security.md §4)**: `SecurityUtils.assertOwnerOrAdmin(currentUserId, resourceOwnerId)` in the service layer; failure throws `ResourceNotFoundException`; ADMIN bypasses.
+
+**As implemented (2026-09-27)**: `SecurityUtils` does not exist. Ownership is enforced by **scoping every query to the caller**:
+- The controller resolves the caller with `AuthenticatedUserResolver` (stock-infrastructure/web) and passes `userId` down
+- Repository SQL filters `where user_id = :userId` (e.g. `JdbcTradingRepository`, `JdbcBacktestRepository`), so another user's resource is simply *not found* → 404 (no existence oracle)
+- ADMIN therefore does **not** bypass ownership on user-owned resources today
+- Every controller endpoint must declare `@PreAuthorize` or be allow-listed with a reason — enforced by the ArchUnit test `EndpointAuthorizationRulesTest`
+
+**Open decision (need Yuan)**: adopt query scoping as the rule (and update security.md §4 / judgment.md), or implement `assertOwnerOrAdmin` with the ADMIN bypass. Until decided, new user-owned resources follow the implemented query-scoping pattern.
 
 ## Error Message Security Rules
 
 | Exception Type | HTTP Status | Response Message Rules |
 |---------------|-------------|----------------------|
 | `ResourceNotFoundException` | 404 | Only include resource type name (e.g., "Portfolio") — **never** include IDs or paths |
-| `BusinessException` | 400 | Business error description — **never** include internal IDs, SQL fragments, or stack traces |
-| `SystemException` | 500 | Fixed message "System error, please try again later" — details only go to logs |
+| `BusinessException` | per `ErrorCode` | **Static** description — **never** echo user input (symbol, interval, keys), internal IDs, SQL fragments, or stack traces. Name the offending input via `fields` (`field → static reason`) |
+| Catch-all | 500 | Fixed `INTERNAL_ERROR` message — details only go to logs with `traceId` |
 | `AccessDeniedException` | 403 | Re-throw, let Spring Security handle |
 
 ## SQL Injection Prevention (Hard Requirement)
@@ -88,22 +94,24 @@ Use `SecurityUtils.assertOwnerOrAdmin(currentUserId, resourceOwnerId)` utility m
 1. **Absolutely forbidden** to concatenate SQL strings (`"SELECT ... WHERE id = " + id`)
 2. `@Query` must always use `:namedParam` (e.g., `@Query("SELECT * FROM users WHERE id = :id")`)
 3. Dynamic queries may only use `JdbcClient` + `MapSqlParameterSource`
-4. LIKE wildcards must be escaped (`LikeEscapeUtil.escape(keyword)`)
+4. LIKE / ILIKE wildcards must be escaped and user input length-capped — see `AssetRepository.likePattern` (escapes `\\`, `%`, `_`; 64-char cap). There is no shared `LikeEscapeUtil`; extract one when a second caller appears
 5. Code review checklist must include "SQL string concatenation check" item
 
 ## High-Frequency Computation Storage Strategy (CRITICAL)
 
-All computed data driven by high-frequency events (e.g., price updates triggering valuation changes) MUST follow this pattern:
+As implemented (2026-09-27), derived portfolio data is **computed on read and cached in Redis**; there is no event-driven write path and no daily write-back batch:
 
-1. **Write to Redis first** — immediate updates go to Redis cache
-2. **Daily batch writes back to DB** — scheduled job persists Redis data to database tables
-3. **API reads Redis** — never query DB for high-frequency computed data
+1. **Read Redis first** — cache hit returns immediately (batch `MGET` for many assets)
+2. **Miss → compute** from `holdings` + `MarketDataFacade` prices, then write the cache with a short TTL
+3. **Invalidate after commit** — trade writes evict the user's portfolio keys in `afterCommit`, never before (otherwise a concurrent read re-caches pre-trade data)
 
-| Data | Redis Key Pattern | DB Table | Update Trigger |
-|------|------------------|----------|---------------|
-| Portfolio market value / ROI | `cache:portfolio:{userId}:{assetId}` | `portfolio_valuations` | `market.price.*` event |
-| Dashboard summary | `cache:dashboard:{userId}` | (computed, no dedicated table) | Derived from portfolio |
-| Risk indicators | `cache:risk:{userId}` | `portfolio_valuations` (batch write) | Daily batch |
+| Data | Redis Key Pattern | TTL | Invalidation |
+|------|------------------|-----|--------------|
+| Holding valuation | `portfolio:valuation:{userId}:{assetId}` | 60 s | after trade commit |
+| Portfolio summary | `portfolio:summary:{userId}` | 60 s | after trade commit |
+| Latest price (market-data) | `market:latest:{assetId}` | 5 min | overwritten per tick |
+
+Risk indicators and a `portfolio_valuations` table are not implemented. If price-driven revaluation is ever needed, revisit this section rather than adding a parallel mechanism.
 
 **NOT applicable (write directly to DB):** `holdings` (trade-triggered, low frequency), `transactions` (append-only), `assets` (metadata), `users`
 

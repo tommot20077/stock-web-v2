@@ -7,21 +7,21 @@
 
 ### Authentication
 
-- [ ] **AUTH-01**: 使用者可以用 email/password 註冊帳號，瀏覽器流程不需要讀取 refresh token。
-- [ ] **AUTH-02**: 使用者可以用 email/password 登入，後端會設定 browser-safe session cookies。
+- [x] **AUTH-01**: 使用者可以用 email/password 註冊帳號，瀏覽器流程不需要讀取 refresh token。
+- [x] **AUTH-02**: 使用者可以用 email/password 登入，後端會設定 browser-safe session cookies。
 - [x] **AUTH-03**: 使用者重新整理 Vue app 後，可以透過 `/api/v1/me` 還原登入狀態。
 - [x] **AUTH-04**: 使用者 session 過期時，Vue app 可以透過 `/api/v1/auth/refresh` 嘗試一次 session refresh。
-- [ ] **AUTH-05**: 使用者可以從 app 登出，後端會 revoke refresh/session state 並清除 auth cookies。
-- [ ] **AUTH-06**: 未登入請求會得到一致的 401 `ApiResponse` envelope，已登入但權限不足會得到一致的 403 envelope。
-- [ ] **AUTH-07**: 非瀏覽器 API client 仍可使用明確定義的 bearer-token path，不與 browser cookie path 混淆。
+- [x] **AUTH-05**: 使用者可以從 app 登出，後端會 revoke refresh/session state 並清除 auth cookies。
+- [x] **AUTH-06**: 未登入請求會得到一致的 401 `ApiResponse` envelope，已登入但權限不足會得到一致的 403 envelope。
+- [x] **AUTH-07**: 非瀏覽器 API client 仍可使用明確定義的 bearer-token path，不與 browser cookie path 混淆。
 
 ### Security
 
-- [ ] **SEC-01**: Browser auth 使用 httpOnly cookie 承載 access/refresh session，不把 refresh token 暴露給 Vue JavaScript。
-- [ ] **SEC-02**: Cookie-authenticated unsafe requests 必須通過 double-submit CSRF token 驗證。
-- [ ] **SEC-03**: 後端提供或設定可被 Vue 讀取的 CSRF token contract，並要求 unsafe methods 送出對應 header。
-- [ ] **SEC-04**: CORS 設定允許指定 Vue origin 使用 credentials，並拒絕未允許的 origin。
-- [ ] **SEC-05**: Backend security tests 覆蓋 cookie GET、cookie unsafe POST with/without CSRF、bearer request、401、403、refresh、logout。
+- [x] **SEC-01**: Browser auth 使用 httpOnly cookie 承載 access/refresh session，不把 refresh token 暴露給 Vue JavaScript。
+- [x] **SEC-02**: Cookie-authenticated unsafe requests 必須通過 double-submit CSRF token 驗證。
+- [x] **SEC-03**: 後端提供或設定可被 Vue 讀取的 CSRF token contract，並要求 unsafe methods 送出對應 header。
+- [x] **SEC-04**: CORS 設定允許指定 Vue origin 使用 credentials，並拒絕未允許的 origin。
+- [x] **SEC-05**: Backend security tests 覆蓋 cookie GET、cookie unsafe POST with/without CSRF、bearer request、401、403、refresh、logout。
 
 ### Frontend API Foundation
 
@@ -46,19 +46,19 @@
 
 ### Trading
 
-- [ ] **TRAD-01**: Vue order ticket 在 API mode 建立 manual executed buy/sell trade，而不是 broker order。
-- [ ] **TRAD-02**: Trade creation request 明確映射到 backend `CreateTradeRequest` contract，避免傳送 pending order、cancel、time-in-force 等未支援欄位。
-- [ ] **TRAD-03**: Backend trade creation 支援 server-side idempotency，避免同一使用者 retry/double-click 建立重複交易或重複更新 holdings。
-- [ ] **TRAD-04**: Frontend trade submission 提供 duplicate-submit guard，但不取代 server-side idempotency。
-- [ ] **TRAD-05**: Trade creation 成功後，Vue API mode 會重新讀取 portfolio summary、holdings/positions、trade history。
-- [ ] **TRAD-06**: Trade validation、oversell、permission、CSRF、network 錯誤會以使用者可理解的方式顯示，並保留 backend error code/request id。
+- [x] **TRAD-01**: Vue order ticket 在 API mode 建立 manual executed buy/sell trade，而不是 broker order。
+- [x] **TRAD-02**: Trade creation request 明確映射到 backend `CreateTradeRequest` contract，避免傳送 pending order、cancel、time-in-force 等未支援欄位。
+- [x] **TRAD-03**: Backend trade creation 支援 server-side idempotency，避免同一使用者 retry/double-click 建立重複交易或重複更新 holdings。
+- [x] **TRAD-04**: Frontend trade submission 提供 duplicate-submit guard，但不取代 server-side idempotency。
+- [x] **TRAD-05**: Trade creation 成功後，Vue API mode 會重新讀取 portfolio summary、holdings/positions、trade history。
+- [x] **TRAD-06**: Trade validation、oversell、permission、CSRF、network 錯誤會以使用者可理解的方式顯示，並保留 backend error code/request id。
 
 ### Verification
 
 - [ ] **VER-01**: Backend Maven tests 覆蓋 auth cookie、CSRF、CORS、refresh/logout、401/403 envelope、trading idempotency。
 - [ ] **VER-02**: Frontend Vitest/type-check/build 覆蓋 API client、auth store、runtime mode、portfolio adapters、trading adapter。
 - [ ] **VER-03**: Cross-repo browser smoke flow 可驗證 login -> `/me` -> portfolio reads -> create manual trade -> refetch -> logout。
-- [ ] **VER-04**: Contract documentation 描述 auth cookies、CSRF header、refresh/logout、401/403、portfolio/trading DTO、驗證責任。
+- [x] **VER-04**: Contract documentation 描述 auth cookies、CSRF header、refresh/logout、401/403、portfolio/trading DTO、驗證責任。
 
 ## v2 Requirements
 
@@ -97,18 +97,18 @@ Roadmap creation will map each v1 requirement to exactly one phase.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUTH-01 | Phase 1 | Pending |
-| AUTH-02 | Phase 1 | Pending |
+| AUTH-01 | Phase 1 | Complete |
+| AUTH-02 | Phase 1 | Complete |
 | AUTH-03 | Phase 2 | Complete |
 | AUTH-04 | Phase 2 | Complete |
-| AUTH-05 | Phase 1 | Pending |
-| AUTH-06 | Phase 1 | Pending |
-| AUTH-07 | Phase 1 | Pending |
-| SEC-01 | Phase 1 | Pending |
-| SEC-02 | Phase 1 | Pending |
-| SEC-03 | Phase 1 | Pending |
-| SEC-04 | Phase 1 | Pending |
-| SEC-05 | Phase 1 | Pending |
+| AUTH-05 | Phase 1 | Complete |
+| AUTH-06 | Phase 1 | Complete |
+| AUTH-07 | Phase 1 | Complete |
+| SEC-01 | Phase 1 | Complete |
+| SEC-02 | Phase 1 | Complete |
+| SEC-03 | Phase 1 | Complete |
+| SEC-04 | Phase 1 | Complete |
+| SEC-05 | Phase 1 | Complete |
 | FAPI-01 | Phase 2 | Complete |
 | FAPI-02 | Phase 2 | Complete |
 | FAPI-03 | Phase 2 | Complete |
@@ -123,16 +123,22 @@ Roadmap creation will map each v1 requirement to exactly one phase.
 | PORT-04 | Phase 3 | Complete |
 | PORT-05 | Phase 3 | Complete |
 | PORT-08 | Phase 3 | Complete |
-| TRAD-01 | Phase 4 | Pending |
-| TRAD-02 | Phase 4 | Pending |
-| TRAD-03 | Phase 4 | In progress（04-01 已交付 DB 層唯一約束與 409 code；應用層冪等邏輯待 04-02/04-03）|
-| TRAD-04 | Phase 4 | Pending |
-| TRAD-05 | Phase 4 | Pending |
-| TRAD-06 | Phase 4 | Pending |
+| TRAD-01 | Phase 4 | Complete |
+| TRAD-02 | Phase 4 | Complete |
+| TRAD-03 | Phase 4 | Complete |
+| TRAD-04 | Phase 4 | Complete |
+| TRAD-05 | Phase 4 | Complete |
+| TRAD-06 | Phase 4 | Complete |
 | VER-01 | Phase 5 | Pending |
 | VER-02 | Phase 5 | Pending |
 | VER-03 | Phase 5 | Pending |
-| VER-04 | Phase 1 | Pending |
+| VER-04 | Phase 1 | Complete |
+
+2026-09-27 狀態回填(依測試證據,非依 phase 完成宣稱):
+- AUTH-01/02/05/06/07、SEC-01~05:`BrowserAuthFlowIT`、`AuthFlowIT`、`CorsIT`、`RefreshTokenRotationIT`、`LogoutInvalidatesAccessTokenIT`、`MethodSecurityDenialIT`(stock-start)。
+- TRAD-01~06:後端 `TradingApiIT`、`TransactionsIdempotencyIT`;前端 `OrderTicket.test.ts`(Test 22 送出中 disabled、Test 25-32 冪等 key、Test 39-40 錯誤碼 / traceId、Test 47 超賣);瀏覽器 `e2e/tests/trade.spec.ts` T1-T3。Phase 4 本身仍待 04-13 Task 2(Yuan 親自瀏覽器確認)。
+- VER-04:`ai-docs/browser-auth-contract.md` + `ai-docs/trading-portfolio-contract.md`。
+- 未勾:FAPI-08(未重新核對)、VER-01~03(Phase 5 範圍)。
 
 **Coverage:**
 - v1 requirements: 35 total

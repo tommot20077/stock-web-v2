@@ -1,6 +1,10 @@
 package dowob.xyz.stockwebv2.marketdata.api;
 
+import dowob.xyz.stockwebv2.common.model.AssetType;
+import dowob.xyz.stockwebv2.common.model.TradingDay;
+import dowob.xyz.stockwebv2.infrastructure.marketdata.DailyQuote;
 import dowob.xyz.stockwebv2.infrastructure.marketdata.LatestMarketPrice;
+import dowob.xyz.stockwebv2.marketdata.persistence.DailyStats;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPrice;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPriceRepository;
 
@@ -13,12 +17,18 @@ import org.springframework.data.redis.core.ValueOperations;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -119,5 +129,89 @@ class MarketDataFacadeImplTest {
 
         assertThat(facade.findLatestPrice(ASSET_ID)).isPresent();
         verify(repository).findLatest(ASSET_ID);
+    }
+
+    @Test
+    @DisplayName("批次取價：一次 MGET 取快取，未命中者以一次 SQL 補齊")
+    void batchUsesOneMultiGetAndOneQueryForMisses() {
+        when(valueOps.multiGet(List.of("market:latest:41", "market:latest:42"))).thenReturn(Arrays.asList(
+            "{\"symbol\":\"AAPL\",\"price\":\"150\",\"volume\":\"1\",\"time\":\"2026-09-04T02:00:00Z\"}",
+            null));
+        when(repository.findLatestBatch(List.of(42L))).thenReturn(List.of(new MarketPrice(
+            42L, Instant.parse("2026-09-03T12:00:00Z"), new BigDecimal("210"), null)));
+
+        Map<Long, LatestMarketPrice> prices = facade.findLatestPrices(List.of(41L, 42L));
+
+        assertThat(prices).containsOnlyKeys(41L, 42L);
+        assertThat(prices.get(41L).price()).isEqualByComparingTo("150");
+        assertThat(prices.get(42L).price()).isEqualByComparingTo("210");
+        verify(valueOps, times(1)).multiGet(anyList());
+        verify(repository, times(1)).findLatestBatch(List.of(42L));
+        verify(repository, never()).findLatest(anyLong());
+    }
+
+    @Test
+    @DisplayName("批次取價：全部命中快取時不查資料庫")
+    void batchSkipsDatabaseWhenAllCached() {
+        when(valueOps.multiGet(List.of("market:latest:41"))).thenReturn(List.of(
+            "{\"symbol\":\"AAPL\",\"price\":\"150\",\"volume\":\"1\",\"time\":\"2026-09-04T02:00:00Z\"}"));
+
+        assertThat(facade.findLatestPrices(List.of(41L))).containsOnlyKeys(41L);
+        verify(repository, never()).findLatestBatch(anyList());
+    }
+
+    @Test
+    @DisplayName("批次取價：Redis 失敗時整批降級查資料庫；查無行情者不出現在結果中")
+    void batchDegradesToDatabaseAndOmitsUnknownAssets() {
+        when(valueOps.multiGet(anyList())).thenThrow(new IllegalStateException("redis down"));
+        when(repository.findLatestBatch(List.of(41L, 42L))).thenReturn(List.of(new MarketPrice(
+            41L, Instant.parse("2026-09-03T12:00:00Z"), new BigDecimal("150"), null)));
+
+        Map<Long, LatestMarketPrice> prices = facade.findLatestPrices(List.of(41L, 42L));
+
+        assertThat(prices).containsOnlyKeys(41L);
+    }
+
+    @Test
+    @DisplayName("批次取價：空輸入直接回空，不碰 Redis 也不碰資料庫")
+    void batchWithNoAssetsDoesNothing() {
+        assertThat(facade.findLatestPrices(List.of())).isEmpty();
+        verify(redisTemplate, never()).opsForValue();
+        verify(repository, never()).findLatestBatch(anyList());
+    }
+
+    // ── findDailyQuotes ───────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("findDailyQuotes:以最新價時間決定交易日,前收與高低量取自該交易日,高低點涵蓋最新價")
+    void findDailyQuotes_combinesLatestPriceWithTradingDayStats() {
+        when(valueOps.multiGet(anyList())).thenReturn(java.util.Arrays.asList((String) null));
+        when(repository.findLatestBatch(anyList())).thenReturn(List.of(
+            new MarketPrice(ASSET_ID, Instant.parse("2026-01-05T15:00:00Z"), new BigDecimal("105"), BigDecimal.ONE)));
+        // 美股:紐約 1/5 的交易日從 05:00Z 開始
+        Instant dayStart = Instant.parse("2026-01-05T05:00:00Z");
+        when(repository.findDailyStats(Map.of(ASSET_ID, dayStart))).thenReturn(Map.of(ASSET_ID,
+            new DailyStats(ASSET_ID, new BigDecimal("100"), new BigDecimal("104"), new BigDecimal("99"),
+                new BigDecimal("7"))));
+
+        Map<Long, DailyQuote> quotes = facade.findDailyQuotes(Map.of(ASSET_ID, TradingDay.of(AssetType.STOCK, "US")));
+
+        DailyQuote q = quotes.get(ASSET_ID);
+        assertThat(q.latestPrice()).isEqualByComparingTo("105");
+        assertThat(q.previousClose()).isEqualByComparingTo("100");
+        // 最新價 105 高於 K 線彙總的 104(兩條寫入路徑有時間差):高點必須涵蓋最新價
+        assertThat(q.high()).isEqualByComparingTo("105");
+        assertThat(q.low()).isEqualByComparingTo("99");
+        assertThat(q.volume()).isEqualByComparingTo("7");
+    }
+
+    @Test
+    @DisplayName("findDailyQuotes:沒有最新價的資產不出現,也不查交易日統計")
+    void findDailyQuotes_assetWithoutPrice_isAbsent() {
+        when(valueOps.multiGet(anyList())).thenReturn(java.util.Arrays.asList((String) null));
+        when(repository.findLatestBatch(anyList())).thenReturn(List.of());
+
+        assertThat(facade.findDailyQuotes(Map.of(ASSET_ID, TradingDay.UTC))).isEmpty();
+        verify(repository, never()).findDailyStats(org.mockito.ArgumentMatchers.anyMap());
     }
 }

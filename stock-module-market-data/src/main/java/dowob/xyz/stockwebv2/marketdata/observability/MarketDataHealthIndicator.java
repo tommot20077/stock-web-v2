@@ -1,12 +1,15 @@
 package dowob.xyz.stockwebv2.marketdata.observability;
 
 import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.KafkaAdminClient;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -53,13 +56,17 @@ public class MarketDataHealthIndicator implements HealthIndicator {
      *
      * @return health 狀態物件；不會為 null
      */
+    /** 整個健康檢查的時間預算。K8s probe 的逾時通常只有幾秒，這裡不能比它久。 */
+    private static final Duration BUDGET = Duration.ofSeconds(3);
+
     @Override
     public Health health() {
-        Map<String, Object> config = kafkaAdmin.getConfigurationProperties();
-        try (AdminClient admin = KafkaAdminClient.create(config)) {
+        Map<String, Object> config = boundedConfig(kafkaAdmin.getConfigurationProperties());
+        AdminClient admin = KafkaAdminClient.create(config);
+        try {
             int nodeCount = admin.describeCluster()
                     .nodes()
-                    .get(3, TimeUnit.SECONDS)
+                    .get(BUDGET.toMillis(), TimeUnit.MILLISECONDS)
                     .size();
             return Health.up()
                     .withDetail("kafkaNodes", nodeCount)
@@ -69,6 +76,25 @@ public class MarketDataHealthIndicator implements HealthIndicator {
             return Health.down(ex)
                     .withDetail("reason", "Kafka cluster unreachable")
                     .build();
+        } finally {
+            // 不能用 try-with-resources：預設的 close() 會等在途請求直到 admin client 自己的 API 逾時（約 60 秒）。
+            // Kafka 不通時 get() 已經逾時回來，這裡再卡一分鐘，probe 就會判定應用本身不健康而重啟它
+            // ——而重啟解決不了 Kafka 的問題（性能審查 MED-2）。
+            admin.close(Duration.ZERO);
         }
+    }
+
+    /**
+     * 在共用的 Kafka 設定上，把這個短命 admin client 的逾時壓進健康檢查的預算。
+     *
+     * @param base Spring 管理的 KafkaAdmin 設定（不修改原物件）
+     * @return 加上逾時限制的副本
+     */
+    private static Map<String, Object> boundedConfig(Map<String, Object> base) {
+        Map<String, Object> config = new HashMap<>(base);
+        int budgetMs = (int) BUDGET.toMillis();
+        config.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, budgetMs);
+        config.put(AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, budgetMs);
+        return config;
     }
 }
