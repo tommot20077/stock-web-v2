@@ -39,7 +39,7 @@
 ## 4. 信封權威:`ApiResponse<T>` 說了算
 
 **規則**:REST 回應信封的權威是後端 `stock-common` 的 `ApiResponse<T>`(`{success, data, error, meta}`,含 `meta.traceId`)。這是 PROJECT.md Constraints 明定的。
-前端 repo 的 `docs/api-contracts/mock-to-real-contract.md` 內 Common API Conventions 一節寫的 `{data, requestId}` 是**早期草案,與後端不一致**——遇到衝突以後端為準,並把發現回報 Yuan、更新文件,不可靜默遷就任一邊。
+前端 repo 的 `docs/api-contracts/mock-to-real-contract.md` 早期草案曾寫 `{data, requestId}`;**該節已於 2026-07-19 與後端對齊**(見該檔「本節已與真實後端對齊」標註)。之後若再發現任何一邊不一致,仍以後端為準,並把發現回報 Yuan、更新文件,不可靜默遷就任一邊。
 
 **正例**:發現 paginated adapter 期待 `{data, page, requestId}` 與後端不合 → 停下,回報差異與兩邊 file:line,提對齊方案。
 **反例**:為了讓測試過,在 adapter 裡偷偷做兩種 shape 的兼容解析,不告訴任何人。

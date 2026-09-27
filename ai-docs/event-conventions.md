@@ -1,5 +1,27 @@
 # Event & Kafka Conventions
 
+> **As implemented (2026-09-27) — read first.** Most of this file is the target design. What exists today:
+>
+> - `EventPublisher` / `EventSubscriber` / `DomainEvent` are interfaces in `stock-infrastructure/event` with
+>   **no implementation and no caller**. `SpringEventPublisher` / `KafkaEventPublisher` and the profile switch
+>   do not exist. No module publishes domain events (`TradeExecutedEvent` etc. exist only as examples here).
+> - The only Kafka traffic is market data, produced by market-data with `KafkaTemplate` directly:
+>
+> | Topic | Key | Producer | Consumer groups | Retention |
+> |-------|-----|----------|-----------------|-----------|
+> | `market.price.tick.v1` | `assetId` | `MarketDataIngestService.publishTick` | `market-data.persist`, `market-data.ws-broadcast` | broker default (not set) |
+> | `market.price.backfill.v1` | `assetId` | `MarketDataIngestService.publishBackfillTick` | `market-data.persist` | broker default (not set) |
+> | `*.DLT` for both | — | `DeadLetterPublishingRecoverer` | — | broker default (not set) |
+>
+> - `PriceTickEvent` (`stock-common/event`) does **not** implement `DomainEvent` and has **no `version` field**;
+>   versioning is carried by the topic suffix `.v1`. Its name does not follow `{Domain}{Action}Event`.
+> - Partition key is `assetId`, not symbol.
+>
+> **Open decisions (need Yuan):** (1) implement `EventPublisher` or delete the unused abstractions
+> (architecture review M-1); (2) event version: add a `version` field or officially adopt topic-suffix
+> versioning (M-2); (3) set `retention.ms` on the price topics — the Retention Policy table below says 1 hour
+> but nothing configures it.
+
 ## EventPublisher Interface Contract
 
 ### Core Interface
@@ -95,7 +117,7 @@ public record TradeExecutedEvent(
 
 ### Partition Key
 
-**Asset symbol** is used as the partition key to ensure events for the same asset are ordered within the same partition.
+The **asset id** (`String.valueOf(assetId)`) is used as the partition key to ensure events for the same asset are ordered within the same partition. (Earlier drafts said symbol; the id is stable across symbol renames.)
 
 ### Retention Policy
 
