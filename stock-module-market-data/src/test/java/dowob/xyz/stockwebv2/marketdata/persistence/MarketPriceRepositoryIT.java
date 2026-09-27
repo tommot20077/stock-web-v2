@@ -17,6 +17,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -263,5 +264,44 @@ class MarketPriceRepositoryIT {
 
     private static MarketPrice price(Long assetId, Instant time, String price, String volume) {
         return new MarketPrice(assetId, time, new BigDecimal(price), new BigDecimal(volume));
+    }
+
+    // ── findDailyStats ────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("findDailyStats:前收 = 交易日起點前最後一筆;高低量 = 起點之後的 tick")
+    void findDailyStats_returnsPreviousCloseAndIntradayRange() {
+        Instant dayStart = Instant.parse("2024-01-02T05:00:00Z");
+        repo.insertAll(List.of(
+            new MarketPrice(ASSET_A, Instant.parse("2024-01-01T20:00:00Z"), new BigDecimal("90"), BigDecimal.ONE),
+            new MarketPrice(ASSET_A, Instant.parse("2024-01-02T03:00:00Z"), new BigDecimal("95"), BigDecimal.ONE),
+            new MarketPrice(ASSET_A, Instant.parse("2024-01-02T06:10:00Z"), new BigDecimal("100"), new BigDecimal("2")),
+            new MarketPrice(ASSET_A, Instant.parse("2024-01-02T07:30:00Z"), new BigDecimal("110"), new BigDecimal("3")),
+            new MarketPrice(ASSET_A, Instant.parse("2024-01-02T08:00:00Z"), new BigDecimal("98"), BigDecimal.ONE),
+            // 下一個交易日的 tick 不算進來
+            new MarketPrice(ASSET_A, Instant.parse("2024-01-03T06:00:00Z"), new BigDecimal("500"), BigDecimal.TEN),
+            new MarketPrice(ASSET_B, Instant.parse("2024-01-02T06:00:00Z"), new BigDecimal("50"), null)));
+
+        Map<Long, DailyStats> stats = repo.findDailyStats(Map.of(ASSET_A, dayStart, ASSET_B, dayStart, 3L, dayStart));
+
+        DailyStats a = stats.get(ASSET_A);
+        assertThat(a.previousClose()).isEqualByComparingTo("95");
+        assertThat(a.high()).isEqualByComparingTo("110");
+        assertThat(a.low()).isEqualByComparingTo("98");
+        assertThat(a.volume()).isEqualByComparingTo("6");
+
+        DailyStats b = stats.get(ASSET_B);
+        assertThat(b.previousClose()).isNull();
+        assertThat(b.high()).isEqualByComparingTo("50");
+        assertThat(b.low()).isEqualByComparingTo("50");
+
+        // 完全沒有資料的資產不出現
+        assertThat(stats).doesNotContainKey(3L);
+    }
+
+    @Test
+    @DisplayName("findDailyStats:空輸入不送 SQL")
+    void findDailyStats_emptyInput_returnsEmpty() {
+        assertThat(repo.findDailyStats(Map.of())).isEmpty();
     }
 }
