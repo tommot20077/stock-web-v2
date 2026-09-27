@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.marketdata.consumer;
 
 import dowob.xyz.stockwebv2.common.model.KlineInterval;
+import dowob.xyz.stockwebv2.common.model.TradingDay;
 
 import org.springframework.stereotype.Component;
 
@@ -46,14 +47,32 @@ public class KlineBucketAccumulator {
      * @return 5 個 interval 的當前 bucket 快照（順序固定：1m/5m/15m/1h/1d）
      */
     public List<KlineBucket> updateAndSnapshot(Long assetId, Instant time, BigDecimal price, BigDecimal volume) {
+        return updateAndSnapshot(assetId, TradingDay.UTC, time, price, volume);
+    }
+
+    /**
+     * 餵入一筆 tick;1d bucket 依該資產市場的交易日切,其餘 interval 以 UTC epoch 整除。
+     *
+     * @param assetId    tick 的 asset id,不可為 null
+     * @param tradingDay 該資產市場的交易日規則,不可為 null
+     * @param time       tick 時間,不可為 null
+     * @param price      tick 價格,不可為 null
+     * @param volume     tick 成交量(可為 null,視為 0)
+     * @return 5 個 interval 的當前 bucket 快照(順序固定:1m/5m/15m/1h/1d)
+     */
+    public List<KlineBucket> updateAndSnapshot(Long assetId, TradingDay tradingDay, Instant time,
+                                               BigDecimal price, BigDecimal volume) {
         Objects.requireNonNull(assetId, "assetId must not be null");
+        Objects.requireNonNull(tradingDay, "tradingDay must not be null");
         Objects.requireNonNull(time, "time must not be null");
         Objects.requireNonNull(price, "price must not be null");
         BigDecimal vol = (volume == null) ? BigDecimal.ZERO : volume;
 
         List<KlineBucket> result = new ArrayList<>(ALL_INTERVALS.size());
         for (KlineInterval interval : ALL_INTERVALS) {
-            Instant bucketStart = bucketStart(time, interval.duration().toSeconds());
+            Instant bucketStart = interval == KlineInterval.ONE_DAY
+                    ? tradingDay.dayStart(time)
+                    : bucketStart(time, interval.duration().toSeconds());
             Key key = new Key(assetId, interval);
             KlineBucket updated = state.compute(key, (k, prev) -> {
                 if (prev == null || !prev.bucketStart().equals(bucketStart)) {

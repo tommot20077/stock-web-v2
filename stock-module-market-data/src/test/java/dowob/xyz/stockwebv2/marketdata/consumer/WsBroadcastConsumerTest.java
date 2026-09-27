@@ -1,6 +1,10 @@
 package dowob.xyz.stockwebv2.marketdata.consumer;
 
 import dowob.xyz.stockwebv2.common.event.PriceTickEvent;
+import dowob.xyz.stockwebv2.common.model.AssetType;
+import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
+import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
+import dowob.xyz.stockwebv2.marketdata.api.TradingDayResolver;
 import dowob.xyz.stockwebv2.marketdata.ws.MarketWebSocketHandler;
 import dowob.xyz.stockwebv2.marketdata.ws.SessionSendDispatcher;
 import dowob.xyz.stockwebv2.marketdata.ws.SubscriptionManager;
@@ -20,6 +24,7 @@ import org.springframework.web.socket.WebSocketSession;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
 
@@ -61,7 +66,11 @@ class WsBroadcastConsumerTest {
     @Mock
     ValueOperations<String, String> valueOps;
 
+    @Mock
+    AssetFacade assetFacade;
+
     KlineBucketAccumulator accumulator;
+    TradingDayResolver tradingDays;
     ObjectMapper objectMapper;
 
     WsBroadcastConsumer consumer;
@@ -69,11 +78,12 @@ class WsBroadcastConsumerTest {
     @BeforeEach
     void setup() {
         accumulator = new KlineBucketAccumulator();
+        tradingDays = new TradingDayResolver(assetFacade);
         objectMapper = new ObjectMapper();
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
         // 派發器用同步執行（Runnable::run），讓既有斷言維持同步；非同步隔離另由 SessionSendDispatcherTest 驗證
         consumer = new WsBroadcastConsumer(subscriptionManager, handler, accumulator, redisTemplate, objectMapper,
-                new SessionSendDispatcher(Runnable::run, 256));
+                new SessionSendDispatcher(Runnable::run, 256), tradingDays);
     }
 
     // ── Redis latest cache ────────────────────────────────────────────────────
@@ -146,6 +156,26 @@ class WsBroadcastConsumerTest {
                 .filter(m -> m.getPayload().contains("\"type\":\"KLINE\""))
                 .count();
         assertThat(klineCount).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("onTick → 1d KLINE 依該資產市場的交易日切(美股:紐約午夜)")
+    void onTick_oneDayKline_usesTradingDayOfAssetMarket() throws Exception {
+        when(assetFacade.findBySymbol("AAPL")).thenReturn(Optional.of(
+                new AssetSummary(42L, "AAPL", "Apple Inc.", AssetType.STOCK, "US", true, true)));
+        PriceTickEvent event = new PriceTickEvent("e1", Instant.parse("2026-01-05T04:30:00Z"), 42L, "AAPL",
+                new BigDecimal("100"), new BigDecimal("1"), "mock");
+        WebSocketSession sess = mock(WebSocketSession.class);
+        when(sess.isOpen()).thenReturn(true);
+        when(subscriptionManager.subscribersOf(anyString())).thenReturn(Set.of());
+        when(subscriptionManager.subscribersOf("kline.AAPL.1d")).thenReturn(Set.of("s1"));
+        when(handler.findSession("s1")).thenReturn(Optional.of(sess));
+
+        consumer.onTick(event);
+
+        ArgumentCaptor<TextMessage> cap = ArgumentCaptor.forClass(TextMessage.class);
+        verify(sess).sendMessage(cap.capture());
+        assertThat(cap.getValue().getPayload()).contains("\"bucket\":\"2026-01-04T05:00:00Z\"");
     }
 
     // ── send failure isolation ─────────────────────────────────────────────────
