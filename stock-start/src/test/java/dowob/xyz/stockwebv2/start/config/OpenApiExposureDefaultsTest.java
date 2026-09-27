@@ -52,4 +52,13 @@ class OpenApiExposureDefaultsTest {
         Matcher m = PLACEHOLDER_DEFAULT.matcher(raw.toString());
         return m.matches() ? m.group(1) : raw.toString();
     }
+
+    @org.junit.jupiter.api.Test
+    @DisplayName("demo profile 的 auth cookie 預設為 secure(安全審查 L-6)")
+    void demoProfileCookieIsSecureByDefault() throws IOException {
+        PropertySource<?> source = new YamlPropertySourceLoader()
+            .load("application-demo.yaml", new ClassPathResource("application-demo.yaml")).getFirst();
+
+        assertThat(defaultOf(source, "stock.auth.cookie.secure")).isEqualTo("true");
+    }
 }

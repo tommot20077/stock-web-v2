@@ -411,7 +411,8 @@ public class TradingService {
     private AssetSummary resolveTradeableAsset(String symbol) {
         AssetSummary asset = resolveAsset(symbol);
         if (!asset.active() || !asset.tradeable()) {
-            throw new BusinessException(ErrorCode.ASSET_NOT_FOUND, "Asset is not tradeable: " + symbol);
+            throw new BusinessException(ErrorCode.ASSET_NOT_FOUND, "Asset is not tradeable",
+                Map.of("symbol", "not tradeable"));
         }
         return asset;
     }
@@ -419,7 +420,8 @@ public class TradingService {
     private AssetSummary resolveAsset(String symbol) {
         String normalized = normalizeSymbol(symbol);
         return assetFacade.findBySymbol(normalized)
-            .orElseThrow(() -> new BusinessException(ErrorCode.ASSET_NOT_FOUND, "Asset not found: " + normalized));
+            .orElseThrow(() -> new BusinessException(ErrorCode.ASSET_NOT_FOUND, "Asset not found",
+                Map.of("symbol", "not found")));
     }
 
     private String normalizeSymbol(String symbol) {
