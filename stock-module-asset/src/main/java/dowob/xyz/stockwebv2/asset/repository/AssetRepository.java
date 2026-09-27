@@ -21,8 +21,11 @@ public class AssetRepository {
         this.jdbcClient = jdbcClient;
     }
 
+    /** 公開搜尋的查詢字串上限;超過的部分捨棄。 */
+    private static final int MAX_QUERY_LENGTH = 64;
+
     public List<Asset> search(String query, int page, int size) {
-        String like = "%" + StringUtils.trimToEmpty(query) + "%";
+        String like = likePattern(query);
         long offset = (long) page * size;
         return jdbcClient.sql("""
                 select a.*, p.price latest_price, p.change, p.change_percent, p.volume_text, p.high, p.low
@@ -41,7 +44,7 @@ public class AssetRepository {
     }
 
     public long count(String query) {
-        String like = "%" + StringUtils.trimToEmpty(query) + "%";
+        String like = likePattern(query);
         Long count = jdbcClient.sql("""
                 select count(*)
                 from assets a
@@ -52,6 +55,19 @@ public class AssetRepository {
             .query(Long.class)
             .single();
         return count;
+    }
+
+    /**
+     * 把使用者輸入轉成 ILIKE 樣式:截到 {@value #MAX_QUERY_LENGTH} 字元,並跳脫 {@code \\}、{@code %}、{@code _}
+     * (PostgreSQL LIKE 預設跳脫字元為反斜線)。否則公開端點上一個 {@code %} 就是全表掃描(安全審查 L-7)。
+     *
+     * @param query 使用者輸入
+     * @return 包含比對用的 ILIKE 樣式;空白輸入得到 {@code %%}
+     */
+    static String likePattern(String query) {
+        String trimmed = StringUtils.left(StringUtils.trimToEmpty(query), MAX_QUERY_LENGTH);
+        String escaped = trimmed.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+        return "%" + escaped + "%";
     }
 
     private Asset map(ResultSet rs, int rowNum) throws SQLException {
