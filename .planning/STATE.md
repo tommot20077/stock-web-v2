@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 04 COMPLETE (04-13 Task 2 approved by Yuan 2026-09-04); next up Phase 04.1 (no CONTEXT yet)
+status: Phase 04.1 CONTEXT ready (04.2 split out 2026-09-28); next up /gsd-plan-phase 04.1
 stopped_at: Phase 04.1 context gathered (04.2 split out)
 last_updated: "2026-09-27T16:37:42.762Z"
-last_activity: 2026-09-04 -- Docker 恢復後補跑 106 IT 與 Playwright 18/18 全綠；人工檢查點通過
+last_activity: 2026-09-28 -- Phase 04.1 discuss 完成並拆出 04.2;04.1 / 04.2 CONTEXT 已寫入
 progress:
   total_phases: 7
   completed_phases: 4
