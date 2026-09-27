@@ -18,14 +18,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AssetE2E extends AbstractStockE2ETest {
 
     @Test
-    @DisplayName("Public asset search returns seeded latest price data")
-    void publicAssetSearchReturnsSeededLatestPriceData() throws Exception {
+    @DisplayName("Public asset search returns the asset (quote fields come from market-data, see AssetApiIT)")
+    void publicAssetSearchReturnsAsset() throws Exception {
         mockMvc.perform(get("/api/v1/assets?query=NVDA&page=0&size=20"))
             .andExpect(status().isOk())
             .andExpect(apiSuccess())
             .andExpect(jsonPath("$.data.items.length()", greaterThanOrEqualTo(1)))
-            .andExpect(jsonPath("$.data.items[0].symbol", equalTo("NVDA")))
-            .andExpect(jsonPath("$.data.items[0].latestPrice").value(1142.83));
+            .andExpect(jsonPath("$.data.items[0].symbol", equalTo("NVDA")));
     }
 
     @Test

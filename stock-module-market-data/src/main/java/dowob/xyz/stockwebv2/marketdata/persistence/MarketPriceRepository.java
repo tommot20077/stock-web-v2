@@ -11,8 +11,11 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.StringJoiner;
 
 /**
  * 市場價格 hypertable ({@code market_prices}) 的 Repository。
@@ -50,6 +53,29 @@ public class MarketPriceRepository {
             FROM market_prices
             WHERE asset_id IN (:assetIds)
             ORDER BY asset_id, time DESC
+            """;
+
+    /**
+     * 前收用 {@code market_prices} 的 {@code (asset_id, time DESC)} 索引倒序取一筆;
+     * 當日高低量讀 {@code kline_1h}(real-time aggregate,見 V12),最多 24 個小時 bucket,
+     * 不必掃當日所有 tick。各市場的交易日起點都在整點,小時 bucket 恰好不跨日。
+     * VALUES 由固定樣板與具名參數組成,不含使用者輸入。
+     */
+    private static final String FIND_DAILY_STATS_SQL = """
+            WITH q(asset_id, day_start) AS (VALUES %s)
+            SELECT q.asset_id,
+                   (SELECT mp.price FROM market_prices mp
+                     WHERE mp.asset_id = q.asset_id AND mp.time < q.day_start
+                     ORDER BY mp.time DESC LIMIT 1) AS previous_close,
+                   d.high, d.low, d.volume
+            FROM q
+            LEFT JOIN LATERAL (
+                SELECT max(k.high) AS high, min(k.low) AS low, sum(k.volume) AS volume
+                FROM kline_1h k
+                WHERE k.asset_id = q.asset_id
+                  AND k.bucket >= q.day_start
+                  AND k.bucket < q.day_start + INTERVAL '1 day'
+            ) d ON TRUE
             """;
 
     private static final String FIND_RANGE_SQL = """
@@ -135,6 +161,35 @@ public class MarketPriceRepository {
                 .param("assetIds", assetIds)
                 .query(this::map)
                 .list();
+    }
+
+    /**
+     * 批次查詢多個資產在各自交易日的前收與當日高低量。
+     *
+     * @param dayStarts 資產 id → 該資產目前交易日的起點;空 map 直接回傳空 map
+     * @return 資產 id → 統計;前收與當日皆無資料的資產不出現
+     */
+    public Map<Long, DailyStats> findDailyStats(Map<Long, Instant> dayStarts) {
+        if (dayStarts.isEmpty()) {
+            return Map.of();
+        }
+        List<Map.Entry<Long, Instant>> entries = List.copyOf(dayStarts.entrySet());
+        StringJoiner values = new StringJoiner(", ");
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        for (int i = 0; i < entries.size(); i++) {
+            values.add("(CAST(:id%d AS BIGINT), CAST(:start%d AS TIMESTAMPTZ))".formatted(i, i));
+            params.addValue("id" + i, entries.get(i).getKey());
+            params.addValue("start" + i, Timestamp.from(entries.get(i).getValue()));
+        }
+        Map<Long, DailyStats> result = new LinkedHashMap<>();
+        namedParameterJdbcTemplate.query(FIND_DAILY_STATS_SQL.formatted(values), params, rs -> {
+            DailyStats stats = new DailyStats(rs.getLong("asset_id"), rs.getBigDecimal("previous_close"),
+                    rs.getBigDecimal("high"), rs.getBigDecimal("low"), rs.getBigDecimal("volume"));
+            if (stats.previousClose() != null || stats.high() != null) {
+                result.put(stats.assetId(), stats);
+            }
+        });
+        return result;
     }
 
     /**
