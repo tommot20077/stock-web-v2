@@ -70,7 +70,7 @@ public class KlineQueryService {
                                      Instant from, Instant to, Integer limit) {
         AssetSummary asset = assetFacade.findBySymbol(symbol)
             .orElseThrow(() -> new BusinessException(
-                ErrorCode.ASSET_NOT_FOUND, "Asset not found: " + symbol));
+                ErrorCode.ASSET_NOT_FOUND, "Asset not found", java.util.Map.of("symbol", "not found")));
 
         if (from == null) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "from is required");

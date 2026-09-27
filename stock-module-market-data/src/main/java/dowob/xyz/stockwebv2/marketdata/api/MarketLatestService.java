@@ -67,7 +67,8 @@ public class MarketLatestService {
      */
     public Optional<LatestPriceDto> findLatest(String symbol) {
         AssetSummary asset = assetFacade.findBySymbol(symbol)
-            .orElseThrow(() -> new BusinessException(ErrorCode.ASSET_NOT_FOUND, "Asset not found: " + symbol));
+            .orElseThrow(() -> new BusinessException(ErrorCode.ASSET_NOT_FOUND, "Asset not found",
+                java.util.Map.of("symbol", "not found")));
         return findLatestForAsset(asset);
     }
 

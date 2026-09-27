@@ -74,7 +74,8 @@ public class MarketController {
     public ApiResponse<LatestPriceDto> latest(@PathVariable("symbol") String symbol) {
         Optional<LatestPriceDto> dto = latestService.findLatest(symbol);
         if (dto.isEmpty()) {
-            throw new BusinessException(ErrorCode.ASSET_NOT_FOUND, "No price data for symbol: " + symbol);
+            throw new BusinessException(ErrorCode.ASSET_NOT_FOUND, "No price data",
+                java.util.Map.of("symbol", "no price data"));
         }
         return ApiResponse.success(dto.get(), ApiMetaFactory.current());
     }

@@ -8,6 +8,6 @@ import jakarta.validation.constraints.Size;
 public record RegisterRequest(
     @Email @NotBlank String email,
     @NotBlank @Size(min = 3, max = 50) String username,
-    @NotBlank @Pattern(regexp = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).{8,}$") String password
+    @NotBlank @Size(max = 128) @Pattern(regexp = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).{8,}$") String password
 ) {
 }

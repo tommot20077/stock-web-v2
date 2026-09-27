@@ -13,7 +13,7 @@ Vue must not store access tokens or refresh tokens in local storage, session sto
 | `POST` | `/api/v1/auth/register` | Creates the user, sets auth cookies, returns user/session metadata only. |
 | `POST` | `/api/v1/auth/login` | Verifies credentials, sets auth cookies, returns user/session metadata only. |
 | `POST` | `/api/v1/auth/refresh` | Requires CSRF, rotates refresh token, sets new auth cookies. |
-| `POST` | `/api/v1/auth/logout` | Requires CSRF in browser cookie mode, revokes current browser session, clears auth cookies. |
+| `POST` | `/api/v1/auth/logout` | Requires CSRF in browser cookie mode, signs the user out of **all devices**, clears auth cookies. |
 | `GET` | `/api/v1/csrf` | Sets readable `XSRF-TOKEN` cookie and returns CSRF names. |
 | `GET` | `/api/v1/me` | Reads `stock_access` cookie or bearer token and returns the current user. |
 
@@ -76,7 +76,7 @@ CSRF failure returns HTTP 403:
 
 Invalid, missing-state, or replayed refresh returns HTTP 401 `AUTH_REFRESH_TOKEN_INVALID` and clears auth cookies.
 
-`/api/v1/auth/logout` revokes only the current browser session in Phase 1. It clears `stock_access` and `stock_refresh` with max-age zero cookies. Multi-device session list and revoke-specific-device are deferred.
+`/api/v1/auth/logout` signs the user out of **all devices** (decided 2026-09-27, security review L-8): it increments the user's single `tokenVersion`, so every existing access token on every device/tab fails on its next request and every refresh token fails on its next rotation. It also clears `stock_access` and `stock_refresh` with max-age zero cookies. Frontend implication: another open tab or device will receive 401 and must return to the login screen. Logging out only the current device would require per-session revocation (session id / jti denylist) and is deferred, as are the multi-device session list and revoke-specific-device.
 
 ## Bearer Token Endpoint
 

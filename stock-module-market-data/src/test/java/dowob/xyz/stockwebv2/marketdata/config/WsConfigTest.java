@@ -22,7 +22,7 @@ import static org.mockito.Mockito.*;
  *   <li>路徑常數 {@link WsConfig#WS_PATH} 為 {@code /ws/v1/market}</li>
  *   <li>{@code registerWebSocketHandlers} 以正確路徑注冊 handler</li>
  *   <li>{@link MarketHandshakeInterceptor} 被加入至 registration</li>
- *   <li>設定允許所有來源（{@code setAllowedOriginPatterns("*")}）</li>
+ *   <li>允許來源與 REST CORS 共用 {@code stock.cors.allowed-origins}</li>
  * </ul>
  *
  * @author Yuan
@@ -38,7 +38,7 @@ class WsConfigTest {
     void setUp() {
         handler = mock(MarketWebSocketHandler.class);
         interceptor = mock(MarketHandshakeInterceptor.class);
-        wsConfig = new WsConfig(handler, interceptor);
+        wsConfig = new WsConfig(handler, interceptor, "http://localhost:5173, https://app.example.com");
     }
 
     // ── 路徑常數 ─────────────────────────────────────────────────────────────
@@ -82,17 +82,16 @@ class WsConfigTest {
     }
 
     @Test
-    @DisplayName("registerWebSocketHandlers：設定允許所有來源 (*)")
-    void registerWebSocketHandlers_allowsAllOrigins() {
+    @DisplayName("WS 只允許 stock.cors.allowed-origins 內的來源,不再是 *(安全審查 L-4)")
+    void registerWebSocketHandlers_usesCorsAllowedOrigins() {
         WebSocketHandlerRegistry registry = mock(WebSocketHandlerRegistry.class);
         WebSocketHandlerRegistration registration = mock(WebSocketHandlerRegistration.class);
-
-        when(registry.addHandler(any(), any())).thenReturn(registration);
+        when(registry.addHandler(any(), any(String.class))).thenReturn(registration);
         when(registration.addInterceptors(any())).thenReturn(registration);
-        when(registration.setAllowedOriginPatterns("*")).thenReturn(registration);
 
         wsConfig.registerWebSocketHandlers(registry);
 
-        verify(registration).setAllowedOriginPatterns("*");
+        verify(registration).setAllowedOrigins("http://localhost:5173", "https://app.example.com");
+        verify(registration, org.mockito.Mockito.never()).setAllowedOriginPatterns(any());
     }
 }

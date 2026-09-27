@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.start.error;
 
 import dowob.xyz.stockwebv2.common.api.ApiResponse;
+import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.error.FieldValidationException;
 
@@ -78,5 +79,18 @@ class GlobalExceptionHandlerTest {
         assertThat(body.success()).isFalse();
         assertThat(body.error().code()).isEqualTo(ErrorCode.VALIDATION_FAILED.name());
         assertThat(body.error().fields()).containsEntry("Idempotency-Key", "must not be blank");
+    }
+
+    @Test
+    @DisplayName("業務例外帶 fields 時,信封保留 fields,訊息維持靜態(安全審查 L-1)")
+    void businessExceptionCarriesFieldsIntoEnvelope() {
+        BusinessException exception = new BusinessException(
+            ErrorCode.ASSET_NOT_FOUND, "Asset not found", Map.of("symbol", "not found"));
+
+        ResponseEntity<ApiResponse<Void>> response = handler.handleBusiness(exception);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(404);
+        assertThat(response.getBody().error().message()).isEqualTo("Asset not found");
+        assertThat(response.getBody().error().fields()).containsEntry("symbol", "not found");
     }
 }

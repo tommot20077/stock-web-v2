@@ -1,7 +1,10 @@
 package dowob.xyz.stockwebv2.marketdata.api;
 
+import dowob.xyz.stockwebv2.common.model.TradingDay;
+import dowob.xyz.stockwebv2.infrastructure.marketdata.DailyQuote;
 import dowob.xyz.stockwebv2.infrastructure.marketdata.LatestMarketPrice;
 import dowob.xyz.stockwebv2.infrastructure.marketdata.MarketDataFacade;
+import dowob.xyz.stockwebv2.marketdata.persistence.DailyStats;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPrice;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPriceRepository;
 
@@ -86,6 +89,31 @@ public class MarketDataFacadeImpl implements MarketDataFacade {
             }
         }
         return result;
+    }
+
+    @Override
+    public Map<Long, DailyQuote> findDailyQuotes(Map<Long, TradingDay> assets) {
+        Objects.requireNonNull(assets, "assets must not be null");
+        Map<Long, LatestMarketPrice> latest = findLatestPrices(assets.keySet());
+        if (latest.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, Instant> dayStarts = new LinkedHashMap<>();
+        latest.forEach((id, price) -> dayStarts.put(id, assets.get(id).dayStart(price.priceTime().toInstant())));
+        Map<Long, DailyStats> stats = repository.findDailyStats(dayStarts);
+
+        Map<Long, DailyQuote> quotes = new LinkedHashMap<>();
+        latest.forEach((id, price) -> {
+            DailyStats day = stats.get(id);
+            BigDecimal last = price.price();
+            // Redis latest 與 market_prices 由兩個 consumer 各自寫入,彙總可能還沒看到最新那筆:
+            // 高低點一律涵蓋最新價,避免出現「最新價高於今日最高」
+            BigDecimal high = day == null || day.high() == null ? last : day.high().max(last);
+            BigDecimal low = day == null || day.low() == null ? last : day.low().min(last);
+            quotes.put(id, new DailyQuote(last, price.priceTime(),
+                day == null ? null : day.previousClose(), high, low, day == null ? null : day.volume()));
+        });
+        return quotes;
     }
 
     /**
