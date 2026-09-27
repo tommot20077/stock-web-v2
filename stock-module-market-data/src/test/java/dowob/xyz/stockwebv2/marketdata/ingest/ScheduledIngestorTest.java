@@ -157,11 +157,11 @@ class ScheduledIngestorTest {
 
     @Test
     void tickAll_fetchesAssetsInParallel() {
-        when(provider.fetchLatest(any())).thenAnswer(inv -> {
+        org.mockito.Mockito.doAnswer(inv -> {
             Thread.sleep(250);
             String sym = inv.getArgument(0);
             return new PriceTick(sym, Instant.now(), new BigDecimal("100.0"), new BigDecimal("500"));
-        });
+        }).when(provider).fetchLatest(any());
 
         // 序列抓 3 檔各 250ms 至少 750ms;平行應在一檔的時間內完成
         assertTimeoutPreemptively(Duration.ofMillis(600), () -> ingestor.tickAll());
