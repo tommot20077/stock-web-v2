@@ -178,7 +178,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 4.1 -> 4.2 -> 5
 | 1. Browser Auth Contract & Backend Security Foundation | 5/5 | Completed | 2026-05-30 |
 | 2. Frontend Session & API Client Foundation | 5/5 | Completed | 2026-05-31 |
 | 3. Portfolio Read API Mode | 5/5 | Completed | 2026-07-26 |
-| 4. Manual Trade Creation, Idempotency & Post-Trade Refetch | 12/13 | In Progress|  |
+| 4. Manual Trade Creation, Idempotency & Post-Trade Refetch | 13/13 | Completed | 2026-09-04 |
 | 04.1 Backend Data Gap Backfill (INSERTED) | 0/TBD | Context gathered | - |
 | 04.2 Dividends, Share Adjustments & Watchlist (INSERTED) | 0/TBD | Context gathered | - |
 | 5. Cross-Repo Browser Flow Verification & Contract Hardening | 0/TBD | Not started | - |
