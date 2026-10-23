@@ -27,8 +27,13 @@ import java.util.regex.Pattern;
  * <pre>
  * # 公鑰本來就內嵌在 PKCS#8 私鑰檔裡，pubout 只是把它讀出來，不是重新計算
  * openssl pkey -in private.pem -pubout -out public.pem
- * java -cp &lt;app.jar&gt; dowob.xyz.stockwebv2.infrastructure.security.JwkKeyConverter private.pem public.pem
+ * # app.jar 是 Spring Boot fat jar（類別在 BOOT-INF/classes），不能直接 java -cp app.jar 類別名
+ * java -cp &lt;app.jar&gt; -Dloader.main=dowob.xyz.stockwebv2.infrastructure.security.JwkKeyConverter \
+ *     org.springframework.boot.loader.launch.PropertiesLauncher private.pem public.pem
  * </pre>
+ *
+ * <p>輸出不含 {@code kid}；建議貼進設定前手動補上固定值（例如 {@code "kid":"stock-signing-prod-2026"}），
+ * 理由見 {@code JwtService#parseJwk}。不需要沿用舊金鑰時，改用 {@code scripts/GenerateJwtJwk.java} 直接產新的。</p>
  *
  * <p>若兩個 PEM 區塊已經在同一個檔案（舊設定支援的形式），給一個路徑即可。</p>
  *
