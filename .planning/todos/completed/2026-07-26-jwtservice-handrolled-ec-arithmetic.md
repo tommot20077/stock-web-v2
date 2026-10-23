@@ -1,9 +1,10 @@
 ---
 created: 2026-07-26
 updated: 2026-10-23
-title: JwtService 移除手寫 EC 點運算(程式碼已完成,剩環境遷移)
+title: JwtService 移除手寫 EC 點運算(已完成,含環境遷移)
 area: infrastructure
-status: code-done-pending-rollout
+status: done
+completed: 2026-10-23
 files:
   - stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/security/JwtService.java
   - stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/security/JwkKeyConverter.java
@@ -66,10 +67,10 @@ demo 由 Claude 產生,正式環境由 Yuan 在本機產生(私鑰不經雲端 s
       `JwtService` 錯誤訊息與 `JwkKeyConverter` javadoc 已改為 `-Dloader.main=… PropertiesLauncher`(實跑通過)
 - [x] `.env.example` 的說明已更新
 - [x] demo 金鑰已產生(`kid: stock-signing-demo-2026`),交給 Yuan 貼進 demo 環境;**未進 repo**
-- [ ] Yuan:把 demo 金鑰設進 demo 環境的 `STOCK_JWT_PRIVATE_KEY`,重啟後確認可登入
-- [ ] Yuan:正式環境在本機執行 `java scripts/GenerateJwtJwk.java stock-signing-prod-2026`,
+- [x] Yuan:把 demo 金鑰設進 demo 環境的 `STOCK_JWT_PRIVATE_KEY`,重啟後確認可登入
+- [x] Yuan:正式環境在本機執行 `java scripts/GenerateJwtJwk.java stock-signing-prod-2026`,
       輸出直接導向 secret store(不要進 shell history / log),重啟後確認可登入
-- [ ] 兩者都完成後,本 todo 移到 `completed/`
+- [x] 兩者都完成(Yuan 2026-10-23 回報),本 todo 移到 `completed/`
 
 若日後要**沿用**某把舊 PEM 金鑰(不讓既有 token 失效),用:
 ```

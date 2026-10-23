@@ -165,10 +165,9 @@ Recent decisions affecting current work:
 
 *(註:原有一條「Phase 2 planning should consume browser-auth-contract.md and avoid frontend token storage」已於 2026-07-19 移除 —— Phase 2 已完成,該提醒已過時。)*
 
-- 12 pending — `/gsd-capture --list` to review(2026-10-23 盤點;Spotless/JaCoCo 一條已完成、移到 `completed/`)
+- 11 pending — `/gsd-capture --list` to review(2026-10-23 盤點;Spotless/JaCoCo 與 JWT 換鑰兩條已完成、移到 `completed/`)
   - 併入 04.1:`backend-available-cash`、`backend-daily-pnl`、`backend-asset-classification`
   - 排在 04.2:`backend-dividend-trade-type`、`frontend-watchlist-mock-store`
-  - 待 Yuan 執行:`jwtservice-handrolled-ec-arithmetic`(demo / 正式環境換 JWK 金鑰)
   - 獨立小項:`frontend-header-rwd-320px`
   - Deferred / backlog:`fx-pnl-and-rate-history`、`account-level-return`、`asset-master-management`、`kline-adjusted-prices`、`it-shared-containers`
 
