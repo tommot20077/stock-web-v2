@@ -8,8 +8,10 @@ import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.Step;
 import org.springframework.batch.core.step.builder.StepBuilder;
+import org.springframework.boot.batch.autoconfigure.BatchTaskExecutor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
 
 /**
@@ -80,5 +82,26 @@ public class BackfillJobConfig {
                 .processor(processor)
                 .writer(writer)
                 .build();
+    }
+
+    /**
+     * Backfill job 專用的執行緒池,由 Spring Boot 交給 job 啟動器,讓 {@code POST /backfill} 立即回 202。
+     *
+     * <p>Spring Boot 預設的啟動器是同步的:HTTP 執行緒要等整個 job(最長 90 天範圍)跑完才回應,
+     * 回應裡的 status 也幾乎總是 COMPLETED,與 202 的語意不符(效能審查 MED-8)。
+     * 單執行緒 + 小佇列:回補是低頻的管理操作,避免同時灌入多段歷史資料壓垮 Kafka / DB;佇列滿時拒絕並回錯。
+     *
+     * @return backfill 執行緒池
+     */
+    @Bean
+    @BatchTaskExecutor
+    public ThreadPoolTaskExecutor backfillTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(10);
+        executor.setThreadNamePrefix("backfill-");
+        executor.initialize();
+        return executor;
     }
 }

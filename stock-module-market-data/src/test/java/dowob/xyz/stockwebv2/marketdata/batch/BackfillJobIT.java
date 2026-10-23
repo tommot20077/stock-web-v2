@@ -15,10 +15,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -231,5 +233,15 @@ class BackfillJobIT {
         assertThat(countAfterSecond)
                 .as("第二次觸發後 DB 筆數應與第一次相同（idempotent）")
                 .isEqualTo(countAfterFirst);
+    }
+
+    @Test
+    @DisplayName("backfill job 在專用執行緒池非同步執行,HTTP 執行緒不必等整個 job 跑完(效能審查 MED-8)")
+    void jobLauncher_runsJobsOnDedicatedAsyncExecutor() {
+        Object jobLauncher = ReflectionTestUtils.getField(launcher, "jobLauncher");
+        Object taskExecutor = ReflectionTestUtils.getField(jobLauncher, "taskExecutor");
+
+        assertThat(taskExecutor).isInstanceOf(ThreadPoolTaskExecutor.class);
+        assertThat(((ThreadPoolTaskExecutor) taskExecutor).getThreadNamePrefix()).isEqualTo("backfill-");
     }
 }
