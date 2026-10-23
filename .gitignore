@@ -35,6 +35,9 @@ build/
 # Local git worktrees
 .worktrees/
 
+# Claude Code 本機設定(各目錄下的 .claude/settings.local.json)
+**/.claude/settings.local.json
+
 # Local runtime environment
 .env
 .env.*
