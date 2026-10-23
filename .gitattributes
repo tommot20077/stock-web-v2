@@ -1,2 +1,5 @@
+# 預設：所有文字檔自動偵測並統一為 LF（已全面改用 macOS / Linux 開發）。
+* text=auto eol=lf
+
 /mvnw text eol=lf
-*.cmd text eol=crlf
+*.cmd text eol=lf
