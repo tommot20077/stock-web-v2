@@ -62,9 +62,9 @@
 ```
 目標與動機:審查 <diff/檔案>,聚焦 <正確性/安全/契約一致性>。
 必查清單(本專案特有):
-- SQL 是否有字串拼接(禁止;LIKE 要 LikeEscapeUtil.escape)。
+- SQL 是否有字串拼接(禁止;LIKE / ILIKE 要跳脫萬用字元並限長,參考 `AssetRepository.likePattern`)。
 - @ExceptionHandler 是否回 ResponseEntity(直接回 ApiResponse = 永遠 200)。
-- ownership 檢查在 Service 層且失敗丟 ResourceNotFoundException(不是 403)。註:`SecurityUtils`/`LikeEscapeUtil` 是規範類別,先 grep 確認存在;不存在時檢查項改為「有沒有等價檢查」。
+- ownership:使用者擁有的資源,repository 查詢是否一律限定 `user_id = :userId`;非本人 → 404(不是 403),ADMIN 不繞過(security.md §4)。
 - 瀏覽器 auth:token 不落 JS 可讀處;unsafe 方法帶 CSRF。
 - 信封:ApiResponse<T> 為權威(見 ai-docs/judgment.md §4)。
 - 交易寫入是否 server-side 冪等。

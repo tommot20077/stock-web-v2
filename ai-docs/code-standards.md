@@ -70,15 +70,12 @@ Application layer (Controller / Application Service) Facade calls are limited to
 
 ## Ownership Check Pattern
 
-**Design (security.md §4)**: `SecurityUtils.assertOwnerOrAdmin(currentUserId, resourceOwnerId)` in the service layer; failure throws `ResourceNotFoundException`; ADMIN bypasses.
-
-**As implemented (2026-09-27)**: `SecurityUtils` does not exist. Ownership is enforced by **scoping every query to the caller**:
+Ownership is enforced by **scoping every query to the caller** (security.md §4, decided 2026-09-28):
 - The controller resolves the caller with `AuthenticatedUserResolver` (stock-infrastructure/web) and passes `userId` down
 - Repository SQL filters `where user_id = :userId` (e.g. `JdbcTradingRepository`, `JdbcBacktestRepository`), so another user's resource is simply *not found* → 404 (no existence oracle)
-- ADMIN therefore does **not** bypass ownership on user-owned resources today
+- ADMIN does **not** bypass ownership; admin views, if ever needed, are separate ADMIN-only endpoints with audit logging
 - Every controller endpoint must declare `@PreAuthorize` or be allow-listed with a reason — enforced by the ArchUnit test `EndpointAuthorizationRulesTest`
-
-**Open decision (need Yuan)**: adopt query scoping as the rule (and update security.md §4 / judgment.md), or implement `assertOwnerOrAdmin` with the ADMIN bypass. Until decided, new user-owned resources follow the implemented query-scoping pattern.
+- Do not introduce `SecurityUtils.assertOwnerOrAdmin` (retired design)
 
 ## Error Message Security Rules
 
@@ -128,4 +125,6 @@ Risk indicators and a `portfolio_valuations` table are not implemented. If price
     *   All Classes: Description, Author, Version.
     *   All Public Methods: Functionality, Parameters (@param), Return values (@return).
     *   All Member Variables: Purpose and meaning.
-*   **No Single-line Comments**: Avoid `//`. Use JavaDoc `/** ... */` block style for everything to ensure visibility and standardize documentation.
+*   **JavaDoc is not optional**: classes, public methods and member variables use `/** ... */` JavaDoc as above — never a one-line `//` in place of JavaDoc.
+*   **Inside method bodies**, short `//` comments are allowed (decided 2026-09-28) and encouraged for explaining **why** (a constraint, an ordering requirement, a past incident). Do not narrate *what* the code does.
+*   **No commented-out code** — delete it; git keeps the history.

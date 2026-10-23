@@ -3,24 +3,22 @@
 > **As implemented (2026-09-27) — read first.** Most of this file is the target design. What exists today:
 >
 > - `EventPublisher` / `EventSubscriber` / `DomainEvent` are interfaces in `stock-infrastructure/event` with
->   **no implementation and no caller**. `SpringEventPublisher` / `KafkaEventPublisher` and the profile switch
+>   **no implementation and no caller** — kept as reserved extension points (decision 2026-09-28). `SpringEventPublisher` / `KafkaEventPublisher` and the profile switch
 >   do not exist. No module publishes domain events (`TradeExecutedEvent` etc. exist only as examples here).
 > - The only Kafka traffic is market data, produced by market-data with `KafkaTemplate` directly:
 >
 > | Topic | Key | Producer | Consumer groups | Retention |
 > |-------|-----|----------|-----------------|-----------|
-> | `market.price.tick.v1` | `assetId` | `MarketDataIngestService.publishTick` | `market-data.persist`, `market-data.ws-broadcast` | broker default (not set) |
-> | `market.price.backfill.v1` | `assetId` | `MarketDataIngestService.publishBackfillTick` | `market-data.persist` | broker default (not set) |
-> | `*.DLT` for both | — | `DeadLetterPublishingRecoverer` | — | broker default (not set) |
+> | `market.price.tick.v1` | `assetId` | `MarketDataIngestService.publishTick` | `market-data.persist`, `market-data.ws-broadcast` | 24 hours |
+> | `market.price.backfill.v1` | `assetId` | `MarketDataIngestService.publishBackfillTick` | `market-data.persist` | 24 hours |
+> | `*.DLT` for both | — | `DeadLetterPublishingRecoverer` | — | 7 days |
 >
-> - `PriceTickEvent` (`stock-common/event`) does **not** implement `DomainEvent` and has **no `version` field**;
->   versioning is carried by the topic suffix `.v1`. Its name does not follow `{Domain}{Action}Event`.
+> - `PriceTickEvent` (`stock-common/event`) is a **data-stream event**: it does not implement `DomainEvent`, has no
+>   `version` field and is versioned by the **topic suffix** `.v1` — this is the rule for stream events (decision
+>   2026-09-28, see "Version Field" below). The `{Domain}{Action}Event` naming applies to business events only.
 > - Partition key is `assetId`, not symbol.
 >
-> **Open decisions (need Yuan):** (1) implement `EventPublisher` or delete the unused abstractions
-> (architecture review M-1); (2) event version: add a `version` field or officially adopt topic-suffix
-> versioning (M-2); (3) set `retention.ms` on the price topics — the Retention Policy table below says 1 hour
-> but nothing configures it.
+> Decisions 2026-09-28: abstractions kept as reserved; stream events versioned by topic suffix; price topic retention 24 h, DLT 7 days.
 
 ## EventPublisher Interface Contract
 
@@ -72,7 +70,13 @@ Examples: `TradeExecutedEvent`, `UserRegisteredEvent`, `MarketPriceUpdatedEvent`
 
 ### Version Field
 
-Every event class must include a `version` field:
+Two kinds of events, two versioning rules (decided 2026-09-28):
+
+- **Data-stream events** (high-frequency facts such as market ticks, e.g. `PriceTickEvent`): versioned by the
+  **topic suffix** (`market.price.tick.v1`). No `version` field, no `DomainEvent`. Since breaking changes always go to a
+  new topic (rule 2 below), a topic never mixes versions and an in-message version would carry no information.
+- **Business events** (state changes such as a trade being executed — none exist yet): implement `DomainEvent`, follow
+  `{Domain}{Action}Event` naming, and carry a `version` field:
 
 ```java
 public record TradeExecutedEvent(
@@ -123,7 +127,8 @@ The **asset id** (`String.valueOf(assetId)`) is used as the partition key to ens
 
 | Topic Type | Retention | Reason |
 |-----------|-----------|--------|
-| `market.price.*` | 1 hour | Price events are ephemeral — meaningless once expired |
+| `market.price.*` | 24 hours | Recovery window: if the persist consumer or DB is down, ticks can be re-read for a day (1 hour proved too short for an overnight incident; broker default 7 days is too much disk for high-frequency ticks). Configured in `KafkaConfig` + `spring.kafka.admin.modify-topic-configs` |
+| `*.DLT` | 7 days | Investigation window; tiny volume |
 | `trade.executed` | 7 days | Gives consumers sufficient re-consumption window |
 | `user.*` | 7 days | Same as above |
 | `market.kline.*` | 24 hours | K-line data is already written to TimescaleDB |

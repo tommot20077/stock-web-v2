@@ -44,9 +44,12 @@ Pattern: `{category}:{entity}:{identifier}`
 
 ## As Implemented (2026-09-27) — read this before adding a key
 
-The tables above are the original design. The code has drifted from them; until Yuan decides whether to
-rename the code or amend the design (see "Open decisions"), **new keys should follow the existing
-prefixes below** rather than introduce a third style.
+The tables above are the original design. **The implemented keys below are the rule** (decided 2026-09-28):
+
+- **Cache keys must have a TTL** — eviction is `volatile-lru`, so the TTL (not the prefix) is what makes a key evictable;
+  security keys without TTL are never evicted.
+- **Prefix by owning module** (`user:`, `market:`, `portfolio:`, `ws:`, `rl:`); the `cache:*` prefix from the original
+  design is not used. New keys follow this table.
 
 | Key pattern | TTL | Owner | Notes |
 |-------------|-----|-------|-------|
@@ -63,14 +66,7 @@ prefixes below** rather than introduce a third style.
 
 Not implemented: `user:permissions:*`, `cache:risk:*`.
 
-Redis DB index: `dev` and `demo` default to **1** (`STOCK_REDIS_DATABASE`); `e2e-browser` defaults to **0**
-(throw-away compose stack) — this contradicts the "all profiles use DB 1" rule above.
-
-### Open decisions (need Yuan)
-
-1. Cache prefix: keep `market:` / `portfolio:` as implemented, or migrate to `cache:*` so eviction-safe and
-   cache keys are distinguishable by prefix?
-2. `e2e-browser` Redis DB 0: allowed exception for the isolated E2E stack, or must be 1?
+Redis DB index: all profiles default to **1** (`STOCK_REDIS_DATABASE`), including `e2e-browser` (changed from 0 on 2026-09-28).
 
 ## Eviction Policy
 

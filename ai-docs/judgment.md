@@ -55,7 +55,7 @@
 
 ## 6. Ownership 失敗回 404,不是 403
 
-**規則**(來源:security.md §4):Service 層用 `SecurityUtils.assertOwnerOrAdmin(...)`(規範類別,程式碼中可能尚未實作——先 grep 確認,不存在就在 `stock-common` 建立,勿另造重複品);失敗丟 `ResourceNotFoundException`(訊息只含資源類型名,絕不含 ID/路徑),避免洩漏資源存在性。`AccessDeniedException` 必須 re-throw 讓 Spring Security 回 403。Controller 層不做 ownership 檢查。
+**規則**(來源:security.md §4,2026-09-28 裁決):ownership 以**查詢限定擁有者**實作 —— repository SQL 一律 `where user_id = :userId`,別人的資源直接查不到 → `ResourceNotFoundException` / `*_NOT_FOUND`(訊息只含資源類型名,絕不含 ID/路徑),避免洩漏資源存在性。**ADMIN 不繞過**;需要管理檢視時另開 ADMIN 專用端點並寫稽核。不要建立 `SecurityUtils.assertOwnerOrAdmin`(已廢止的舊設計)。`AccessDeniedException` 必須 re-throw 讓 Spring Security 回 403。Controller 層不做 ownership 檢查。
 
 **正例**:查別人的 portfolio → 404 "Portfolio"。
 **反例**:回 403「你無權存取 portfolio #123」——同時洩漏了存在性與 ID。
