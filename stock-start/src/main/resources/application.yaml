@@ -6,6 +6,10 @@ spring:
   jackson:
     time-zone: Asia/Taipei
   batch:
+    job:
+      # backfill Job 需要 Job Parameters(symbol/from/to/interval),只能由 BackfillJobLauncher 帶參數觸發;
+      # 不關閉的話啟動時 Boot 會以空參數自動執行,HistoricalTickReader 解析 from 時 NPE
+      enabled: false
     jdbc:
       initialize-schema: never
   kafka:

@@ -35,6 +35,12 @@ class InfraProfileDefaultsTest {
         assertThat(valueOf("application-e2e-browser.yaml", "spring.data.redis.database")).isEqualTo("1");
     }
 
+    @Test
+    @DisplayName("啟動時不自動執行 Spring Batch Job(backfill 需 Job Parameters,由 BackfillJobLauncher 帶參數觸發)")
+    void batchJobsDoNotAutoRunOnStartup() throws IOException {
+        assertThat(valueOf("application.yaml", "spring.batch.job.enabled")).isEqualTo("false");
+    }
+
     private static String valueOf(String file, String key) throws IOException {
         PropertySource<?> source = new YamlPropertySourceLoader().load(file, new ClassPathResource(file)).getFirst();
         Object raw = source.getProperty(key);
