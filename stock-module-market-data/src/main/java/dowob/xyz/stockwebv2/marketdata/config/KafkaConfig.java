@@ -45,7 +45,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 @Configuration
 public class KafkaConfig {
 
-    /** market.price.tick.v1 — 即時 tick 事件 topic。 */
     /**
      * 行情 topic 保留 24 小時:即 consumer / DB 故障時可補讀的時間窗(2026-09-28 裁決)。
      * 1 小時太短(夜間故障隔天才處理即遺失),broker 預設 7 天對高頻行情太占磁碟。
@@ -55,6 +54,7 @@ public class KafkaConfig {
     /** DLT 保留 7 天,供事後調查;量很小。 */
     static final String RETENTION_DLT_MS = String.valueOf(Duration.ofDays(7).toMillis());
 
+    /** market.price.tick.v1 — 即時 tick 事件 topic。 */
     public static final String TOPIC_PRICE_TICK = "market.price.tick.v1";
 
     /** market.price.backfill.v1 — 補資料事件 topic。 */
