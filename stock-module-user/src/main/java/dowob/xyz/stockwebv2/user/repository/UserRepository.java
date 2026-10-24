@@ -1,5 +1,6 @@
 package dowob.xyz.stockwebv2.user.repository;
 
+import dowob.xyz.stockwebv2.common.model.CurrencyCode;
 import dowob.xyz.stockwebv2.user.domain.User;
 
 import java.util.Optional;
@@ -19,4 +20,13 @@ public interface UserRepository {
      * @return 遞增後的新 token version
      */
     int incrementTokenVersion(Long id);
+
+    /**
+     * 更新指定使用者的基準幣並回傳更新後的使用者。
+     *
+     * @param id           使用者主鍵
+     * @param baseCurrency 新的基準幣
+     * @return 更新後的使用者；使用者不存在時為空
+     */
+    Optional<User> updateBaseCurrency(Long id, CurrencyCode baseCurrency);
 }

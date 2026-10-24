@@ -104,6 +104,19 @@ public class JdbcUserRepository implements UserRepository {
             .single();
     }
 
+    @Override
+    public Optional<User> updateBaseCurrency(Long id, CurrencyCode baseCurrency) {
+        return jdbcClient.sql("""
+                update users
+                set base_currency = :baseCurrency, updated_at = now()
+                where id = :id
+                returning\s""" + USER_COLUMNS)
+            .param("baseCurrency", baseCurrency.name())
+            .param("id", id)
+            .query(this::map)
+            .optional();
+    }
+
     private RuntimeException duplicateResourceException(DataIntegrityViolationException exception) {
         String message = exception.getMessage();
         Throwable cause = exception.getCause();

@@ -205,6 +205,27 @@ class AuthServiceTest {
         }
 
         @Override
+        public Optional<User> updateBaseCurrency(Long id, CurrencyCode baseCurrency) {
+            return Optional.ofNullable(byId.get(id)).map(current -> {
+                User updated = new User(
+                    current.id(),
+                    current.uuid(),
+                    current.email(),
+                    current.username(),
+                    current.passwordHash(),
+                    current.role(),
+                    current.status(),
+                    current.tokenVersion(),
+                    baseCurrency,
+                    current.createdAt(),
+                    current.updatedAt()
+                );
+                byId.put(id, updated);
+                return updated;
+            });
+        }
+
+        @Override
         public int incrementTokenVersion(Long id) {
             User current = byId.get(id);
             User updated = new User(
