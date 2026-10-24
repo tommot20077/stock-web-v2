@@ -1,15 +1,21 @@
 package dowob.xyz.stockwebv2.asset.service;
 
 import dowob.xyz.stockwebv2.common.model.AssetType;
+import dowob.xyz.stockwebv2.common.model.CurrencyCode;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
+import dowob.xyz.stockwebv2.infrastructure.asset.AssetProfile;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 
+import org.apache.commons.lang3.ObjectUtils;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -69,6 +75,42 @@ public class AssetFacadeImpl implements AssetFacade {
                 .param("symbol", symbol)
                 .query(this::map)
                 .optional();
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>以單一 {@code IN} 子句查詢取得，ID 僅以具名參數綁定。
+     * 結果以 {@link LinkedHashMap} 保留查詢回傳順序；不加 {@code active} 篩選。
+     */
+    @Override
+    public Map<Long, AssetProfile> findProfiles(Collection<Long> assetIds) {
+        if (ObjectUtils.isEmpty(assetIds)) {
+            return Map.of();
+        }
+        Map<Long, AssetProfile> profiles = new LinkedHashMap<>();
+        jdbcClient.sql("""
+                        select id, symbol, asset_type, market, currency, sector
+                        from assets
+                        where id in (:ids)
+                        order by id asc
+                        """)
+                .param("ids", assetIds)
+                .query(this::mapProfile)
+                .list()
+                .forEach(profile -> profiles.put(profile.id(), profile));
+        return profiles;
+    }
+
+    private AssetProfile mapProfile(ResultSet rs, int rowNum) throws SQLException {
+        return new AssetProfile(
+                rs.getLong("id"),
+                rs.getString("symbol"),
+                AssetType.valueOf(rs.getString("asset_type")),
+                rs.getString("market"),
+                CurrencyCode.valueOf(rs.getString("currency")),
+                rs.getString("sector")
+        );
     }
 
     private AssetSummary map(ResultSet rs, int rowNum) throws SQLException {
