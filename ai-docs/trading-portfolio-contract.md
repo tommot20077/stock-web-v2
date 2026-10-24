@@ -119,21 +119,28 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 權限：`PORTFOLIO_VIEW`。回應：`HoldingDto[]`（只含持有數量大於 0 的標的）。
 
+> 既有金額欄位（`avgCost`、`costBasis`、`marketPrice`、`marketValue`、`realizedPnl`、`unrealizedPnl`）為**原幣**，幣別見 `currency`。需要跨標的比較或計算權重時請用 `marketValueInBase`（已折算為使用者基準幣）。
+
 | 欄位 | 型別 | 說明 |
 |---|---|---|
 | `assetId` | string | 標的 UUID |
 | `symbol` | string | |
 | `assetName` | string | |
 | `totalQuantity` | number | |
-| `avgCost` | number | 平均成本 |
-| `costBasis` | number | totalQuantity × avgCost |
-| `marketPrice` | number | 估值用的最新價（見下） |
-| `marketValue` | number | totalQuantity × marketPrice |
-| `realizedPnl` | number | 此標的的已實現損益 |
-| `unrealizedPnl` | number | marketValue − costBasis |
+| `avgCost` | number | 平均成本（原幣） |
+| `costBasis` | number | totalQuantity × avgCost（原幣） |
+| `marketPrice` | number | 估值用的最新價（見下；原幣） |
+| `marketValue` | number | totalQuantity × marketPrice（原幣） |
+| `realizedPnl` | number | 此標的的已實現損益（原幣） |
+| `unrealizedPnl` | number | marketValue − costBasis（原幣） |
 | `roi` | number | unrealizedPnl / costBasis |
 | `priceTime` | string | `marketPrice` 的時間戳 |
 | `lastUpdated` | string | 持倉最後更新時間 |
+| `currency` | string | 標的計價幣別（`USD` / `TWD` / `EUR` / `JPY`），即上列原幣金額的幣別 |
+| `assetType` | string | 資產類型（`STOCK` / `CRYPTO` / `FX` / `BOND`） |
+| `sector` | string \| null | 產業分類；`null` 代表未分類，由前端顯示「未分類」（後端不回在地化字串） |
+| `baseCurrency` | string | 使用者基準幣；`marketValueInBase` 的幣別 |
+| `marketValueInBase` | number \| null | `marketValue` 折算為 `baseCurrency` 的值；**換不到匯率時為 `null`** |
 
 **估值用的最新價**：取自 market-data（Redis 即時快取 → `market_prices` 最新一列）。查無任何行情時退回平均成本估值——此時 `marketPrice` 等於 `avgCost`、`unrealizedPnl` 為 0、`priceTime` 等於 `lastUpdated`。前端若要區分「沒有行情」可比對這兩個時間。
 
@@ -141,19 +148,33 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 權限：`PORTFOLIO_VIEW`。回應：`PortfolioSummaryDto`。
 
+> ⚠️ **2026-10-24 單位語意變更（Phase 04.1 D-05）**：所有金額欄位改以 `baseCurrency`（使用者基準幣）表示；先前版本是未折算的混幣加總（USD 與 TWD 直接相加，錯誤）。欄位名不變，bearer client 與前端須改讀 `baseCurrency` 判斷單位。
+
 | 欄位 | 型別 | 說明 |
 |---|---|---|
-| `totalMarketValue` | number | 所有持倉 marketValue 加總 |
-| `totalCostBasis` | number | 所有持倉 costBasis 加總 |
-| `realizedPnl` | number | **含已平倉部位**的已實現損益加總 |
-| `unrealizedPnl` | number | 所有持倉 unrealizedPnl 加總 |
-| `totalPnl` | number | realizedPnl + unrealizedPnl |
-| `roi` | number | totalPnl / totalCostBasis |
-| `holdingCount` | number | 持有數量大於 0 的標的數 |
+| `totalMarketValue` | number | 所有持倉 marketValue 逐筆折算為基準幣後加總（換不到匯率的持倉不計入） |
+| `totalCostBasis` | number | 所有持倉 costBasis 逐筆折算為基準幣後加總（同上） |
+| `realizedPnl` | number | **含已平倉部位**；逐資產依各自幣別折算為基準幣後加總（不是 SQL 跨幣別 sum） |
+| `unrealizedPnl` | number | totalMarketValue − totalCostBasis（基準幣） |
+| `totalPnl` | number | realizedPnl + unrealizedPnl（基準幣） |
+| `roi` | number | totalPnl / totalCostBasis，語意不變（兩者同為基準幣；totalCostBasis 為 0 時為 0） |
+| `holdingCount` | number | 持有數量大於 0 的標的數（含換不到匯率而未計入總額者） |
+| `baseCurrency` | string | 上列金額欄位所使用的基準幣（`USD` / `TWD` / `EUR` / `JPY`） |
+| `fxExcludedCount` | number | 持有數量大於 0、但換不到匯率而**未計入**總額的持倉檔數 |
+| `unconvertedCurrencies` | string[] | 換不到匯率的幣別代碼（持倉或已實現損益），字母排序、去重；全部可換算時為空陣列 |
+
+### 匯率規則
+
+- 換算順序固定：同幣別 → **直接列** → 反向列（取倒數）→ 經 USD 三角換算 → 換不到。直接列優先於反向列，例如 `TWD → USD` 取 seed 的 `0.030847`，而不是 `1 / 32.418`。
+- 匯率來源為 `fx_rates` 表，**目前是靜態 seed**（不隨市場更新）；換算結果取 8 位小數、四捨五入（HALF_UP）。
+- 換不到匯率的持倉**不計入**任何總額，並以 `fxExcludedCount` 與 `unconvertedCurrencies` 回報；前端應據此提示「部分持倉未計入」，而不是默默少算。已實現損益為 0 的資產不需要匯率。
 
 ## 快取與一致性
 
-- 持倉與摘要有 60 秒快取；成交後在交易 **commit 之後**失效，所以成交後立即重讀一定看得到新交易。
+- 持倉與摘要有 60 秒 Redis 快取，鍵為 `portfolio:valuation:v2:{userId}:{assetId}`（存**原幣**估值，`baseCurrency` / `marketValueInBase` 於回應時才補上）與 `portfolio:summary:v2:{userId}:{baseCurrency}`。
+- summary 依基準幣分鍵：使用者切換基準幣（`PATCH /api/v1/me/preferences`）後，下一次讀取直接 miss、立即拿到新幣別的值，不必等 60 秒。
+- 成交後在交易 **commit 之後**失效持倉鍵與 `USD` / `TWD` / `EUR` / `JPY` 四把 summary 鍵，所以成交後立即重讀一定看得到新交易。
+- 鍵中的 `v2` 讓部署瞬間新舊程式不會讀到對方形狀的 JSON；舊鍵 60 秒內自然過期。
 - 前端成交後應重讀 summary、holdings 與 trades（Phase 4 post-trade refetch）。
 
 ## GET /api/v1/assets — 標的報價欄位
@@ -174,3 +195,4 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 ## 尚未提供
 
 - 現金 / 帳戶餘額、日級損益、資產分類、股利交易類型——見 ROADMAP Phase 04.1 與 `.planning/todos/pending/`。
+- 今日損益、現金、配置欄位與入出金端點，由 04.1-10 補入本檔。
