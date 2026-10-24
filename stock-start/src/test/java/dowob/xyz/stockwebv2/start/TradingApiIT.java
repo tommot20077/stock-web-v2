@@ -206,6 +206,23 @@ class TradingApiIT extends ContainerIT {
     }
 
     @Test
+    void listedTradesCarryTheirOwnCurrency() throws Exception {
+        AuthTokens tokens = register("trading-list-currency@example.com", "tradinglistcurrency", "Password1");
+        createTrade(tokens, buyBody());
+        createTrade(tokens, """
+            {"symbol":"2330.TW","type":"BUY","quantity":2,"price":900,"fee":0}
+            """);
+
+        // 同一頁混合幣別：以 symbol 對應各列，不依賴排序。
+        mockMvc.perform(get("/api/v1/trades?page=0&size=20")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(2)))
+            .andExpect(jsonPath("$.data.items[?(@.symbol=='AAPL')].currency", hasItem("USD")))
+            .andExpect(jsonPath("$.data.items[?(@.symbol=='2330.TW')].currency", hasItem("TWD")));
+    }
+
+    @Test
     void fullyClosedPositionStillCountsRealizedPnlInSummary() throws Exception {
         AuthTokens tokens = register("trading-fullclose@example.com", "tradingfullclose", "Password1");
         patchBaseCurrency(tokens, "USD");
