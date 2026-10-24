@@ -1,5 +1,6 @@
 package dowob.xyz.stockwebv2.trading.service;
 
+import dowob.xyz.stockwebv2.common.model.CurrencyCode;
 import dowob.xyz.stockwebv2.trading.api.HoldingDto;
 import dowob.xyz.stockwebv2.trading.api.PortfolioSummaryDto;
 
@@ -19,12 +20,28 @@ import java.util.Optional;
 
 import tools.jackson.databind.ObjectMapper;
 
+/**
+ * 持倉估值與組合摘要的 Redis 快取（TTL 60 秒）。
+ *
+ * <p>鍵加上 {@code v2} 版本段：Phase 04.1 改變了 {@link HoldingDto} / {@link PortfolioSummaryDto} 的
+ * JSON 形狀（新增欄位、summary 金額單位改為基準幣），部署瞬間新舊程式並存時，若共用舊鍵，
+ * 舊形狀 JSON 會被新程式讀成缺欄位的 DTO（或反之）。加 {@code v2} 讓新舊程式互不讀取對方寫的 JSON，
+ * 舊鍵 60 秒後自然過期（RESEARCH Q8 / A4）。
+ *
+ * <p>持倉鍵存<strong>原幣</strong>估值，與使用者基準幣無關；summary 鍵則含基準幣
+ * （鍵由版本段、userId 與基準幣代碼組成），使用者切換基準幣後直接 miss、立即重算。
+ * 鍵含基準幣是因為 user 模組無法（也不應）失效 trading 的快取。交易 commit 後由
+ * {@link #invalidateAfterTrade} 刪除持倉鍵與四把 summary 鍵。
+ *
+ * @author Yuan
+ * @version 2.0
+ */
 @Component
 public class PortfolioCache {
     private static final Logger log = LoggerFactory.getLogger(PortfolioCache.class);
     private static final Duration TTL = Duration.ofSeconds(60);
-    private static final String VALUATION_PREFIX = "portfolio:valuation:";
-    private static final String SUMMARY_PREFIX = "portfolio:summary:";
+    private static final String VALUATION_PREFIX = "portfolio:valuation:v2:";
+    private static final String SUMMARY_PREFIX = "portfolio:summary:v2:";
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -82,12 +99,26 @@ public class PortfolioCache {
         write(holdingKey(userId, assetId), dto);
     }
 
-    public Optional<PortfolioSummaryDto> readSummary(Long userId) {
-        return read(summaryKey(userId), PortfolioSummaryDto.class);
+    /**
+     * 讀取指定基準幣的 summary 快取。
+     *
+     * @param userId 使用者 id
+     * @param base   使用者目前的基準幣
+     * @return 命中的 summary；未命中或讀取失敗為 empty
+     */
+    public Optional<PortfolioSummaryDto> readSummary(Long userId, CurrencyCode base) {
+        return read(summaryKey(userId, base), PortfolioSummaryDto.class);
     }
 
-    public void writeSummary(Long userId, PortfolioSummaryDto dto) {
-        write(summaryKey(userId), dto);
+    /**
+     * 寫入指定基準幣的 summary 快取。
+     *
+     * @param userId 使用者 id
+     * @param base   summary 所使用的基準幣
+     * @param dto    summary
+     */
+    public void writeSummary(Long userId, CurrencyCode base, PortfolioSummaryDto dto) {
+        write(summaryKey(userId, base), dto);
     }
 
     /**
@@ -117,7 +148,7 @@ public class PortfolioCache {
     }
 
     /**
-     * 實際刪除兩把快取鍵。
+     * 實際刪除持倉鍵與每個基準幣的 summary 鍵（{@code CurrencyCode.values()} 四把）。
      *
      * <p>失敗只記 WARN：快取失效不了最多是資料稍舊，不該讓已經成交的交易看起來失敗。
      *
@@ -127,7 +158,9 @@ public class PortfolioCache {
     private void evict(Long userId, Long assetId) {
         try {
             redisTemplate.delete(holdingKey(userId, assetId));
-            redisTemplate.delete(summaryKey(userId));
+            for (CurrencyCode base : CurrencyCode.values()) {
+                redisTemplate.delete(summaryKey(userId, base));
+            }
         } catch (RuntimeException exception) {
             log.warn("Portfolio cache invalidation failed for userId={}, assetId={}: {}", userId, assetId, exception.toString());
         }
@@ -158,7 +191,7 @@ public class PortfolioCache {
         return VALUATION_PREFIX + userId + ":" + assetId;
     }
 
-    private String summaryKey(Long userId) {
-        return SUMMARY_PREFIX + userId;
+    private String summaryKey(Long userId, CurrencyCode base) {
+        return SUMMARY_PREFIX + userId + ":" + base.name();
     }
 }

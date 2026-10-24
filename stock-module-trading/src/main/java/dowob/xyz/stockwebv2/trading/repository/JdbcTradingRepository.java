@@ -5,15 +5,16 @@ import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.trading.domain.Holding;
 import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
+import dowob.xyz.stockwebv2.trading.domain.HoldingSnapshot;
 import dowob.xyz.stockwebv2.trading.domain.TradeTransaction;
 import dowob.xyz.stockwebv2.trading.domain.TradeType;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -300,15 +301,20 @@ public class JdbcTradingRepository implements TradingRepository {
     }
 
     @Override
-    public BigDecimal sumRealizedPnl(Long userId) {
+    public List<HoldingSnapshot> listHoldingSnapshots(Long userId) {
         return jdbcClient.sql("""
-                select coalesce(sum(realized_pnl), 0)
+                select asset_id, total_quantity, avg_cost, realized_pnl, last_updated
                 from holdings
                 where user_id = :userId
                 """)
             .param("userId", userId)
-            .query(BigDecimal.class)
-            .single();
+            .query((rs, rowNum) -> new HoldingSnapshot(
+                rs.getLong("asset_id"),
+                rs.getBigDecimal("total_quantity"),
+                rs.getBigDecimal("avg_cost"),
+                rs.getBigDecimal("realized_pnl"),
+                rs.getObject("last_updated", OffsetDateTime.class)))
+            .list();
     }
 
     private TradeTransaction mapTransaction(ResultSet rs, int rowNum) throws SQLException {

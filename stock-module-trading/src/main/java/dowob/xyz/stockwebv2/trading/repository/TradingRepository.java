@@ -3,9 +3,9 @@ package dowob.xyz.stockwebv2.trading.repository;
 import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.trading.domain.Holding;
 import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
+import dowob.xyz.stockwebv2.trading.domain.HoldingSnapshot;
 import dowob.xyz.stockwebv2.trading.domain.TradeTransaction;
 
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
@@ -61,9 +61,15 @@ public interface TradingRepository {
     List<HoldingPosition> listHoldings(Long userId);
 
     /**
-     * 加總該使用者所有持倉（含已平倉 {@code total_quantity = 0}）的已實現損益。
-     * 供 portfolio summary 使用，避免平倉部位的 realized PnL 因 {@link #listHoldings} 過濾而遺失。
+     * 列出該使用者<strong>所有</strong>持倉列（含已平倉 {@code total_quantity = 0}），不 join {@code assets}。
+     *
+     * <p>供 portfolio summary 逐資產折算已實現損益：已實現損益依各資產自己的幣別折算，
+     * 不能再以 SQL 跨幣別 {@code sum}。與 {@link #listHoldings} 不同，本方法不過濾已平倉部位，
+     * 平倉後的已實現損益才不會遺失。
+     *
+     * @param userId 使用者 id
+     * @return 該使用者所有持倉快照
      */
-    BigDecimal sumRealizedPnl(Long userId);
+    List<HoldingSnapshot> listHoldingSnapshots(Long userId);
 
 }
