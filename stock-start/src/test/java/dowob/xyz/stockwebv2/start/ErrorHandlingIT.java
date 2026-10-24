@@ -124,6 +124,51 @@ class ErrorHandlingIT {
         assertThat(body).doesNotContain(LEAK_CANARY);
     }
 
+    /**
+     * 格式錯誤 body 中的可辨識字串；用來驗證 Jackson 解析失敗的訊息（含使用者輸入片段）
+     * 不會被回射到錯誤信封。
+     */
+    private static final String MALFORMED_CANARY = "LEAK-CANARY-MALFORMED";
+
+    @Test
+    void malformedJsonBodyReturnsValidationEnvelopeInsteadOf500() throws Exception {
+        /*
+         * quantity 是數值欄位，卻送字串 → Jackson 反序列化失敗 → HttpMessageNotReadableException。
+         * 該例外未實作 ErrorResponse，D-27 之前會落入 catch-all 回 500 並寫 ERROR log。
+         */
+        String malformedBody = """
+            {"symbol":"AAPL","type":"BUY","quantity":"%s","price":150}
+            """.formatted(MALFORMED_CANARY);
+
+        String responseBody = mockMvc.perform(post("/api/v1/trades")
+                .with(user("42"))
+                .header("Idempotency-Key", "malformed-body-key-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(malformedBody))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.success", equalTo(false)))
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        assertThat(responseBody).doesNotContain(MALFORMED_CANARY);
+    }
+
+    @Test
+    void truncatedJsonBodyReturnsValidationEnvelope() throws Exception {
+        mockMvc.perform(post("/api/v1/trades")
+                .with(user("42"))
+                .header("Idempotency-Key", "truncated-body-key-1")
+                .header("X-Trace-Id", "trace-truncated-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"symbol\":\"AAPL\",\"type\":"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.success", equalTo(false)))
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.meta.traceId", equalTo("trace-truncated-1")));
+    }
+
     @Test
     void frameworkStatusExceptionPreservesStatusAndApiEnvelope() throws Exception {
         mockMvc.perform(get("/test-only/error/status").with(user("test")).header("X-Trace-Id", "trace-status-1"))
