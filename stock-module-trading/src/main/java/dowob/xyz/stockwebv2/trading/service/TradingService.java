@@ -7,6 +7,7 @@ import dowob.xyz.stockwebv2.common.error.FieldValidationException;
 import dowob.xyz.stockwebv2.common.time.ApiTimeParser;
 import dowob.xyz.stockwebv2.common.time.ApiTimeParser.RangeBound;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
+import dowob.xyz.stockwebv2.infrastructure.asset.AssetProfile;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 import dowob.xyz.stockwebv2.trading.api.CreateTradeRequest;
 import dowob.xyz.stockwebv2.trading.api.TradeDto;
@@ -28,6 +29,9 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -113,10 +117,12 @@ public class TradingService {
         // 讀回值差一個被四捨五入掉的尾數，於是每次合法重試都吃到假性 409（DP-7）。
         OffsetDateTime executedAt = resolveExecutedAt(request.executedAt(), now).truncatedTo(ChronoUnit.MICROS);
         AssetSummary asset = resolveTradeableAsset(request.symbol());
+        // 幣別經 Facade 取得（D-28）；放在所有零 I/O 驗證與資產解析之後，被拒絕的請求不必付這次查詢。
+        String currency = currencyByAssetId(List.of(asset.id())).get(asset.id());
         Optional<TradeTransaction> known = repository.findByIdempotencyKey(userId, idempotencyKey);
         if (known.isPresent()) {
             // 快路徑：資料完全沒有變動，因此也不必讓快取失效（DP-8）。
-            return resolveIdempotentHit(known.get(), asset.id(), type, request, fee, executedAt);
+            return resolveIdempotentHit(known.get(), asset.id(), type, request, fee, executedAt, currency);
         }
         Optional<TradeTransaction> inserted = repository.insertTransactionIfAbsent(new TradeTransaction(
             null,
@@ -138,7 +144,7 @@ public class TradingService {
             // 重讀仍落空是理論上的殘餘競態，一律回 409 而非讓它變成 500。
             TradeTransaction concurrent = repository.findByIdempotencyKey(userId, idempotencyKey)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TRADE_CONFLICT, ErrorCode.TRADE_CONFLICT.defaultMessage()));
-            return resolveIdempotentHit(concurrent, asset.id(), type, request, fee, executedAt);
+            return resolveIdempotentHit(concurrent, asset.id(), type, request, fee, executedAt, currency);
         }
         Optional<Holding> current = repository.findHoldingForUpdate(userId, asset.id());
         Holding next = switch (type) {
@@ -160,7 +166,7 @@ public class TradingService {
             repository.updateHolding(next);
         }
         portfolioCache.invalidateAfterTrade(userId, asset.id());
-        return mapper.toTradeDto(inserted.get());
+        return mapper.toTradeDto(inserted.get(), currency);
     }
 
     /**
@@ -199,6 +205,7 @@ public class TradingService {
      * @param request    本次請求
      * @param fee        本次請求已套用預設值的手續費
      * @param executedAt 本次請求已正規化的成交時間
+     * @param currency   標的交易幣別；查無 profile 時為 null
      * @return 既有交易的 DTO
      * @throws BusinessException payload 與既有交易不一致時丟出 TRADE_IDEMPOTENCY_KEY_REUSED
      */
@@ -208,7 +215,8 @@ public class TradingService {
         TradeType type,
         CreateTradeRequest request,
         BigDecimal fee,
-        OffsetDateTime executedAt
+        OffsetDateTime executedAt,
+        String currency
     ) {
         if (!TradePayloadMatcher.matches(existing, assetId, type, request.quantity(), request.price(), fee, executedAt)) {
             throw new BusinessException(
@@ -216,7 +224,7 @@ public class TradingService {
                 ErrorCode.TRADE_IDEMPOTENCY_KEY_REUSED.defaultMessage()
             );
         }
-        return mapper.toTradeDto(existing);
+        return mapper.toTradeDto(existing, currency);
     }
 
     /**
@@ -226,6 +234,9 @@ public class TradingService {
      * {@link TradeQuery}，任何白名單外的值都以 {@link BusinessException} 中止，
      * 不會抵達 repository，更不可能成為 SQL 文字。驗證順序刻意由「零 I/O 的白名單比對」
      * 排到「需查資料庫的 symbol 解析」，讓必定會被拒絕的請求不必先付一次查詢成本。</p>
+     *
+     * <p>每列的 {@code currency} 由該頁 distinct {@code assetId} 經 {@link AssetFacade#findProfiles}
+     * <strong>一次批次查詢</strong>取得（空頁略過），不 JOIN {@code assets}、無 N+1（D-21、D-28）。</p>
      *
      * <p>標記為唯讀交易：repository 內 count 與 list 是兩道獨立述句，若不共用同一個交易
      * 快照，併發寫入落在兩者之間時 {@code totalElements} 會與 {@code items} 漂移，
@@ -280,7 +291,35 @@ public class TradingService {
             safeSize
         );
         PageResponse<TradeTransaction> trades = repository.listTransactions(query);
-        return PageResponse.of(trades.items().stream().map(mapper::toTradeDto).toList(), trades.page(), trades.size(), trades.totalElements());
+        Map<Long, String> currencies = currencyByAssetId(
+            trades.items().stream().map(TradeTransaction::assetId).distinct().toList());
+        return PageResponse.of(
+            trades.items().stream()
+                .map(trade -> mapper.toTradeDto(trade, currencies.get(trade.assetId())))
+                .toList(),
+            trades.page(), trades.size(), trades.totalElements());
+    }
+
+    /**
+     * 以一次 {@link AssetFacade#findProfiles} 批次查詢取得資產的交易幣別。
+     *
+     * <p>空集合直接回空 map、不呼叫 Facade。查無 profile 的資產不會出現在結果中，
+     * 呼叫端以 {@code get} 取值得到 null，DTO 的 {@code currency} 即為 null 而不拋例外。</p>
+     *
+     * @param assetIds 資產主鍵集合
+     * @return 資產主鍵到幣別代碼（{@code CurrencyCode} 常數名）的 map
+     */
+    private Map<Long, String> currencyByAssetId(Collection<Long> assetIds) {
+        if (assetIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> result = new HashMap<>();
+        for (Map.Entry<Long, AssetProfile> entry : assetFacade.findProfiles(assetIds).entrySet()) {
+            if (entry.getValue() != null && entry.getValue().currency() != null) {
+                result.put(entry.getKey(), entry.getValue().currency().name());
+            }
+        }
+        return result;
     }
 
     /**
