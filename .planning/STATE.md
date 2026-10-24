@@ -3,12 +3,12 @@ gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: "04.1"
 current_phase_name: Backend Data Gap Backfill
-status: Phase 04.1 planned — ready to execute (25 plans / 7 waves); next up /gsd-execute-phase 04.1
-stopped_at: Phase 04.1 plans verified by gsd-plan-checker
-last_updated: "2026-10-24T09:50:56.131Z"
+status: Phase 04.1 executing (0/25 plans done)
+stopped_at: Phase 04.1 execution started
+last_updated: "2026-10-24T10:26:32.618Z"
 last_activity: 2026-10-24
-last_activity_desc: "Phase 04.1 plan-phase 完成:RESEARCH、VALIDATION、UI-SPEC(approved)、PATTERNS、25 plans(plan-checker 第 2 輪通過,僅 1 條 info)"
-state_head: 1d83e6f869be5492a15af86844bc429eb2a06da6
+last_activity_desc: Phase 04.1 execution started
+state_head: 1fedec92d78d45c2df10b377357d905f8551fc56
 progress:
   total_phases: 7
   completed_phases: 4
@@ -25,14 +25,14 @@ milestone_name: milestone
 See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can safely sign in, inspect portfolio state, and record trades through one coherent frontend/backend flow.
-**Current focus:** Phase 04.1 — backend-data-gap-backfill(CONTEXT 已備,待 plan)
+**Current focus:** Phase 04.1 — Backend Data Gap Backfill
 
 ## Current Position
 
-Phase: 04.1 (Backend Data Gap Backfill) — READY TO EXECUTE
-Plan: 0 of 25(Phase 04.1 已規劃,7 waves;Phase 04 的 13 個 plan 已於 2026-09-04 全數完成)。
-Next: **`/gsd-execute-phase 04.1`**——plans 位於 `.planning/phases/04.1-backend-data-gap-backfill/04.1-01..25-PLAN.md`;Phase 5 尚無 CONTEXT(排在 04.2 之後)。
-Last activity: 2026-10-24 -- Phase 04.1 規劃完成(gsd-core 1.18.0):25 plans / 7 waves,plan-checker 第 2 輪通過;前一日完成狀態檔回填與 JWT 換鑰(後端 PR #49、前端 PR #17)
+Phase: 04.1 (Backend Data Gap Backfill) — EXECUTING
+Plan: 0 of 25 done
+Next: 執行中(兩條 lane:後端 / 前端);完成後 `/gsd-verify-work 04.1`——plans 位於 `.planning/phases/04.1-backend-data-gap-backfill/04.1-01..25-PLAN.md`;Phase 5 尚無 CONTEXT(排在 04.2 之後)。
+Last activity: 2026-10-24 — Phase 04.1 execution started
 
 > ✅ **Phase 4 已完成（2026-09-04）。** 13 個 plan 全數執行完畢，`04-13` 的 blocking human-verify
 > checkpoint 由 Yuan 親自走完甲／乙／丙三段共 17 步後通過（未提出任何不符項）。
