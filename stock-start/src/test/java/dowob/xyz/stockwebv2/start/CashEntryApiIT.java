@@ -12,6 +12,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -23,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasLength;
 import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -368,6 +370,115 @@ class CashEntryApiIT extends ContainerIT {
             .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")));
 
         assertThat(rowCount(email)).isZero();
+    }
+
+    @Test
+    @DisplayName("列表：只含自己的分錄，occurredAt 新到舊（刻意與插入順序不一致），totalElements / totalPages 正確")
+    void listReturnsOwnEntriesNewestFirstWithTotals() throws Exception {
+        String accessToken = register(
+            "cash-list-order-" + UUID.randomUUID() + "@example.com",
+            "cashlist" + UUID.randomUUID().toString().substring(0, 8));
+
+        // 插入順序：中間、最新、最舊；列表必須依 occurredAt 而非插入順序排列。
+        String middleId = entryIdOf(postEntry(accessToken, UUID.randomUUID().toString(), """
+            {"type":"DEPOSIT","currency":"TWD","amount":200,"occurredAt":"2026-10-02T09:00:00+08:00"}
+            """).andExpect(status().isOk()));
+        String newestId = entryIdOf(postEntry(accessToken, UUID.randomUUID().toString(), """
+            {"type":"DEPOSIT","currency":"TWD","amount":300,"occurredAt":"2026-10-03T09:00:00+08:00"}
+            """).andExpect(status().isOk()));
+        String oldestId = entryIdOf(postEntry(accessToken, UUID.randomUUID().toString(), """
+            {"type":"WITHDRAWAL","currency":"USD","amount":100,"occurredAt":"2026-10-01T09:00:00+08:00"}
+            """).andExpect(status().isOk()));
+
+        getEntries(accessToken, null, null)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success", equalTo(true)))
+            .andExpect(jsonPath("$.data.totalElements", equalTo(3)))
+            .andExpect(jsonPath("$.data.totalPages", equalTo(1)))
+            .andExpect(jsonPath("$.data.items.length()", equalTo(3)))
+            .andExpect(jsonPath("$.data.items[0].id", equalTo(newestId)))
+            .andExpect(jsonPath("$.data.items[1].id", equalTo(middleId)))
+            .andExpect(jsonPath("$.data.items[2].id", equalTo(oldestId)))
+            .andExpect(jsonPath("$.data.items[0].reversed", equalTo(false)))
+            .andExpect(jsonPath("$.data.items[0].idempotencyKey").doesNotExist());
+
+        getEntries(accessToken, "0", "2")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(3)))
+            .andExpect(jsonPath("$.data.totalPages", equalTo(2)))
+            .andExpect(jsonPath("$.data.items.length()", equalTo(2)));
+        getEntries(accessToken, "1", "2")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.items.length()", equalTo(1)))
+            .andExpect(jsonPath("$.data.items[0].id", equalTo(oldestId)));
+    }
+
+    @Test
+    @DisplayName("列表：絕不出現其他使用者的分錄，也不計入他們的 totalElements（T-04.1-22）")
+    void listNeverLeaksOtherUsersEntries() throws Exception {
+        String tokenA = register(
+            "cash-list-a-" + UUID.randomUUID() + "@example.com",
+            "cashlista" + UUID.randomUUID().toString().substring(0, 8));
+        String tokenB = register(
+            "cash-list-b-" + UUID.randomUUID() + "@example.com",
+            "cashlistb" + UUID.randomUUID().toString().substring(0, 8));
+        String idA = entryIdOf(postEntry(tokenA, UUID.randomUUID().toString(), """
+            {"type":"DEPOSIT","currency":"TWD","amount":111}
+            """).andExpect(status().isOk()));
+        String idB = entryIdOf(postEntry(tokenB, UUID.randomUUID().toString(), """
+            {"type":"DEPOSIT","currency":"TWD","amount":222}
+            """).andExpect(status().isOk()));
+
+        String bodyA = getEntries(tokenA, null, null).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(1)))
+            .andExpect(jsonPath("$.data.items[0].id", equalTo(idA)))
+            .andReturn().getResponse().getContentAsString();
+        assertThat(bodyA).doesNotContain(idB);
+        String bodyB = getEntries(tokenB, null, null).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(1)))
+            .andReturn().getResponse().getContentAsString();
+        assertThat(bodyB).doesNotContain(idA);
+    }
+
+    @Test
+    @DisplayName("列表：新使用者 items 為空、totalElements 為 0")
+    void listForNewUserIsEmpty() throws Exception {
+        String accessToken = register(
+            "cash-list-empty-" + UUID.randomUUID() + "@example.com",
+            "cashlist" + UUID.randomUUID().toString().substring(0, 8));
+
+        getEntries(accessToken, null, null)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.items.length()", equalTo(0)))
+            .andExpect(jsonPath("$.data.totalElements", equalTo(0)))
+            .andExpect(jsonPath("$.data.totalPages", equalTo(0)));
+    }
+
+    @Test
+    @DisplayName("列表：page=abc 回 400 VALIDATION_FAILED（不是 500）")
+    void nonNumericPageIsRejected() throws Exception {
+        String accessToken = register(
+            "cash-list-badpage-" + UUID.randomUUID() + "@example.com",
+            "cashlist" + UUID.randomUUID().toString().substring(0, 8));
+
+        getEntries(accessToken, "abc", null)
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")));
+        getEntries(accessToken, null, "abc")
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")));
+    }
+
+    private ResultActions getEntries(String accessToken, String page, String size) throws Exception {
+        MockHttpServletRequestBuilder request = get("/api/v1/portfolio/cash-entries")
+            .header("Authorization", "Bearer " + accessToken);
+        if (page != null) {
+            request = request.param("page", page);
+        }
+        if (size != null) {
+            request = request.param("size", size);
+        }
+        return mockMvc.perform(request);
     }
 
     private String entryIdOf(ResultActions result) throws Exception {

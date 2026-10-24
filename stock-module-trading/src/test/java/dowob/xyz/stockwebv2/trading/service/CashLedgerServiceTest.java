@@ -1,5 +1,6 @@
 package dowob.xyz.stockwebv2.trading.service;
 
+import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.error.FieldValidationException;
@@ -7,6 +8,7 @@ import dowob.xyz.stockwebv2.common.model.CurrencyCode;
 import dowob.xyz.stockwebv2.trading.api.CashEntryDto;
 import dowob.xyz.stockwebv2.trading.api.CreateCashEntryRequest;
 import dowob.xyz.stockwebv2.trading.domain.CashEntryType;
+import dowob.xyz.stockwebv2.trading.domain.CashEntryView;
 import dowob.xyz.stockwebv2.trading.domain.CashLedgerEntry;
 import dowob.xyz.stockwebv2.trading.repository.CashLedgerRepository;
 
@@ -19,6 +21,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -343,5 +346,49 @@ class CashLedgerServiceTest {
             7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("100"), null, slightlyAhead), "key-v");
 
         assertThat(dto.type()).isEqualTo("DEPOSIT");
+    }
+
+    @Test
+    @DisplayName("列表：page -3 / size 999 被夾限成 0 / 100 再交給 repository；view 映射成 DTO（指回原分錄、reversed 照 view）")
+    void listEntriesClampsPagingAndMapsViewsToDtos() {
+        OffsetDateTime originalAt = OffsetDateTime.parse("2026-10-01T09:00:00+08:00");
+        OffsetDateTime reversalAt = OffsetDateTime.parse("2026-10-02T09:00:00+08:00");
+        UUID originalUuid = UUID.randomUUID();
+        UUID reversalUuid = UUID.randomUUID();
+        CashLedgerEntry original = new CashLedgerEntry(
+            1L, originalUuid, 7L, CashEntryType.DEPOSIT, CurrencyCode.USD, new BigDecimal("1000.00000000"),
+            "seed", originalAt, originalAt, "k-1", null);
+        CashLedgerEntry reversal = new CashLedgerEntry(
+            2L, reversalUuid, 7L, CashEntryType.WITHDRAWAL, CurrencyCode.USD, new BigDecimal("1000.00000000"),
+            null, reversalAt, reversalAt, "k-2", 1L);
+        when(repository.listEntries(7L, 0, 100)).thenReturn(PageResponse.of(List.of(
+            new CashEntryView(reversal, originalUuid, originalAt, false),
+            new CashEntryView(original, null, null, true)), 0, 100, 2));
+
+        PageResponse<CashEntryDto> page = service.listEntries(7L, -3, 999);
+
+        verify(repository).listEntries(7L, 0, 100);
+        assertThat(page.totalElements()).isEqualTo(2);
+        assertThat(page.items()).hasSize(2);
+        CashEntryDto reversalDto = page.items().get(0);
+        assertThat(reversalDto.id()).isEqualTo(reversalUuid.toString());
+        assertThat(reversalDto.reversalOfId()).isEqualTo(originalUuid.toString());
+        assertThat(reversalDto.reversalOfOccurredAt()).isEqualTo(originalAt);
+        assertThat(reversalDto.reversed()).isFalse();
+        CashEntryDto originalDto = page.items().get(1);
+        assertThat(originalDto.reversalOfId()).isNull();
+        assertThat(originalDto.reversalOfOccurredAt()).isNull();
+        assertThat(originalDto.reversed()).isTrue();
+    }
+
+    @Test
+    @DisplayName("列表：page 超過上限 10000 夾限成 10000，size 0 夾限成 1")
+    void listEntriesClampsUpperPageAndLowerSize() {
+        when(repository.listEntries(7L, 10_000, 1)).thenReturn(PageResponse.of(List.of(), 10_000, 1, 0));
+
+        PageResponse<CashEntryDto> page = service.listEntries(7L, 50_000, 0);
+
+        verify(repository).listEntries(7L, 10_000, 1);
+        assertThat(page.items()).isEmpty();
     }
 }
