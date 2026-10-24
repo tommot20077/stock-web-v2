@@ -31,8 +31,11 @@ import java.util.UUID;
  * <p>現金帳<strong>只記帳</strong>：不查餘額、不擋出金（D-01 / D-08）。餘額為負只是「使用者還沒補記入金」
  * 的如實呈現，由 CASH-02 的推導負責，不在寫入路徑上設限。</p>
  *
+ * <p>新建分錄（含沖銷）後讓該使用者的 summary 快取在 commit 之後失效，因為 summary 含由分錄推導的可用現金
+ * （CASH-02、D-22）；冪等命中與被拒的請求沒有寫入，不失效。</p>
+ *
  * @author Yuan
- * @version 1.0
+ * @version 2.0
  */
 @Service
 public class CashLedgerService {
@@ -58,9 +61,17 @@ public class CashLedgerService {
     private static final int MAX_PAGE_SIZE = 100;
 
     private final CashLedgerRepository repository;
+    private final PortfolioCache portfolioCache;
 
-    public CashLedgerService(CashLedgerRepository repository) {
+    /**
+     * 建立現金分錄寫入服務。
+     *
+     * @param repository     現金分錄帳本的資料存取
+     * @param portfolioCache 投資組合快取；新建分錄後用來讓含現金項的 summary 失效
+     */
+    public CashLedgerService(CashLedgerRepository repository, PortfolioCache portfolioCache) {
         this.repository = repository;
+        this.portfolioCache = portfolioCache;
     }
 
     /**
@@ -143,6 +154,10 @@ public class CashLedgerService {
             ErrorCode lost = original == null ? ErrorCode.DUPLICATE_RESOURCE : ErrorCode.CASH_ENTRY_ALREADY_REVERSED;
             throw new BusinessException(lost, lost.defaultMessage());
         }
+        // 只有實際新建了列才失效：此時 summary 的現金項已變。冪等命中（上面兩處）資料未變，不失效。
+        // 失效排在本交易 COMMIT 之後（見 PortfolioCache#invalidateSummaryAfterCommit），讀者不會在 commit 前
+        // 重算出記帳前的現金再寫回快取。
+        portfolioCache.invalidateSummaryAfterCommit(userId);
         return toDto(viewOf(inserted.get(), original));
     }
 

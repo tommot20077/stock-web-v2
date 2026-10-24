@@ -33,8 +33,13 @@ import tools.jackson.databind.ObjectMapper;
  * 鍵含基準幣是因為 user 模組無法（也不應）失效 trading 的快取。交易 commit 後由
  * {@link #invalidateAfterTrade} 刪除持倉鍵與四把 summary 鍵。
  *
+ * <p>summary 另含由入出金分錄推導的可用現金（CASH-02、D-22），因此現金分錄 commit 後由
+ * {@link #invalidateSummaryAfterCommit} 刪四把 summary 鍵（不刪持倉鍵）。現金項放在快取之內、靠寫入端失效，
+ * 而不是在快取之外另算：後者會讓命中路徑多兩道聚合 SQL，抵銷快取的意義。
+ * 殘餘競態（讀者在 commit 前讀到舊資料、於失效之後才寫回）最長 60 秒，與交易路徑相同，屬已接受。
+ *
  * @author Yuan
- * @version 2.0
+ * @version 3.0
  */
 @Component
 public class PortfolioCache {
@@ -135,16 +140,42 @@ public class PortfolioCache {
      * @param assetId 本次交易的標的 id
      */
     public void invalidateAfterTrade(Long userId, Long assetId) {
+        runAfterCommit(() -> evict(userId, assetId));
+    }
+
+    /**
+     * 只讓該使用者的 summary 快取失效（四把基準幣鍵），<strong>不刪任何持倉鍵</strong>；入出金（含沖銷）寫入後呼叫。
+     *
+     * <p>summary 含可用現金項（CASH-02、D-22），而現金由入出金分錄推導；分錄 commit 後若不失效，
+     * 最長 60 秒內重讀 summary 仍是記帳前的現金。持倉估值只取決於持倉、成交與行情，與現金分錄無關，
+     * 所以持倉鍵不刪，避免白白丟掉有效的快取。</p>
+     *
+     * <p>失效時機與 {@link #invalidateAfterTrade} 相同，排在 COMMIT 之後（理由見該方法）；
+     * 交易回滾時不刪（資料沒變）。沒有進行中的交易時立刻刪。<strong>只有實際新建分錄的路徑才呼叫</strong>：
+     * 冪等重送命中時資料未變，不需要失效。</p>
+     *
+     * @param userId 使用者 id
+     */
+    public void invalidateSummaryAfterCommit(Long userId) {
+        runAfterCommit(() -> evictSummaries(userId));
+    }
+
+    /**
+     * 有進行中的交易就註冊 {@code TransactionSynchronization#afterCommit} 排到 COMMIT 之後執行，否則立刻執行。
+     *
+     * @param action 失效動作
+     */
+    private void runAfterCommit(Runnable action) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    evict(userId, assetId);
+                    action.run();
                 }
             });
             return;
         }
-        evict(userId, assetId);
+        action.run();
     }
 
     /**
@@ -158,11 +189,28 @@ public class PortfolioCache {
     private void evict(Long userId, Long assetId) {
         try {
             redisTemplate.delete(holdingKey(userId, assetId));
-            for (CurrencyCode base : CurrencyCode.values()) {
-                redisTemplate.delete(summaryKey(userId, base));
-            }
+            deleteSummaryKeys(userId);
         } catch (RuntimeException exception) {
             log.warn("Portfolio cache invalidation failed for userId={}, assetId={}: {}", userId, assetId, exception.toString());
+        }
+    }
+
+    /**
+     * 實際刪除每個基準幣的 summary 鍵，不碰持倉鍵；失敗只記 WARN，理由同 {@link #evict}。
+     *
+     * @param userId 使用者 id
+     */
+    private void evictSummaries(Long userId) {
+        try {
+            deleteSummaryKeys(userId);
+        } catch (RuntimeException exception) {
+            log.warn("Portfolio summary cache invalidation failed for userId={}: {}", userId, exception.toString());
+        }
+    }
+
+    private void deleteSummaryKeys(Long userId) {
+        for (CurrencyCode base : CurrencyCode.values()) {
+            redisTemplate.delete(summaryKey(userId, base));
         }
     }
 
