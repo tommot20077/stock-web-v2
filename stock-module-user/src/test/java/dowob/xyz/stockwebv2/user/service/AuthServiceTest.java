@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.user.service;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.DuplicateResourceException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.common.model.CurrencyCode;
 import dowob.xyz.stockwebv2.common.model.Role;
 import dowob.xyz.stockwebv2.common.model.UserStatus;
 import dowob.xyz.stockwebv2.user.api.RegisterRequest;
@@ -37,6 +38,18 @@ class AuthServiceTest {
         assertThat(user.status()).isEqualTo(UserStatus.ACTIVE);
         assertThat(user.tokenVersion()).isEqualTo(1);
         assertThat(user.passwordHash()).isNotEqualTo("Password1");
+    }
+
+    @Test
+    @DisplayName("新註冊使用者的基準幣預設為 TWD（D-02）")
+    void registeredUserDefaultsToTwdBaseCurrency() {
+        InMemoryUserRepository repository = new InMemoryUserRepository();
+        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10), mock(RefreshTokenService.class), mock(LoginAttemptService.class));
+
+        User user = service.register(new RegisterRequest("yuan@example.com", "yuan", "Password1"));
+
+        assertThat(user.baseCurrency()).isEqualTo(CurrencyCode.TWD);
+        assertThat(user.toMeResponse().baseCurrency()).isEqualTo(CurrencyCode.TWD);
     }
 
     @Test
