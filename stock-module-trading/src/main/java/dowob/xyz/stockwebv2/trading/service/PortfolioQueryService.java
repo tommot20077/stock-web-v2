@@ -91,7 +91,12 @@ public class PortfolioQueryService {
     /**
      * 列出使用者的持倉與估值。
      *
-     * <p>以固定次數的往返完成：一次批次讀持倉快取、對未命中者一次批次取價，再逐筆寫回快取。
+     * <p>金額欄位為原幣；每列另帶 {@code currency}、{@code assetType}、{@code sector}，以及依使用者基準幣
+     * 折算的 {@code baseCurrency} 與 {@code marketValueInBase}（換不到匯率時為 null），供前端以
+     * {@code marketValueInBase / summary.totalMarketValue} 計算權重。持倉快取只存原幣估值，
+     * 基準幣欄位於回傳時才補上，所以使用者切換基準幣不需要等快取過期。
+     *
+     * <p>以固定次數的往返完成：一次批次讀持倉快取、對未命中者一次批次取資產屬性與最新價，再逐筆寫回快取。
      * 原本每筆持倉各自讀快取、取價、寫快取，N 筆約 3N 次往返，成交後三個頁面同時 refetch 還會放大
      * （性能審查 MED-5）。回傳順序與 {@code repository.listHoldings} 相同。
      *
@@ -99,32 +104,84 @@ public class PortfolioQueryService {
      * @return 持倉 DTO 列表
      */
     public List<HoldingDto> listHoldings(Long userId) {
-        return valuePositions(userId, repository.listHoldings(userId));
+        List<HoldingPosition> positions = repository.listHoldings(userId);
+        if (positions.isEmpty()) {
+            return List.of();
+        }
+        // Facade 呼叫點（D-23：快取未命中時每個 Facade 至多一次批次呼叫）：
+        // 1. userPreferenceFacade.findBaseCurrency — 取基準幣，只用來補 marketValueInBase，不進持倉快取。
+        // 2. assetFacade.findProfiles、3. marketDataFacade.findLatestPrices — 皆只為持倉快取未命中者批次呼叫
+        //    （見 valuePositions）；全部命中時兩者皆不呼叫。
+        // 4. fxRateFacade.currentRates — 一次取回完整匯率表，逐列折算在記憶體完成。
+        CurrencyCode base = userPreferenceFacade.findBaseCurrency(userId);
+        List<HoldingDto> original = valuePositions(userId, positions, null);
+        FxRates rates = fxRateFacade.currentRates();
+        return original.stream().map(holding -> withBaseValuation(holding, base, rates)).toList();
     }
 
     /**
-     * 為一組持倉位置估值（原幣）：批次讀持倉快取，對未命中者一次批次取價並寫回快取。
+     * 為一組持倉位置估值（原幣）：批次讀持倉快取，對未命中者一次批次取資產屬性與最新價並寫回快取。
      *
-     * @param userId    使用者 id
-     * @param positions 持倉位置
-     * @return 與 {@code positions} 同順序的估值 DTO
+     * @param userId        使用者 id
+     * @param positions     持倉位置
+     * @param knownProfiles 呼叫端已批次取得的資產屬性；null 表示尚未取得，未命中時才由本方法一次批次取得
+     * @return 與 {@code positions} 同順序的原幣估值 DTO（{@code baseCurrency} / {@code marketValueInBase} 為 null）
      */
-    private List<HoldingDto> valuePositions(Long userId, List<HoldingPosition> positions) {
+    private List<HoldingDto> valuePositions(
+        Long userId,
+        List<HoldingPosition> positions,
+        Map<Long, AssetProfile> knownProfiles
+    ) {
         if (positions.isEmpty()) {
             return List.of();
         }
         List<Long> assetIds = positions.stream().map(HoldingPosition::assetId).toList();
         Map<Long, HoldingDto> cached = portfolioCache.readHoldings(userId, assetIds);
         List<Long> misses = assetIds.stream().filter(id -> !cached.containsKey(id)).toList();
-        Map<Long, LatestMarketPrice> prices = misses.isEmpty()
-            ? Map.of()
-            : marketDataFacade.findLatestPrices(misses);
+        Map<Long, AssetProfile> profiles = Map.of();
+        Map<Long, LatestMarketPrice> prices = Map.of();
+        if (!misses.isEmpty()) {
+            profiles = knownProfiles != null ? knownProfiles : assetFacade.findProfiles(misses);
+            prices = marketDataFacade.findLatestPrices(misses);
+        }
+        Map<Long, AssetProfile> missProfiles = profiles;
+        Map<Long, LatestMarketPrice> missPrices = prices;
         return positions.stream()
             .map(position -> {
                 HoldingDto hit = cached.get(position.assetId());
-                return hit != null ? hit : calculateAndCacheHolding(position, prices.get(position.assetId()));
+                return hit != null
+                    ? hit
+                    : calculateAndCacheHolding(
+                        position, missPrices.get(position.assetId()), missProfiles.get(position.assetId()));
             })
             .toList();
+    }
+
+    /**
+     * 依本次基準幣與匯率補上 {@code baseCurrency} / {@code marketValueInBase}；不修改傳入的（可能來自快取的）DTO。
+     *
+     * @param holding 原幣持倉 DTO
+     * @param base    使用者基準幣
+     * @param rates   目前匯率
+     * @return 補上基準幣市值的新 DTO；缺幣別或換不到匯率時 {@code marketValueInBase} 為 null
+     */
+    private HoldingDto withBaseValuation(HoldingDto holding, CurrencyCode base, FxRates rates) {
+        BigDecimal marketValueInBase = parseCurrency(holding.currency())
+            .flatMap(currency -> rates.convert(holding.marketValue(), currency, base))
+            .orElse(null);
+        return holding.withBaseValuation(base.name(), marketValueInBase);
+    }
+
+    private Optional<CurrencyCode> parseCurrency(String code) {
+        if (code == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(CurrencyCode.valueOf(code));
+        } catch (IllegalArgumentException exception) {
+            log.warn("Unknown currency code in cached holding: {}", code);
+            return Optional.empty();
+        }
     }
 
     /**
@@ -157,7 +214,7 @@ public class PortfolioQueryService {
         snapshots.forEach(snapshot -> assetIds.add(snapshot.assetId()));
         positions.forEach(position -> assetIds.add(position.assetId()));
         Map<Long, AssetProfile> profiles = assetIds.isEmpty() ? Map.of() : assetFacade.findProfiles(assetIds);
-        List<HoldingDto> holdings = valuePositions(userId, positions);
+        List<HoldingDto> holdings = valuePositions(userId, positions, profiles);
         FxRates rates = fxRateFacade.currentRates();
 
         Set<String> unconverted = new TreeSet<>();
@@ -230,11 +287,19 @@ public class PortfolioQueryService {
      * <p>查無行情時退回平均成本估值：市值等於成本、未實現損益為零。這是刻意的——寧可顯示「沒有變化」，
      * 也不要拿一個不知道多舊的價格假裝賺賠。
      *
+     * <p>估值結果存原幣（{@code baseCurrency} / {@code marketValueInBase} 為 null）。查無資產屬性
+     * （理論上不會發生，FK 保證存在）時不寫快取，讓下一次請求重試，並以 null 的幣別讓呼叫端排除折算。
+     *
      * @param position    持倉位置
      * @param marketPrice 已批次取得的最新價；null 表示查無行情
+     * @param profile     已批次取得的資產屬性；null 表示查無
      * @return 估值後的持倉 DTO
      */
-    private HoldingDto calculateAndCacheHolding(HoldingPosition position, LatestMarketPrice marketPrice) {
+    private HoldingDto calculateAndCacheHolding(
+        HoldingPosition position,
+        LatestMarketPrice marketPrice,
+        AssetProfile profile
+    ) {
         LatestMarketPrice latest = marketPrice != null
             ? marketPrice
             : new LatestMarketPrice(position.avgCost(), position.lastUpdated());
@@ -254,8 +319,17 @@ public class PortfolioQueryService {
             unrealized,
             roi(unrealized, costBasis),
             latest.priceTime(),
-            position.lastUpdated()
+            position.lastUpdated(),
+            profile == null ? null : profile.currency().name(),
+            profile == null ? null : profile.assetType().name(),
+            profile == null ? null : profile.sector(),
+            null,
+            null
         );
+        if (profile == null) {
+            log.warn("Asset profile missing for assetId={}, holding not cached", position.assetId());
+            return dto;
+        }
         portfolioCache.writeHolding(position.userId(), position.assetId(), dto);
         return dto;
     }
