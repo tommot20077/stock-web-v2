@@ -53,18 +53,9 @@ class PortfolioDayPnlIT extends ContainerIT {
     StringRedisTemplate redisTemplate;
 
     @Test
-    @DisplayName("持倉列帶單檔今日損益：昨買今買、今天首次買入無前收、只有最新價三種情形")
+    @DisplayName("持倉列帶單檔今日損益：昨買今買、今天首次買入無前收、只有最新價三種情形；今日賣光的不在持倉列")
     void holdingsCarryDayPricePnl() throws Exception {
-        AuthTokens tokens = register("daypnl-holdings@example.com", "daypnlholdings", "Password1");
-        patchBaseCurrency(tokens, "USD");
-
-        trade(tokens, "MSFT", "BUY", "10", "150", yesterday());
-        trade(tokens, "MSFT", "BUY", "5", "195", null);
-        trade(tokens, "META", "BUY", "2", "500", null);
-        trade(tokens, "AMZN", "BUY", "3", "180", yesterday());
-        seedPrices("MSFT", new BigDecimal("190"), new BigDecimal("200"));
-        seedPrices("META", null, new BigDecimal("510"));
-        seedPrices("AMZN", null, new BigDecimal("190"));
+        AuthTokens tokens = givenScenarioUser("daypnl-holdings@example.com", "daypnlholdings");
 
         JsonNode holdings = objectMapper.readTree(mockMvc.perform(get("/api/v1/portfolio/holdings")
                 .header("Authorization", "Bearer " + tokens.accessToken()))
@@ -87,6 +78,59 @@ class PortfolioDayPnlIT extends ContainerIT {
         JsonNode amzn = bySymbol(holdings, "AMZN");
         assertThat(amzn.hasNonNull("dayPricePnl")).isFalse();
         assertThat(amzn.hasNonNull("dayPricePnlRatio")).isFalse();
+
+        // GOOGL 今天全數賣出，不在持倉列表
+        assertThat(holdings).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("summary 今日損益總額涵蓋今日賣光的部位、回報未計入數；沒有任何持倉的使用者為真實的 0")
+    void summaryTotalsIncludeSoldAllToday() throws Exception {
+        AuthTokens tokens = givenScenarioUser("daypnl-summary@example.com", "daypnlsummary");
+
+        // MSFT 125 + GOOGL 40（前收 110 賣在 120 共 4 股，最新價不影響已賣出的部分）+ META 20；AMZN 缺前收未計入
+        mockMvc.perform(get("/api/v1/portfolio/summary")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.dayPricePnl", equalTo(185.00000000)))
+            // 185 / (MSFT 2875 + GOOGL 440 + META 1000)
+            .andExpect(jsonPath("$.data.dayPricePnlRatio", equalTo(0.04287370)))
+            .andExpect(jsonPath("$.data.dayPnlExcludedCount", equalTo(1)));
+
+        AuthTokens empty = register("daypnl-empty@example.com", "daypnlempty", "Password1");
+        patchBaseCurrency(empty, "USD");
+        mockMvc.perform(get("/api/v1/portfolio/summary")
+                .header("Authorization", "Bearer " + empty.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.dayPricePnl", equalTo(0)))
+            .andExpect(jsonPath("$.data.dayPricePnlRatio").value(org.hamcrest.Matchers.nullValue()))
+            .andExpect(jsonPath("$.data.dayPnlExcludedCount", equalTo(0)));
+    }
+
+    /**
+     * 建立情境使用者並種好行情：MSFT 昨買 10@150 今買 5@195（前收 190、最新 200）、META 今買 2@500（無前收、最新 510）、
+     * AMZN 昨買 3@180（只有最新列）、GOOGL 昨買 4@100 今賣 4@120（前收 110、最新 125）。基準幣為 USD。
+     *
+     * @param email    使用者 email
+     * @param username 使用者名稱
+     * @return 使用者憑證
+     * @throws Exception MockMvc 失敗時
+     */
+    private AuthTokens givenScenarioUser(String email, String username) throws Exception {
+        AuthTokens tokens = register(email, username, "Password1");
+        patchBaseCurrency(tokens, "USD");
+
+        trade(tokens, "MSFT", "BUY", "10", "150", yesterday());
+        trade(tokens, "MSFT", "BUY", "5", "195", null);
+        trade(tokens, "META", "BUY", "2", "500", null);
+        trade(tokens, "AMZN", "BUY", "3", "180", yesterday());
+        trade(tokens, "GOOGL", "BUY", "4", "100", yesterday());
+        trade(tokens, "GOOGL", "SELL", "4", "120", null);
+        seedPrices("MSFT", new BigDecimal("190"), new BigDecimal("200"));
+        seedPrices("META", null, new BigDecimal("510"));
+        seedPrices("AMZN", null, new BigDecimal("190"));
+        seedPrices("GOOGL", new BigDecimal("110"), new BigDecimal("125"));
+        return tokens;
     }
 
     /**

@@ -255,7 +255,7 @@ class PortfolioQueryServiceTest {
         when(userPreferenceFacade.findBaseCurrency(7L)).thenReturn(CurrencyCode.TWD);
         PortfolioSummaryDto cached = new PortfolioSummaryDto(
             BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-            0, "TWD", 0, List.of());
+            0, "TWD", 0, List.of(), null, null, 0);
         when(portfolioCache.readSummary(7L, CurrencyCode.TWD)).thenReturn(Optional.of(cached));
 
         PortfolioSummaryDto dto = service.summary(7L);
@@ -531,6 +531,183 @@ class PortfolioQueryServiceTest {
         Instant usStart = TradingDay.of(AssetType.STOCK, "US").dayStart(PRICE_TIME.toInstant());
         Instant twStart = TradingDay.of(AssetType.STOCK, "TW").dayStart(twTime.toInstant());
         assertThat(since.getValue().toInstant()).isEqualTo(twStart).isBefore(usStart);
+    }
+
+    @Test
+    @DisplayName("今天全數賣出的部位不在持倉列表，但其今日損益計入 summary 總額（Pitfall 1）")
+    void soldAllTodayIsIncludedInSummaryTotal() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        when(repository.listHoldings(7L)).thenReturn(List.of());
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of(
+            closedSnapshot(41L, OffsetDateTime.now().minusHours(1))));
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(profiles());
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(41L, quote("125", "110")));
+        when(repository.listFillsSince(eq(7L), any(OffsetDateTime.class))).thenReturn(List.of(
+            fill(41L, TradeType.SELL, "4", "120", "2026-09-04T09:00:00-04:00")));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        // 前收 110 賣在 120：4 × (120 − 110) = 40 USD，× 32.418
+        assertThat(dto.dayPricePnl()).isEqualByComparingTo("1296.72");
+        // 分母 4 × 110 × 32.418
+        assertThat(dto.dayPricePnlRatio()).isEqualByComparingTo("0.09090909");
+        assertThat(dto.dayPnlExcludedCount()).isZero();
+        assertThat(dto.holdingCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("平倉但今日沒有成交：不是候選，不算排除數，總額為真實的 0")
+    void closedPositionWithoutTodayFillsIsNotACandidate() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        when(repository.listHoldings(7L)).thenReturn(List.of());
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of(
+            closedSnapshot(41L, OffsetDateTime.now().minusDays(3))));
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(profiles());
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(41L, quote("125", "110")));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        assertThat(dto.dayPricePnl()).isEqualByComparingTo("0");
+        assertThat(dto.dayPricePnlRatio()).isNull();
+        assertThat(dto.dayPnlExcludedCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("平倉且今日有成交卻無行情：計入 dayPnlExcludedCount，總額為 null")
+    void closedPositionWithTodayFillButNoQuoteIsExcluded() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        when(repository.listHoldings(7L)).thenReturn(List.of());
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of(
+            closedSnapshot(41L, OffsetDateTime.now().minusHours(1))));
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(profiles());
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of());
+        // 無行情時 dayStart 以 tradingDay.dayStart(Instant.now()) 判定，所以此處的賣出時間取現在。
+        when(repository.listFillsSince(eq(7L), any(OffsetDateTime.class))).thenReturn(List.of(
+            new DayFill(41L, TradeType.SELL, new BigDecimal("4"), new BigDecimal("120"), OffsetDateTime.now())));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        assertThat(dto.dayPnlExcludedCount()).isEqualTo(1);
+        assertThat(dto.dayPricePnl()).isNull();
+        assertThat(dto.dayPricePnlRatio()).isNull();
+    }
+
+    @Test
+    @DisplayName("全部候選都被排除時總額為 null、比率為 null，並回報排除數")
+    void allCandidatesExcludedYieldsNullTotal() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        HoldingPosition aapl = position(1L, 41L, "AAPL", new BigDecimal("10"), new BigDecimal("100"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(aapl));
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of(
+            snapshot(41L, new BigDecimal("10"), new BigDecimal("100"), BigDecimal.ZERO)));
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(profiles());
+        // 昨日即持有卻沒有前收
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(41L, quote("200", null)));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        assertThat(dto.dayPricePnl()).isNull();
+        assertThat(dto.dayPricePnlRatio()).isNull();
+        assertThat(dto.dayPnlExcludedCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("沒有任何持倉也沒有今日成交：總額為真實的 0，比率為 null，排除數 0")
+    void noCandidatesYieldsZeroTotal() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        when(repository.listHoldings(7L)).thenReturn(List.of());
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of());
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        assertThat(dto.dayPricePnl()).isEqualByComparingTo("0");
+        assertThat(dto.dayPricePnlRatio()).isNull();
+        assertThat(dto.dayPnlExcludedCount()).isZero();
+        verify(marketDataFacade, never()).findDailyQuotes(anyMap());
+        verify(repository, never()).listFillsSince(anyLong(), any(OffsetDateTime.class));
+    }
+
+    @Test
+    @DisplayName("總額以目前匯率折算，比率的分母是基準幣的前收時市值加買入成本")
+    void totalsAreConvertedWithCurrentRateAndRatioUsesBaseBasis() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        HoldingPosition aapl = position(1L, 41L, "AAPL", new BigDecimal("10"), new BigDecimal("100"));
+        HoldingPosition tsmc = position(2L, 43L, "2330.TW", new BigDecimal("2"), new BigDecimal("900"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(aapl, tsmc));
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of(
+            snapshot(41L, new BigDecimal("10"), new BigDecimal("100"), BigDecimal.ZERO),
+            snapshot(43L, new BigDecimal("2"), new BigDecimal("900"), BigDecimal.ZERO)));
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(profiles());
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(
+            41L, quote("200", "190"),
+            43L, quote(new BigDecimal("1000"), new BigDecimal("990"), OffsetDateTime.parse("2026-09-04T10:00:00+08:00"))));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        // USD：10 × (200 − 190) = 100，分母 1900；TWD：2 × (1000 − 990) = 20，分母 1980
+        assertThat(dto.dayPricePnl()).isEqualByComparingTo("3261.8");
+        assertThat(dto.dayPricePnlRatio()).isEqualByComparingTo(
+            new BigDecimal("3261.8").divide(new BigDecimal("63574.2"), 8, java.math.RoundingMode.HALF_UP));
+        assertThat(dto.dayPnlExcludedCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("持倉快取命中者的今日損益直接取自快取 DTO，不再取價")
+    void cachedHoldingsContributeTheirCachedDayPnl() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        HoldingPosition aapl = position(1L, 41L, "AAPL", new BigDecimal("10"), new BigDecimal("100"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(aapl));
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of(
+            snapshot(41L, new BigDecimal("10"), new BigDecimal("100"), BigDecimal.ZERO)));
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(profiles());
+        HoldingDto cached = new HoldingDto("u", "AAPL", "AAPL",
+            new BigDecimal("10"), new BigDecimal("100"), new BigDecimal("1000"), new BigDecimal("200"),
+            new BigDecimal("2000"), BigDecimal.ZERO, new BigDecimal("1000"), new BigDecimal("1"),
+            PRICE_TIME, OffsetDateTime.parse("2026-09-01T00:00:00+08:00"),
+            "USD", "STOCK", "Tech", null, null,
+            new BigDecimal("190"), new BigDecimal("100"), new BigDecimal("0.05263158"), new BigDecimal("1900"));
+        when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of(41L, cached));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        assertThat(dto.dayPricePnl()).isEqualByComparingTo("3241.8");
+        verify(marketDataFacade, never()).findDailyQuotes(anyMap());
+    }
+
+    @Test
+    @DisplayName("summary 未命中路徑每個 Facade 仍至多一次：持倉未命中者與平倉候選合併成同一次 findDailyQuotes")
+    void summaryStillMakesAtMostOneCallPerFacade() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        HoldingPosition tsmc = position(2L, 43L, "2330.TW", new BigDecimal("2"), new BigDecimal("900"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(tsmc));
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of(
+            snapshot(43L, new BigDecimal("2"), new BigDecimal("900"), BigDecimal.ZERO),
+            closedSnapshot(41L, OffsetDateTime.now().minusHours(1))));
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(profiles());
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(
+            41L, quote("125", "110"),
+            43L, quote(new BigDecimal("1000"), new BigDecimal("990"), OffsetDateTime.parse("2026-09-04T10:00:00+08:00"))));
+
+        service.summary(7L);
+
+        ArgumentCaptor<Map<Long, TradingDay>> quoted = ArgumentCaptor.captor();
+        verify(marketDataFacade, times(1)).findDailyQuotes(quoted.capture());
+        assertThat(quoted.getValue().keySet()).containsExactlyInAnyOrder(41L, 43L);
+        verify(userPreferenceFacade, times(1)).findBaseCurrency(7L);
+        verify(assetFacade, times(1)).findProfiles(anyCollection());
+        verify(fxRateFacade, times(1)).currentRates();
+        verify(repository, times(1)).listFillsSince(eq(7L), any(OffsetDateTime.class));
+    }
+
+    /**
+     * 建立一筆已平倉（數量 0）的持倉快照。
+     *
+     * @param assetId     標的 id
+     * @param lastUpdated 最後更新時間（賣出會以現在寫入）
+     * @return 持倉快照
+     */
+    private HoldingSnapshot closedSnapshot(Long assetId, OffsetDateTime lastUpdated) {
+        return new HoldingSnapshot(assetId, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, lastUpdated);
     }
 
     /**
