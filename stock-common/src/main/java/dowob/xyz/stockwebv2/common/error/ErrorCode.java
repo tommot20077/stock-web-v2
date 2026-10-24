@@ -44,6 +44,9 @@ public enum ErrorCode {
     TRADE_CONFLICT(409, "Holding changed during trade execution"),
     TRADE_IDEMPOTENCY_KEY_REUSED(409, "Idempotency key was reused with a different trade payload"),
 
+    // Cash ledger error codes
+    CASH_IDEMPOTENCY_KEY_REUSED(409, "Idempotency key was reused with a different cash entry payload"),
+
     INTERNAL_ERROR(500, "Internal server error");
 
     private final int httpStatus;

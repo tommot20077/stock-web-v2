@@ -6,6 +6,7 @@ import dowob.xyz.stockwebv2.common.error.FieldValidationException;
 import dowob.xyz.stockwebv2.common.model.CurrencyCode;
 import dowob.xyz.stockwebv2.trading.api.CashEntryDto;
 import dowob.xyz.stockwebv2.trading.api.CreateCashEntryRequest;
+import dowob.xyz.stockwebv2.trading.domain.CashEntryPayloadMatcher;
 import dowob.xyz.stockwebv2.trading.domain.CashEntryType;
 import dowob.xyz.stockwebv2.trading.domain.CashLedgerEntry;
 import dowob.xyz.stockwebv2.trading.repository.CashLedgerRepository;
@@ -14,6 +15,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
@@ -53,14 +55,15 @@ public class CashLedgerService {
      * 再 insert-first。整條路徑靠 {@code ON CONFLICT DO NOTHING} 避開唯一約束例外，因此
      * <strong>不需要也不可以</strong>在本交易內 catch 例外後重讀（PostgreSQL 在例外後該交易已中止）。</p>
      *
-     * <p>本方法目前只有 insert-first 骨架：冪等命中時直接回既有分錄，payload 比對與
-     * {@code CASH_IDEMPOTENCY_KEY_REUSED} 由 04.1-22 補上。</p>
+     * <p>冪等命中（快路徑或 insert 落空後重讀）時一律經 {@link CashEntryPayloadMatcher} 比對：
+     * payload 相同回既有分錄，不同則 409 {@code CASH_IDEMPOTENCY_KEY_REUSED}（D-11）。</p>
      *
      * @param userId         分錄擁有者 id，一律由 controller 自已驗證的身分取得
      * @param request        建立請求，已通過 bean validation
      * @param idempotencyKey 冪等鍵，由 {@code Idempotency-Key} header 原樣傳入
      * @return 新建立的分錄；重送時為既有分錄
-     * @throws BusinessException 冪等鍵為空白或過長、type 或 currency 不在白名單，或併發下重讀落空時
+     * @throws BusinessException 冪等鍵為空白或過長、type 或 currency 不在白名單、同鍵但 payload 不同，
+     *                           或併發下重讀落空時
      */
     @Transactional
     public CashEntryDto createEntry(Long userId, CreateCashEntryRequest request, String idempotencyKey) {
@@ -72,12 +75,15 @@ public class CashLedgerService {
         CurrencyCode currency = parseCurrency(request.currency());
         // 截到微秒：TIMESTAMPTZ 只存到微秒，不先正規化的話，帶奈秒精度的客戶端每次重送都會與
         // 讀回值差一個被四捨五入掉的尾數，於是每次合法重試都吃到假性 409（同 createTrade）。
-        OffsetDateTime occurredAt = Optional.ofNullable(request.occurredAt())
-            .orElseGet(OffsetDateTime::now)
-            .truncatedTo(ChronoUnit.MICROS);
+        // requestedOccurredAt 保留「請求有沒有送」：省略時不參與冪等比對（見 CashEntryPayloadMatcher）。
+        OffsetDateTime requestedOccurredAt = Optional.ofNullable(request.occurredAt())
+            .map(value -> value.truncatedTo(ChronoUnit.MICROS))
+            .orElse(null);
+        OffsetDateTime occurredAt = Optional.ofNullable(requestedOccurredAt)
+            .orElseGet(() -> OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS));
         Optional<CashLedgerEntry> known = repository.findByIdempotencyKey(userId, idempotencyKey);
         if (known.isPresent()) {
-            return toDto(known.get());
+            return resolveIdempotentHit(known.get(), type, currency, request.amount(), requestedOccurredAt);
         }
         Optional<CashLedgerEntry> inserted = repository.insertIfAbsent(new CashLedgerEntry(
             null,
@@ -96,10 +102,38 @@ public class CashLedgerService {
             // 併發下被同一把鍵的另一個請求搶先。DO NOTHING 不會中止本交易，因此重讀是安全的；
             // 重讀仍落空是理論上的殘餘競態，一律回 409 而非讓它變成 500。
             CashLedgerEntry concurrent = repository.findByIdempotencyKey(userId, idempotencyKey)
-                .orElseThrow(() -> new BusinessException(ErrorCode.TRADE_CONFLICT, ErrorCode.TRADE_CONFLICT.defaultMessage()));
-            return toDto(concurrent);
+                .orElseThrow(() -> new BusinessException(
+                    ErrorCode.DUPLICATE_RESOURCE, ErrorCode.DUPLICATE_RESOURCE.defaultMessage()));
+            return resolveIdempotentHit(concurrent, type, currency, request.amount(), requestedOccurredAt);
         }
         return toDto(inserted.get());
+    }
+
+    /**
+     * 冪等命中時的 payload 比對：相同回既有分錄，不同則拒絕且不寫入。
+     *
+     * <p>錯誤訊息為靜態字串，不回射冪等鍵、金額或備註（T-04.1-13）。</p>
+     *
+     * @param existing            以同一把鍵查出的既有分錄
+     * @param type                本次請求的方向
+     * @param currency            本次請求的幣別
+     * @param amount              本次請求的金額
+     * @param requestedOccurredAt 本次請求明確送出的發生時間（已截到微秒）；未送為 null
+     * @return 既有分錄的 DTO
+     * @throws BusinessException payload 與既有分錄不同時，{@code CASH_IDEMPOTENCY_KEY_REUSED}
+     */
+    private CashEntryDto resolveIdempotentHit(
+        CashLedgerEntry existing,
+        CashEntryType type,
+        CurrencyCode currency,
+        BigDecimal amount,
+        OffsetDateTime requestedOccurredAt
+    ) {
+        if (!CashEntryPayloadMatcher.matches(existing, type, currency, amount, requestedOccurredAt)) {
+            throw new BusinessException(
+                ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED, ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED.defaultMessage());
+        }
+        return toDto(existing);
     }
 
     /**
