@@ -20,8 +20,15 @@ import java.util.List;
  * @param baseCurrency          金額欄位使用的基準幣代碼
  * @param fxExcludedCount       持有數量大於 0 但換不到匯率、因此未計入總額的持倉檔數（D-04）
  * @param unconvertedCurrencies 換不到匯率的幣別代碼，字母排序、去重
+ * @param dayPricePnl           今日價格損益總額（基準幣，以<strong>目前匯率</strong>折算，D-15）；只含價格損益，
+ *                              不含匯差、不扣手續費。涵蓋持有中的部位與今天賣光的部位。
+ *                              <strong>null = 缺資料</strong>（有候選但全部被排除），
+ *                              <strong>0 = 真實的零</strong>（沒有任何候選：無持倉且今日無成交）
+ * @param dayPricePnlRatio      今日價格損益比率 = Σ損益 / Σ前收時市值與買入成本（皆基準幣）；總額為 null 或分母為零時為 null
+ * @param dayPnlExcludedCount   因計算所需價格缺失（D-17）而未計入今日損益的檔數；換不到匯率者改計入
+ *                              {@code fxExcludedCount} / {@code unconvertedCurrencies}（D-04），不在此數內
  * @author Yuan
- * @version 1.0
+ * @version 2.0
  */
 public record PortfolioSummaryDto(
     BigDecimal totalMarketValue,
@@ -33,6 +40,9 @@ public record PortfolioSummaryDto(
     int holdingCount,
     String baseCurrency,
     int fxExcludedCount,
-    List<String> unconvertedCurrencies
+    List<String> unconvertedCurrencies,
+    BigDecimal dayPricePnl,
+    BigDecimal dayPricePnlRatio,
+    int dayPnlExcludedCount
 ) {
 }

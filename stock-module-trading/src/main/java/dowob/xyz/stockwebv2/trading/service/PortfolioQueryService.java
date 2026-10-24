@@ -70,6 +70,9 @@ public class PortfolioQueryService {
     private static final Logger log = LoggerFactory.getLogger(PortfolioQueryService.class);
     private static final int MONEY_SCALE = 8;
 
+    /** 今日損益平倉候選的回溯天數；涵蓋週末與連假（A8）。 */
+    private static final int CLOSED_CANDIDATE_DAYS = 7;
+
     private final TradingRepository repository;
     private final MarketDataFacade marketDataFacade;
     private final PortfolioCache portfolioCache;
@@ -130,39 +133,45 @@ public class PortfolioQueryService {
         //    全部命中時兩者皆不呼叫。今日成交 repository.listFillsSince 是本模組自己的表，不算 Facade。
         // 4. fxRateFacade.currentRates — 一次取回完整匯率表，逐列折算在記憶體完成。
         CurrencyCode base = userPreferenceFacade.findBaseCurrency(userId);
-        List<HoldingDto> original = valuePositions(userId, positions, null);
+        List<HoldingDto> original = valuePositions(userId, positions, null, Set.of()).holdings();
         FxRates rates = fxRateFacade.currentRates();
         return original.stream().map(holding -> withBaseValuation(holding, base, rates)).toList();
     }
 
     /**
-     * 為一組持倉位置估值（原幣）：批次讀持倉快取，對未命中者一次批次取資產屬性與最新價並寫回快取。
+     * 為一組持倉位置估值（原幣）：批次讀持倉快取，對未命中者一次批次取資產屬性、報價與今日成交並寫回快取。
      *
      * @param userId        使用者 id
      * @param positions     持倉位置
      * @param knownProfiles 呼叫端已批次取得的資產屬性；null 表示尚未取得，未命中時才由本方法一次批次取得
-     * @return 與 {@code positions} 同順序的原幣估值 DTO（{@code baseCurrency} / {@code marketValueInBase} 為 null）
+     * @param closedIds     今日損益的平倉候選資產 id（summary 專用，持倉列表傳空 set）；
+     *                      其報價與持倉未命中者<strong>合併成同一次</strong> {@code findDailyQuotes}，需有 {@code knownProfiles}
+     * @return 與 {@code positions} 同順序的原幣估值 DTO（{@code baseCurrency} / {@code marketValueInBase} 為 null），
+     *         以及這次取回的報價與今日成交
      */
-    private List<HoldingDto> valuePositions(
+    private Valuation valuePositions(
         Long userId,
         List<HoldingPosition> positions,
-        Map<Long, AssetProfile> knownProfiles
+        Map<Long, AssetProfile> knownProfiles,
+        Set<Long> closedIds
     ) {
-        if (positions.isEmpty()) {
-            return List.of();
+        if (positions.isEmpty() && closedIds.isEmpty()) {
+            return new Valuation(List.of(), DayContext.EMPTY);
         }
         List<Long> assetIds = positions.stream().map(HoldingPosition::assetId).toList();
-        Map<Long, HoldingDto> cached = portfolioCache.readHoldings(userId, assetIds);
+        Map<Long, HoldingDto> cached = positions.isEmpty() ? Map.of() : portfolioCache.readHoldings(userId, assetIds);
         List<Long> misses = assetIds.stream().filter(id -> !cached.containsKey(id)).toList();
+        Set<Long> quoteIds = new LinkedHashSet<>(misses);
+        quoteIds.addAll(closedIds);
         Map<Long, AssetProfile> profiles = Map.of();
         DayContext day = DayContext.EMPTY;
-        if (!misses.isEmpty()) {
+        if (!quoteIds.isEmpty()) {
             profiles = knownProfiles != null ? knownProfiles : assetFacade.findProfiles(misses);
-            day = loadDayContext(userId, misses, profiles);
+            day = loadDayContext(userId, quoteIds, closedIds, profiles);
         }
         Map<Long, AssetProfile> missProfiles = profiles;
         DayContext missDay = day;
-        return positions.stream()
+        List<HoldingDto> holdings = positions.stream()
             .map(position -> {
                 HoldingDto hit = cached.get(position.assetId());
                 return hit != null
@@ -174,6 +183,16 @@ public class PortfolioQueryService {
                         missDay.fillsOf(position.assetId()));
             })
             .toList();
+        return new Valuation(holdings, day);
+    }
+
+    /**
+     * 持倉估值與同一次請求取回的報價、今日成交。
+     *
+     * @param holdings 與持倉位置同順序的原幣估值
+     * @param day      報價與今日成交
+     */
+    private record Valuation(List<HoldingDto> holdings, DayContext day) {
     }
 
     /**
@@ -182,14 +201,21 @@ public class PortfolioQueryService {
      * <p>交易日規則由資產屬性建立（{@code TradingDay.of(assetType, market)}）；資產屬性缺失時退回 UTC，
      * 讓行情仍可取得。各資產的交易日起點以<strong>與 market-data 相同的公式</strong>
      * {@code tradingDay.dayStart(quote.priceTime().toInstant())} 計算，兩邊才會逐位元一致。
-     * 今日成交以所有交易日起點的最小值一次查詢，再逐資產以各自的起點過濾。
+     * 平倉候選若沒有行情，交易日起點退而取 {@code tradingDay.dayStart(Instant.now())}，
+     * 才能判斷它今天有沒有成交。今日成交以所有交易日起點的最小值一次查詢，再逐資產以各自的起點過濾。
      *
-     * @param userId   使用者 id
-     * @param assetIds 要取價的資產 id
-     * @param profiles 已取得的資產屬性
+     * @param userId    使用者 id
+     * @param assetIds  要取價的資產 id
+     * @param closedIds 其中屬於平倉候選者
+     * @param profiles  已取得的資產屬性
      * @return 報價與各資產今日成交；沒有行情的資產不在 {@code quotes} 內
      */
-    private DayContext loadDayContext(Long userId, Collection<Long> assetIds, Map<Long, AssetProfile> profiles) {
+    private DayContext loadDayContext(
+        Long userId,
+        Collection<Long> assetIds,
+        Set<Long> closedIds,
+        Map<Long, AssetProfile> profiles
+    ) {
         Map<Long, TradingDay> tradingDays = new LinkedHashMap<>();
         for (Long assetId : assetIds) {
             AssetProfile profile = profiles.get(assetId);
@@ -199,6 +225,10 @@ public class PortfolioQueryService {
         Map<Long, Instant> dayStarts = new HashMap<>();
         quotes.forEach((assetId, quote) -> dayStarts.put(
             assetId, tradingDays.getOrDefault(assetId, TradingDay.UTC).dayStart(quote.priceTime().toInstant())));
+        Instant now = Instant.now();
+        for (Long closedId : closedIds) {
+            dayStarts.computeIfAbsent(closedId, id -> tradingDays.getOrDefault(id, TradingDay.UTC).dayStart(now));
+        }
         if (dayStarts.isEmpty()) {
             return new DayContext(quotes, Map.of());
         }
@@ -262,6 +292,14 @@ public class PortfolioQueryService {
      * {@code unconvertedCurrencies}（D-04）；已實現損益逐資產折算，換不到者同樣列入
      * {@code unconvertedCurrencies}。{@code roi} 為 {@code totalPnl / totalCostBasis}，兩者同為基準幣。
      *
+     * <p>今日價格損益（D-12 ~ D-17、D-26）：候選 = 持有數量大於 0 的持倉，加上 {@code last_updated} 在近 7 天內的
+     * 平倉列（賣出會以現在更新 {@code last_updated}；7 天涵蓋週末與連假，某市場超過 7 天沒有任何 tick
+     * 的極端情形為已知限制）。平倉列只有今天有成交才算候選——今天賣光的部位不在持倉列表，但其
+     * {@code S×(ps−C)} 必須計入，否則使用者今天停損的損失在總額裡會憑空消失。
+     * 每個候選的損益與分母依各自幣別以<strong>目前匯率</strong>折算後加總（只含價格損益，不含匯差）。
+     * <strong>null 與 0 的差異</strong>：沒有任何候選 → {@code 0}（真實的零）；有候選但全部不可得 → {@code null}
+     * （缺資料，不塞 0）；否則為已計入者的總和，不可得的檔數回報於 {@code dayPnlExcludedCount}。
+     *
      * @param userId 使用者 id
      * @return 投資組合摘要 DTO
      */
@@ -270,7 +308,8 @@ public class PortfolioQueryService {
         // Facade 呼叫點（D-23：快取未命中時 4 次批次呼叫，皆為批次、結果有快取、命中路徑只有第 1 次）：
         // 1. userPreferenceFacade.findBaseCurrency — 取基準幣，同時是 summary 快取鍵的一部分，必須先於快取讀取。
         // 2. assetFacade.findProfiles — 一次取全部持倉（含已平倉）的幣別，供市值與已實現損益折算。
-        // 3. marketDataFacade.findDailyQuotes — 只為持倉快取未命中者一次批次取最新價與前收（見 valuePositions）。
+        // 3. marketDataFacade.findDailyQuotes — 持倉快取未命中者 ∪ 近 7 天平倉候選，合併成同一次批次取最新價與前收
+        //    （見 valuePositions）。今日成交 repository.listFillsSince 是本模組自己的表，至多一次，不算 Facade。
         // 4. fxRateFacade.currentRates — 一次取回完整匯率表，之後逐筆折算在記憶體完成。
         // 四者分屬 user / asset / market-data / asset(fx) 不同資料來源，無法合併成同一次往返。
         CurrencyCode base = userPreferenceFacade.findBaseCurrency(userId);
@@ -284,7 +323,9 @@ public class PortfolioQueryService {
         snapshots.forEach(snapshot -> assetIds.add(snapshot.assetId()));
         positions.forEach(position -> assetIds.add(position.assetId()));
         Map<Long, AssetProfile> profiles = assetIds.isEmpty() ? Map.of() : assetFacade.findProfiles(assetIds);
-        List<HoldingDto> holdings = valuePositions(userId, positions, profiles);
+        Set<Long> closedIds = closedCandidateIds(snapshots);
+        Valuation valuation = valuePositions(userId, positions, profiles, closedIds);
+        List<HoldingDto> holdings = valuation.holdings();
         FxRates rates = fxRateFacade.currentRates();
 
         Set<String> unconverted = new TreeSet<>();
@@ -331,6 +372,7 @@ public class PortfolioQueryService {
         // 未實現損益由已折算的市值與成本相減，確保 totalMarketValue - totalCostBasis = unrealizedPnl 恆成立。
         BigDecimal unrealizedPnl = marketValue.subtract(costBasis);
         BigDecimal totalPnl = realizedPnl.add(unrealizedPnl);
+        DayTotals dayTotals = dayTotals(base, rates, positions, holdings, closedIds, valuation.day(), profiles, unconverted);
         PortfolioSummaryDto dto = new PortfolioSummaryDto(
             marketValue,
             costBasis,
@@ -341,10 +383,147 @@ public class PortfolioQueryService {
             positions.size(),
             base.name(),
             fxExcludedCount,
-            List.copyOf(unconverted)
+            List.copyOf(unconverted),
+            dayTotals.pnl(),
+            dayTotals.ratio(),
+            dayTotals.excludedCount()
         );
         portfolioCache.writeSummary(userId, base, dto);
         return dto;
+    }
+
+    /**
+     * 今日損益的平倉候選：持有數量為 0 且 {@code last_updated} 在近 7 天內的持倉列（A8）。
+     *
+     * @param snapshots 該使用者所有持倉快照
+     * @return 平倉候選的資產 id
+     */
+    private Set<Long> closedCandidateIds(List<HoldingSnapshot> snapshots) {
+        OffsetDateTime since = OffsetDateTime.now().minusDays(CLOSED_CANDIDATE_DAYS);
+        Set<Long> closedIds = new LinkedHashSet<>();
+        for (HoldingSnapshot snapshot : snapshots) {
+            if (snapshot.totalQuantity().signum() == 0 && !snapshot.lastUpdated().isBefore(since)) {
+                closedIds.add(snapshot.assetId());
+            }
+        }
+        return closedIds;
+    }
+
+    /**
+     * 彙總今日價格損益總額（基準幣）。
+     *
+     * <p>持倉列的單檔損益與分母直接取自（可能來自快取的）{@link HoldingDto}；平倉候選則以本次請求取回的報價與
+     * 今日成交計算。不可得者計入排除數；換不到匯率者改記入 {@code unconverted}（D-04），不計入排除數。
+     *
+     * @param base        使用者基準幣
+     * @param rates       目前匯率
+     * @param positions   持有數量大於 0 的持倉位置
+     * @param holdings    與 {@code positions} 同順序的估值
+     * @param closedIds   平倉候選資產 id
+     * @param day         本次取回的報價與今日成交
+     * @param profiles    資產屬性
+     * @param unconverted 換不到匯率的幣別（會被加入）
+     * @return 總額、比率與排除數
+     */
+    private DayTotals dayTotals(
+        CurrencyCode base,
+        FxRates rates,
+        List<HoldingPosition> positions,
+        List<HoldingDto> holdings,
+        Set<Long> closedIds,
+        DayContext day,
+        Map<Long, AssetProfile> profiles,
+        Set<String> unconverted
+    ) {
+        DayAccumulator total = new DayAccumulator(base, rates, unconverted);
+        for (int i = 0; i < positions.size(); i++) {
+            HoldingDto holding = holdings.get(i);
+            Optional<DayPnl> dayPnl = holding.dayPricePnl() == null || holding.dayPnlBasis() == null
+                ? Optional.empty()
+                : Optional.of(new DayPnl(holding.dayPricePnl(), holding.dayPnlBasis()));
+            total.add(profiles.get(positions.get(i).assetId()), dayPnl);
+        }
+        for (Long closedId : closedIds) {
+            List<DayFill> fills = day.fillsOf(closedId);
+            if (fills.isEmpty()) {
+                // 平倉後今天沒有成交：不是候選，也不算排除。
+                continue;
+            }
+            DailyQuote quote = day.quotes().get(closedId);
+            Optional<DayPnl> dayPnl = quote == null
+                ? Optional.empty()
+                : DayPnlCalculator.calculate(
+                    BigDecimal.ZERO, quote.latestPrice(), quote.previousClose(), fills, List.of());
+            total.add(profiles.get(closedId), dayPnl);
+        }
+        return total.result();
+    }
+
+    /**
+     * 今日損益總額、比率與排除數。
+     *
+     * @param pnl           總額（基準幣）；null = 缺資料，0 = 沒有任何候選
+     * @param ratio         比率；總額為 null 或分母為零時為 null
+     * @param excludedCount 因價格缺失而未計入的檔數
+     */
+    private record DayTotals(BigDecimal pnl, BigDecimal ratio, int excludedCount) {
+    }
+
+    /**
+     * 逐候選折算並累加今日損益的可變累加器，僅限單次 {@link #summary} 內使用。
+     */
+    private static final class DayAccumulator {
+        private final CurrencyCode base;
+        private final FxRates rates;
+        private final Set<String> unconverted;
+        private BigDecimal pnl = BigDecimal.ZERO;
+        private BigDecimal basis = BigDecimal.ZERO;
+        private int candidates;
+        private int included;
+        private int excluded;
+
+        DayAccumulator(CurrencyCode base, FxRates rates, Set<String> unconverted) {
+            this.base = base;
+            this.rates = rates;
+            this.unconverted = unconverted;
+        }
+
+        /**
+         * 加入一個候選。
+         *
+         * @param profile 資產屬性；null 時無從折算，視同換不到匯率（該持倉已被 fxExcludedCount 計入）
+         * @param dayPnl  該候選的原幣今日損益；empty 表示價格缺失
+         */
+        void add(AssetProfile profile, Optional<DayPnl> dayPnl) {
+            candidates++;
+            if (dayPnl.isEmpty()) {
+                excluded++;
+                return;
+            }
+            if (profile == null) {
+                return;
+            }
+            Optional<BigDecimal> pnlInBase = rates.convert(dayPnl.get().pnl(), profile.currency(), base);
+            Optional<BigDecimal> basisInBase = rates.convert(dayPnl.get().basis(), profile.currency(), base);
+            if (pnlInBase.isEmpty() || basisInBase.isEmpty()) {
+                unconverted.add(profile.currency().name());
+                return;
+            }
+            pnl = pnl.add(pnlInBase.get());
+            basis = basis.add(basisInBase.get());
+            included++;
+        }
+
+        DayTotals result() {
+            if (candidates == 0) {
+                return new DayTotals(BigDecimal.ZERO, null, 0);
+            }
+            if (included == 0) {
+                return new DayTotals(null, null, excluded);
+            }
+            BigDecimal ratio = basis.signum() == 0 ? null : pnl.divide(basis, MONEY_SCALE, RoundingMode.HALF_UP);
+            return new DayTotals(pnl, ratio, excluded);
+        }
     }
 
     /**

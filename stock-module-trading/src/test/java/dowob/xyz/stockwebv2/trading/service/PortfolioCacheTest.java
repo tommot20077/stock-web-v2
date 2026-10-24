@@ -113,7 +113,7 @@ class PortfolioCacheTest {
 
         PortfolioSummaryDto dto = new PortfolioSummaryDto(
             BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-            1, "TWD", 0, List.of());
+            1, "TWD", 0, List.of(), BigDecimal.ZERO, null, 0);
         cache.writeSummary(7L, CurrencyCode.TWD, dto);
 
         verify(valueOps).set(eq("portfolio:summary:v2:7:TWD"), anyString(), eq(Duration.ofSeconds(60)));
