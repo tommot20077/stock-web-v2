@@ -7,6 +7,7 @@ import dowob.xyz.stockwebv2.trading.service.CashLedgerService;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -22,9 +23,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -122,6 +125,49 @@ class CashLedgerControllerWebMvcTest {
 
         verify(auditLogger).log(eq(42L), eq("cash_entry_create"), eq("cash_entry"),
             eq("failure:CASH_IDEMPOTENCY_KEY_REUSED"), any());
+    }
+
+    @Test
+    @DisplayName("帶 reversalOfId 的請求：service 收到該字串，稽核 action 為 cash_entry_reverse（一般入出金仍為 cash_entry_create）")
+    void reversalIsPassedToServiceAndAuditedAsReverse() throws Exception {
+        String originalId = "22222222-2222-2222-2222-222222222222";
+        when(cashLedgerService.createEntry(eq(42L), any(), eq("key-r"))).thenReturn(entryDto());
+
+        mvc.perform(post("/api/v1/portfolio/cash-entries")
+                .with(user("42"))
+                .header("Idempotency-Key", "key-r")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"type":"WITHDRAWAL","currency":"TWD","amount":50000,"reversalOfId":"%s"}
+                    """.formatted(originalId)))
+            .andExpect(status().isOk());
+
+        ArgumentCaptor<CreateCashEntryRequest> captor = ArgumentCaptor.forClass(CreateCashEntryRequest.class);
+        verify(cashLedgerService).createEntry(eq(42L), captor.capture(), eq("key-r"));
+        assertThat(captor.getValue().reversalOfId()).isEqualTo(originalId);
+        verify(auditLogger).log(eq(42L), eq("cash_entry_reverse"),
+            eq("cash_entry:11111111-1111-1111-1111-111111111111"), eq("success"), any());
+        verify(auditLogger, never()).log(any(), eq("cash_entry_create"), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("沖銷被拒絕 → 稽核 cash_entry_reverse / failure:<code> 後例外重拋")
+    void rejectedReversalIsAuditedAsReverseFailure() {
+        when(cashLedgerService.createEntry(eq(42L), any(), eq("key-r"))).thenThrow(new BusinessException(
+            ErrorCode.CASH_ENTRY_ALREADY_REVERSED, ErrorCode.CASH_ENTRY_ALREADY_REVERSED.defaultMessage()));
+
+        assertThatThrownBy(() -> mvc.perform(post("/api/v1/portfolio/cash-entries")
+                .with(user("42"))
+                .header("Idempotency-Key", "key-r")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"type":"WITHDRAWAL","currency":"TWD","amount":50000,
+                     "reversalOfId":"22222222-2222-2222-2222-222222222222"}
+                    """)))
+            .hasRootCauseInstanceOf(BusinessException.class);
+
+        verify(auditLogger).log(eq(42L), eq("cash_entry_reverse"), eq("cash_entry"),
+            eq("failure:CASH_ENTRY_ALREADY_REVERSED"), any());
     }
 
     private static CashEntryDto entryDto() {

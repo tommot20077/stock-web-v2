@@ -228,6 +228,41 @@ class ErrorCodeTest {
                 .isEqualTo("Idempotency key was reused with a different trade payload");
     }
 
+    // ── Phase 4.1：現金分錄沖銷的錯誤碼（04.1-06 凍結契約字面，前端 i18n 依 code 分派）─────
+
+    @Test
+    @DisplayName("沖銷錯誤碼的 HTTP 狀態碼：NOT_FOUND 404、ALREADY_REVERSED 409、NOT_REVERSIBLE 409")
+    void cashEntryReversalCodes_httpStatuses() {
+        assertThat(ErrorCode.CASH_ENTRY_NOT_FOUND.httpStatus()).isEqualTo(404);
+        assertThat(ErrorCode.CASH_ENTRY_ALREADY_REVERSED.httpStatus()).isEqualTo(409);
+        assertThat(ErrorCode.CASH_ENTRY_NOT_REVERSIBLE.httpStatus()).isEqualTo(409);
+    }
+
+    @Test
+    @DisplayName("沖銷錯誤碼的預設訊息為凍結字面，且為靜態字串（不含佔位符、不回射輸入）")
+    void cashEntryReversalCodes_defaultMessagesAreFrozenAndStatic() {
+        assertThat(ErrorCode.CASH_ENTRY_NOT_FOUND.defaultMessage()).isEqualTo("Cash entry not found");
+        assertThat(ErrorCode.CASH_ENTRY_ALREADY_REVERSED.defaultMessage())
+                .isEqualTo("Cash entry has already been reversed");
+        assertThat(ErrorCode.CASH_ENTRY_NOT_REVERSIBLE.defaultMessage())
+                .isEqualTo("A reversal entry cannot be reversed");
+        for (ErrorCode code : new ErrorCode[] {ErrorCode.CASH_ENTRY_NOT_FOUND,
+                ErrorCode.CASH_ENTRY_ALREADY_REVERSED, ErrorCode.CASH_ENTRY_NOT_REVERSIBLE}) {
+            assertThat(code.defaultMessage()).doesNotContain("%s").doesNotContain("{");
+        }
+    }
+
+    @Test
+    @DisplayName("三個沖銷錯誤碼兩兩相異，訊息也兩兩不同")
+    void cashEntryReversalCodes_areMutuallyDistinct() {
+        assertThat(ErrorCode.CASH_ENTRY_NOT_FOUND.defaultMessage())
+                .isNotEqualTo(ErrorCode.CASH_ENTRY_ALREADY_REVERSED.defaultMessage())
+                .isNotEqualTo(ErrorCode.CASH_ENTRY_NOT_REVERSIBLE.defaultMessage());
+        assertThat(ErrorCode.CASH_ENTRY_ALREADY_REVERSED.defaultMessage())
+                .isNotEqualTo(ErrorCode.CASH_ENTRY_NOT_REVERSIBLE.defaultMessage());
+        assertThat(ErrorCode.CASH_ENTRY_ALREADY_REVERSED).isNotEqualTo(ErrorCode.CASH_ENTRY_NOT_REVERSIBLE);
+    }
+
     @Test
     void existingConstants_httpStatusesUnchanged() {
         assertThat(ErrorCode.VALIDATION_FAILED.httpStatus()).isEqualTo(400);

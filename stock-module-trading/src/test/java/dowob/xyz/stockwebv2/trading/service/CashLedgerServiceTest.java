@@ -72,7 +72,7 @@ class CashLedgerServiceTest {
 
         CashEntryDto dto = service.createEntry(
             7L,
-            new CreateCashEntryRequest("deposit", "twd", new BigDecimal("50000"), " salary ", null),
+            new CreateCashEntryRequest("deposit", "twd", new BigDecimal("50000"), " salary ", null, null),
             "key-1");
 
         ArgumentCaptor<CashLedgerEntry> captor = ArgumentCaptor.forClass(CashLedgerEntry.class);
@@ -112,7 +112,7 @@ class CashLedgerServiceTest {
 
         CashEntryDto dto = service.createEntry(
             7L,
-            new CreateCashEntryRequest("WITHDRAWAL", "USD", new BigDecimal("1000"), null, null),
+            new CreateCashEntryRequest("WITHDRAWAL", "USD", new BigDecimal("1000"), null, null, null),
             "key-2");
 
         assertThat(dto.type()).isEqualTo("WITHDRAWAL");
@@ -130,7 +130,7 @@ class CashLedgerServiceTest {
 
         CashEntryDto dto = service.createEntry(
             7L,
-            new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50000"), null, occurredAt),
+            new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50000"), null, occurredAt, null),
             "key-3");
 
         assertThat(dto.id()).isEqualTo(uuid.toString());
@@ -158,7 +158,7 @@ class CashLedgerServiceTest {
             existing(UUID.randomUUID(), CashEntryType.DEPOSIT, CurrencyCode.TWD, "50000.00000000", occurredAt)));
 
         assertThatThrownBy(() -> service.createEntry(
-            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50001"), null, occurredAt), "key-x"))
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50001"), null, occurredAt, null), "key-x"))
             .satisfies(CashLedgerServiceTest::assertReused);
         verify(repository, never()).insertIfAbsent(any(CashLedgerEntry.class));
     }
@@ -171,10 +171,10 @@ class CashLedgerServiceTest {
             existing(UUID.randomUUID(), CashEntryType.DEPOSIT, CurrencyCode.TWD, "50000.00000000", occurredAt)));
 
         assertThatThrownBy(() -> service.createEntry(
-            7L, new CreateCashEntryRequest("WITHDRAWAL", "TWD", new BigDecimal("50000"), null, occurredAt), "key-x"))
+            7L, new CreateCashEntryRequest("WITHDRAWAL", "TWD", new BigDecimal("50000"), null, occurredAt, null), "key-x"))
             .satisfies(CashLedgerServiceTest::assertReused);
         assertThatThrownBy(() -> service.createEntry(
-            7L, new CreateCashEntryRequest("DEPOSIT", "USD", new BigDecimal("50000"), null, occurredAt), "key-x"))
+            7L, new CreateCashEntryRequest("DEPOSIT", "USD", new BigDecimal("50000"), null, occurredAt, null), "key-x"))
             .satisfies(CashLedgerServiceTest::assertReused);
         verify(repository, never()).insertIfAbsent(any(CashLedgerEntry.class));
     }
@@ -188,7 +188,7 @@ class CashLedgerServiceTest {
             existing(uuid, CashEntryType.DEPOSIT, CurrencyCode.TWD, "50000.00000000", occurredAt)));
 
         CashEntryDto dto = service.createEntry(
-            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50000"), "changed note", occurredAt), "key-x");
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50000"), "changed note", occurredAt, null), "key-x");
 
         assertThat(dto.id()).isEqualTo(uuid.toString());
         verify(repository, never()).insertIfAbsent(any(CashLedgerEntry.class));
@@ -203,7 +203,7 @@ class CashLedgerServiceTest {
             existing(uuid, CashEntryType.DEPOSIT, CurrencyCode.TWD, "50000.00000000", occurredAt)));
 
         CashEntryDto dto = service.createEntry(
-            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50000"), null, null), "key-x");
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50000"), null, null, null), "key-x");
 
         assertThat(dto.id()).isEqualTo(uuid.toString());
         verify(repository, never()).insertIfAbsent(any(CashLedgerEntry.class));
@@ -221,7 +221,7 @@ class CashLedgerServiceTest {
         when(repository.insertIfAbsent(any(CashLedgerEntry.class))).thenReturn(Optional.empty());
 
         CashEntryDto dto = service.createEntry(
-            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50000"), null, occurredAt), "key-x");
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50000"), null, occurredAt, null), "key-x");
 
         assertThat(dto.id()).isEqualTo(uuid.toString());
     }
@@ -237,7 +237,7 @@ class CashLedgerServiceTest {
         when(repository.insertIfAbsent(any(CashLedgerEntry.class))).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.createEntry(
-            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("99"), null, occurredAt), "key-x"))
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("99"), null, occurredAt, null), "key-x"))
             .satisfies(CashLedgerServiceTest::assertReused);
     }
 
@@ -248,7 +248,7 @@ class CashLedgerServiceTest {
         when(repository.insertIfAbsent(any(CashLedgerEntry.class))).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.createEntry(
-            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50000"), null, null), "key-x"))
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50000"), null, null, null), "key-x"))
             .isInstanceOfSatisfying(BusinessException.class, exception -> {
                 assertThat(exception.errorCode()).isEqualTo(ErrorCode.DUPLICATE_RESOURCE);
                 assertThat(exception.getMessage()).isEqualTo(ErrorCode.DUPLICATE_RESOURCE.defaultMessage());
@@ -256,7 +256,7 @@ class CashLedgerServiceTest {
     }
 
     private static CreateCashEntryRequest validRequest() {
-        return new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("100"), null, null);
+        return new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("100"), null, null, null);
     }
 
     private static void assertFieldRejected(Throwable thrown, String field, String reason) {
@@ -305,7 +305,7 @@ class CashLedgerServiceTest {
     @DisplayName("currency GBP：fields.currency，訊息不回射輸入，repository 零互動")
     void unsupportedCurrencyIsRejectedBeforeAnyRepositoryCall() {
         assertThatThrownBy(() -> service.createEntry(
-            7L, new CreateCashEntryRequest("DEPOSIT", "GBP", new BigDecimal("100"), null, null), "key-v"))
+            7L, new CreateCashEntryRequest("DEPOSIT", "GBP", new BigDecimal("100"), null, null, null), "key-v"))
             .satisfies(thrown -> assertFieldRejected(thrown, "currency", "unsupported currency"))
             .satisfies(thrown -> assertThat(thrown.getMessage()).doesNotContain("GBP"));
         verifyNoInteractions(repository);
@@ -315,7 +315,7 @@ class CashLedgerServiceTest {
     @DisplayName("type TRANSFER：fields.type，訊息不回射輸入，repository 零互動")
     void unsupportedTypeIsRejectedBeforeAnyRepositoryCall() {
         assertThatThrownBy(() -> service.createEntry(
-            7L, new CreateCashEntryRequest("TRANSFER", "TWD", new BigDecimal("100"), null, null), "key-v"))
+            7L, new CreateCashEntryRequest("TRANSFER", "TWD", new BigDecimal("100"), null, null, null), "key-v"))
             .satisfies(thrown -> assertFieldRejected(thrown, "type", "unsupported type"))
             .satisfies(thrown -> assertThat(thrown.getMessage()).doesNotContain("TRANSFER"));
         verifyNoInteractions(repository);
@@ -327,7 +327,7 @@ class CashLedgerServiceTest {
         OffsetDateTime future = OffsetDateTime.now().plus(Duration.ofMinutes(10));
 
         assertThatThrownBy(() -> service.createEntry(
-            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("100"), null, future), "key-v"))
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("100"), null, future, null), "key-v"))
             .satisfies(thrown -> assertFieldRejected(thrown, "occurredAt", "must not be in the future"));
         verifyNoInteractions(repository);
     }
@@ -343,7 +343,7 @@ class CashLedgerServiceTest {
         });
 
         CashEntryDto dto = service.createEntry(
-            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("100"), null, slightlyAhead), "key-v");
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("100"), null, slightlyAhead, null), "key-v");
 
         assertThat(dto.type()).isEqualTo("DEPOSIT");
     }
@@ -390,5 +390,224 @@ class CashLedgerServiceTest {
 
         verify(repository).listEntries(7L, 10_000, 1);
         assertThat(page.items()).isEmpty();
+    }
+
+    // ── 一鍵沖銷（D-25）────────────────────────────────────────────────────────
+
+    private static final OffsetDateTime ORIGINAL_AT = OffsetDateTime.parse("2026-10-01T09:00:00+08:00");
+
+    private static CashLedgerEntry original(UUID uuid, CashEntryType type, CurrencyCode currency, String amount) {
+        return new CashLedgerEntry(
+            31L, uuid, 7L, type, currency, new BigDecimal(amount), null, ORIGINAL_AT, ORIGINAL_AT, "key-orig", null);
+    }
+
+    private static CreateCashEntryRequest reversalRequest(
+        String type, String currency, String amount, UUID originalUuid) {
+        return new CreateCashEntryRequest(
+            type, currency, new BigDecimal(amount), null, null, originalUuid.toString());
+    }
+
+    private static void assertBusiness(Throwable thrown, ErrorCode code) {
+        assertThat(thrown).isInstanceOfSatisfying(BusinessException.class, exception -> {
+            assertThat(exception.errorCode()).isEqualTo(code);
+            assertThat(exception.getMessage()).isEqualTo(code.defaultMessage());
+        });
+    }
+
+    @Test
+    @DisplayName("沖銷：reversalOfId 格式錯誤 → fields.reversalOfId = invalid format，repository 零互動，訊息不回射輸入")
+    void malformedReversalOfIdIsRejectedBeforeAnyRepositoryCall() {
+        assertThatThrownBy(() -> service.createEntry(
+            7L,
+            new CreateCashEntryRequest("WITHDRAWAL", "USD", new BigDecimal("1000"), null, null, "not-a-uuid"),
+            "key-r"))
+            .satisfies(thrown -> assertFieldRejected(thrown, "reversalOfId", "invalid format"))
+            .satisfies(thrown -> assertThat(thrown.getMessage()).doesNotContain("not-a-uuid"));
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    @DisplayName("沖銷：原分錄查無（含別人的）→ CASH_ENTRY_NOT_FOUND，訊息為靜態字串、不含 UUID，不寫入")
+    void unknownOriginalIsNotFoundWithoutLeakingTheUuid() {
+        UUID missing = UUID.randomUUID();
+        when(repository.findByUuid(7L, missing)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.createEntry(
+            7L, reversalRequest("WITHDRAWAL", "USD", "1000", missing), "key-r"))
+            .satisfies(thrown -> assertBusiness(thrown, ErrorCode.CASH_ENTRY_NOT_FOUND))
+            .satisfies(thrown -> assertThat(thrown.getMessage())
+                .isEqualTo("Cash entry not found")
+                .doesNotContain(missing.toString()));
+        verify(repository, never()).insertIfAbsent(any(CashLedgerEntry.class));
+    }
+
+    @Test
+    @DisplayName("沖銷：同 key 已存在且 payload（含 reversalOfId）相同 → 回既有，不因「已沖銷」而拒絕（冪等優先）")
+    void idempotentReplayOfSuccessfulReversalWinsOverAlreadyReversed() {
+        UUID originalUuid = UUID.randomUUID();
+        UUID reversalUuid = UUID.randomUUID();
+        when(repository.findByUuid(7L, originalUuid)).thenReturn(Optional.of(
+            original(originalUuid, CashEntryType.DEPOSIT, CurrencyCode.USD, "1000.00000000")));
+        when(repository.findByIdempotencyKey(7L, "key-r")).thenReturn(Optional.of(new CashLedgerEntry(
+            32L, reversalUuid, 7L, CashEntryType.WITHDRAWAL, CurrencyCode.USD, new BigDecimal("1000.00000000"),
+            null, ORIGINAL_AT.plusDays(1), ORIGINAL_AT.plusDays(1), "key-r", 31L)));
+        // 即使此時原分錄「已被沖銷」，重送也必須回同一筆；因此根本不該去問 existsReversalOf。
+        when(repository.existsReversalOf(31L)).thenReturn(true);
+
+        CashEntryDto dto = service.createEntry(
+            7L, reversalRequest("WITHDRAWAL", "USD", "1000", originalUuid), "key-r");
+
+        assertThat(dto.id()).isEqualTo(reversalUuid.toString());
+        assertThat(dto.reversalOfId()).isEqualTo(originalUuid.toString());
+        assertThat(dto.reversalOfOccurredAt()).isEqualTo(ORIGINAL_AT);
+        assertThat(dto.reversed()).isFalse();
+        verify(repository, never()).existsReversalOf(any());
+        verify(repository, never()).insertIfAbsent(any(CashLedgerEntry.class));
+    }
+
+    @Test
+    @DisplayName("沖銷：同 key 已存在但沖銷對象不同 → 409 CASH_IDEMPOTENCY_KEY_REUSED")
+    void sameKeyWithDifferentReversalTargetIsRejected() {
+        UUID originalUuid = UUID.randomUUID();
+        when(repository.findByUuid(7L, originalUuid)).thenReturn(Optional.of(
+            original(originalUuid, CashEntryType.DEPOSIT, CurrencyCode.USD, "1000.00000000")));
+        when(repository.findByIdempotencyKey(7L, "key-r")).thenReturn(Optional.of(new CashLedgerEntry(
+            32L, UUID.randomUUID(), 7L, CashEntryType.WITHDRAWAL, CurrencyCode.USD, new BigDecimal("1000.00000000"),
+            null, ORIGINAL_AT, ORIGINAL_AT, "key-r", 99L)));
+
+        assertThatThrownBy(() -> service.createEntry(
+            7L, reversalRequest("WITHDRAWAL", "USD", "1000", originalUuid), "key-r"))
+            .satisfies(CashLedgerServiceTest::assertReused);
+    }
+
+    @Test
+    @DisplayName("沖銷：原分錄本身是沖銷分錄 → CASH_ENTRY_NOT_REVERSIBLE，不寫入")
+    void reversingAReversalIsNotReversible() {
+        UUID reversalUuid = UUID.randomUUID();
+        when(repository.findByUuid(7L, reversalUuid)).thenReturn(Optional.of(new CashLedgerEntry(
+            32L, reversalUuid, 7L, CashEntryType.WITHDRAWAL, CurrencyCode.USD, new BigDecimal("1000.00000000"),
+            null, ORIGINAL_AT, ORIGINAL_AT, "key-prev", 31L)));
+        when(repository.findByIdempotencyKey(7L, "key-r")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.createEntry(
+            7L, reversalRequest("DEPOSIT", "USD", "1000", reversalUuid), "key-r"))
+            .satisfies(thrown -> assertBusiness(thrown, ErrorCode.CASH_ENTRY_NOT_REVERSIBLE));
+        verify(repository, never()).insertIfAbsent(any(CashLedgerEntry.class));
+    }
+
+    @Test
+    @DisplayName("沖銷：原分錄已被沖銷 → CASH_ENTRY_ALREADY_REVERSED，不寫入")
+    void reversingAnAlreadyReversedEntryIsRejected() {
+        UUID originalUuid = UUID.randomUUID();
+        when(repository.findByUuid(7L, originalUuid)).thenReturn(Optional.of(
+            original(originalUuid, CashEntryType.DEPOSIT, CurrencyCode.USD, "1000.00000000")));
+        when(repository.findByIdempotencyKey(7L, "key-r")).thenReturn(Optional.empty());
+        when(repository.existsReversalOf(31L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.createEntry(
+            7L, reversalRequest("WITHDRAWAL", "USD", "1000", originalUuid), "key-r"))
+            .satisfies(thrown -> assertBusiness(thrown, ErrorCode.CASH_ENTRY_ALREADY_REVERSED));
+        verify(repository, never()).insertIfAbsent(any(CashLedgerEntry.class));
+    }
+
+    @Test
+    @DisplayName("沖銷：方向未相反 / 幣別不同 / 金額不同 → fields.reversalOfId = must mirror the original entry，不寫入")
+    void reversalThatDoesNotMirrorTheOriginalIsRejected() {
+        UUID originalUuid = UUID.randomUUID();
+        when(repository.findByUuid(7L, originalUuid)).thenReturn(Optional.of(
+            original(originalUuid, CashEntryType.DEPOSIT, CurrencyCode.USD, "1000.00000000")));
+        when(repository.findByIdempotencyKey(7L, "key-r")).thenReturn(Optional.empty());
+        when(repository.existsReversalOf(31L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.createEntry(
+            7L, reversalRequest("DEPOSIT", "USD", "1000", originalUuid), "key-r"))
+            .as("方向未相反")
+            .satisfies(thrown -> assertFieldRejected(thrown, "reversalOfId", "must mirror the original entry"));
+        assertThatThrownBy(() -> service.createEntry(
+            7L, reversalRequest("WITHDRAWAL", "TWD", "1000", originalUuid), "key-r"))
+            .as("幣別不同")
+            .satisfies(thrown -> assertFieldRejected(thrown, "reversalOfId", "must mirror the original entry"));
+        assertThatThrownBy(() -> service.createEntry(
+            7L, reversalRequest("WITHDRAWAL", "USD", "999", originalUuid), "key-r"))
+            .as("金額不同")
+            .satisfies(thrown -> assertFieldRejected(thrown, "reversalOfId", "must mirror the original entry"));
+        verify(repository, never()).insertIfAbsent(any(CashLedgerEntry.class));
+    }
+
+    @Test
+    @DisplayName("沖銷：金額 scale 不同但數值相等（1000 對 1000.00000000）視為鏡像")
+    void mirrorComparisonIgnoresAmountScale() {
+        UUID originalUuid = UUID.randomUUID();
+        when(repository.findByUuid(7L, originalUuid)).thenReturn(Optional.of(
+            original(originalUuid, CashEntryType.DEPOSIT, CurrencyCode.USD, "1000.00000000")));
+        when(repository.findByIdempotencyKey(7L, "key-r")).thenReturn(Optional.empty());
+        when(repository.existsReversalOf(31L)).thenReturn(false);
+        when(repository.insertIfAbsent(any(CashLedgerEntry.class))).thenAnswer(invocation ->
+            Optional.of(invocation.<CashLedgerEntry>getArgument(0)));
+
+        CashEntryDto dto = service.createEntry(
+            7L, reversalRequest("withdrawal", "usd", "1000", originalUuid), "key-r");
+
+        assertThat(dto.type()).isEqualTo("WITHDRAWAL");
+    }
+
+    @Test
+    @DisplayName("沖銷成功：寫入的分錄指向原分錄主鍵，DTO 帶原 UUID 與原發生時間，reversed = false")
+    void successfulReversalPointsAtTheOriginal() {
+        UUID originalUuid = UUID.randomUUID();
+        when(repository.findByUuid(7L, originalUuid)).thenReturn(Optional.of(
+            original(originalUuid, CashEntryType.DEPOSIT, CurrencyCode.USD, "1000.00000000")));
+        when(repository.findByIdempotencyKey(7L, "key-r")).thenReturn(Optional.empty());
+        when(repository.existsReversalOf(31L)).thenReturn(false);
+        when(repository.insertIfAbsent(any(CashLedgerEntry.class))).thenAnswer(invocation ->
+            Optional.of(invocation.<CashLedgerEntry>getArgument(0)));
+
+        CashEntryDto dto = service.createEntry(
+            7L, reversalRequest("WITHDRAWAL", "USD", "1000", originalUuid), "key-r");
+
+        ArgumentCaptor<CashLedgerEntry> captor = ArgumentCaptor.forClass(CashLedgerEntry.class);
+        verify(repository).insertIfAbsent(captor.capture());
+        assertThat(captor.getValue().reversalOfId()).isEqualTo(31L);
+        assertThat(captor.getValue().type()).isEqualTo(CashEntryType.WITHDRAWAL);
+        assertThat(dto.reversalOfId()).isEqualTo(originalUuid.toString());
+        assertThat(dto.reversalOfOccurredAt()).isEqualTo(ORIGINAL_AT);
+        assertThat(dto.reversed()).isFalse();
+    }
+
+    @Test
+    @DisplayName("沖銷併發落敗：insert 回空且以 key 重讀落空 → CASH_ENTRY_ALREADY_REVERSED（另一把 key 的沖銷搶先）")
+    void reversalLosingTheRaceIsAlreadyReversed() {
+        UUID originalUuid = UUID.randomUUID();
+        when(repository.findByUuid(7L, originalUuid)).thenReturn(Optional.of(
+            original(originalUuid, CashEntryType.DEPOSIT, CurrencyCode.USD, "1000.00000000")));
+        when(repository.findByIdempotencyKey(7L, "key-r")).thenReturn(Optional.empty());
+        when(repository.existsReversalOf(31L)).thenReturn(false);
+        when(repository.insertIfAbsent(any(CashLedgerEntry.class))).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.createEntry(
+            7L, reversalRequest("WITHDRAWAL", "USD", "1000", originalUuid), "key-r"))
+            .satisfies(thrown -> assertBusiness(thrown, ErrorCode.CASH_ENTRY_ALREADY_REVERSED));
+    }
+
+    @Test
+    @DisplayName("沖銷併發落敗但以同一把 key 重讀命中（同 key 併發重送）→ 回既有分錄，不誤報已沖銷")
+    void reversalLosingTheRaceToTheSameKeyReturnsExisting() {
+        UUID originalUuid = UUID.randomUUID();
+        UUID reversalUuid = UUID.randomUUID();
+        when(repository.findByUuid(7L, originalUuid)).thenReturn(Optional.of(
+            original(originalUuid, CashEntryType.DEPOSIT, CurrencyCode.USD, "1000.00000000")));
+        when(repository.findByIdempotencyKey(7L, "key-r"))
+            .thenReturn(Optional.empty())
+            .thenReturn(Optional.of(new CashLedgerEntry(
+                32L, reversalUuid, 7L, CashEntryType.WITHDRAWAL, CurrencyCode.USD, new BigDecimal("1000.00000000"),
+                null, ORIGINAL_AT, ORIGINAL_AT, "key-r", 31L)));
+        when(repository.existsReversalOf(31L)).thenReturn(false);
+        when(repository.insertIfAbsent(any(CashLedgerEntry.class))).thenReturn(Optional.empty());
+
+        CashEntryDto dto = service.createEntry(
+            7L, reversalRequest("WITHDRAWAL", "USD", "1000", originalUuid), "key-r");
+
+        assertThat(dto.id()).isEqualTo(reversalUuid.toString());
+        assertThat(dto.reversalOfId()).isEqualTo(originalUuid.toString());
     }
 }

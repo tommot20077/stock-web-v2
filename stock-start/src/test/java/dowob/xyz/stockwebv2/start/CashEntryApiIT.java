@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasLength;
 import static org.hamcrest.Matchers.nullValue;
@@ -467,6 +468,178 @@ class CashEntryApiIT extends ContainerIT {
         getEntries(accessToken, null, "abc")
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")));
+    }
+
+    // ── 一鍵沖銷（D-25）────────────────────────────────────────────────────────
+
+    private static final String DEPOSIT_USD_1000 = """
+        {"type":"DEPOSIT","currency":"USD","amount":1000,"occurredAt":"2026-10-01T09:00:00+08:00"}
+        """;
+
+    private static String reversalBody(String type, String currency, String amount, String originalId) {
+        return """
+            {"type":"%s","currency":"%s","amount":%s,"reversalOfId":"%s"}
+            """.formatted(type, currency, amount, originalId);
+    }
+
+    @Test
+    @DisplayName("沖銷：方向相反、幣別金額相同，成功後原分錄在列表 reversed = true，沖銷分錄指回原分錄")
+    void reversalMirrorsTheOriginalAndMarksItReversed() throws Exception {
+        String email = "cash-rev-ok-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashrev" + UUID.randomUUID().toString().substring(0, 8));
+        String originalId = entryIdOf(postEntry(accessToken, UUID.randomUUID().toString(), DEPOSIT_USD_1000)
+            .andExpect(status().isOk()));
+
+        String reversalId = entryIdOf(postEntry(accessToken, UUID.randomUUID().toString(),
+            reversalBody("WITHDRAWAL", "USD", "1000", originalId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.type", equalTo("WITHDRAWAL")))
+            .andExpect(jsonPath("$.data.reversalOfId", equalTo(originalId)))
+            .andExpect(jsonPath("$.data.reversalOfOccurredAt").exists())
+            .andExpect(jsonPath("$.data.reversed", equalTo(false))));
+
+        assertThat(rowCount(email)).isEqualTo(2);
+        getEntries(accessToken, null, null)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(2)))
+            .andExpect(jsonPath("$.data.items[?(@.id=='" + originalId + "')].reversed", contains(true)))
+            .andExpect(jsonPath("$.data.items[?(@.id=='" + reversalId + "')].reversed", contains(false)))
+            .andExpect(jsonPath("$.data.items[?(@.id=='" + reversalId + "')].reversalOfId", contains(originalId)));
+    }
+
+    @Test
+    @DisplayName("沖銷：同一筆以另一把 key 再沖銷 → 409 CASH_ENTRY_ALREADY_REVERSED，帳本仍 2 列")
+    void reversingTheSameEntryTwiceIsRejected() throws Exception {
+        String email = "cash-rev-twice-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashrev" + UUID.randomUUID().toString().substring(0, 8));
+        String originalId = entryIdOf(postEntry(accessToken, UUID.randomUUID().toString(), DEPOSIT_USD_1000)
+            .andExpect(status().isOk()));
+        postEntry(accessToken, UUID.randomUUID().toString(), reversalBody("WITHDRAWAL", "USD", "1000", originalId))
+            .andExpect(status().isOk());
+
+        postEntry(accessToken, UUID.randomUUID().toString(), reversalBody("WITHDRAWAL", "USD", "1000", originalId))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code", equalTo("CASH_ENTRY_ALREADY_REVERSED")));
+
+        assertThat(rowCount(email)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("沖銷：沖銷「沖銷分錄」→ 409 CASH_ENTRY_NOT_REVERSIBLE")
+    void reversingAReversalIsRejected() throws Exception {
+        String email = "cash-rev-chain-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashrev" + UUID.randomUUID().toString().substring(0, 8));
+        String originalId = entryIdOf(postEntry(accessToken, UUID.randomUUID().toString(), DEPOSIT_USD_1000)
+            .andExpect(status().isOk()));
+        String reversalId = entryIdOf(postEntry(accessToken, UUID.randomUUID().toString(),
+            reversalBody("WITHDRAWAL", "USD", "1000", originalId)).andExpect(status().isOk()));
+
+        postEntry(accessToken, UUID.randomUUID().toString(), reversalBody("DEPOSIT", "USD", "1000", reversalId))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code", equalTo("CASH_ENTRY_NOT_REVERSIBLE")));
+
+        assertThat(rowCount(email)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("沖銷：user B 沖銷 user A 的分錄 → 404 CASH_ENTRY_NOT_FOUND，body 不含該 UUID（不洩漏存在性）")
+    void reversingAnotherUsersEntryIsNotFound() throws Exception {
+        String tokenA = register(
+            "cash-rev-a-" + UUID.randomUUID() + "@example.com",
+            "cashreva" + UUID.randomUUID().toString().substring(0, 8));
+        String emailB = "cash-rev-b-" + UUID.randomUUID() + "@example.com";
+        String tokenB = register(emailB, "cashrevb" + UUID.randomUUID().toString().substring(0, 8));
+        String originalIdOfA = entryIdOf(postEntry(tokenA, UUID.randomUUID().toString(), DEPOSIT_USD_1000)
+            .andExpect(status().isOk()));
+
+        String body = postEntry(tokenB, UUID.randomUUID().toString(),
+            reversalBody("WITHDRAWAL", "USD", "1000", originalIdOfA))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code", equalTo("CASH_ENTRY_NOT_FOUND")))
+            .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).doesNotContain(originalIdOfA);
+        assertThat(rowCount(emailB)).isZero();
+    }
+
+    @Test
+    @DisplayName("沖銷：隨機（不存在的）UUID → 404 CASH_ENTRY_NOT_FOUND")
+    void reversingAnUnknownEntryIsNotFound() throws Exception {
+        String accessToken = register(
+            "cash-rev-unknown-" + UUID.randomUUID() + "@example.com",
+            "cashrev" + UUID.randomUUID().toString().substring(0, 8));
+
+        postEntry(accessToken, UUID.randomUUID().toString(),
+            reversalBody("WITHDRAWAL", "USD", "1000", UUID.randomUUID().toString()))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code", equalTo("CASH_ENTRY_NOT_FOUND")));
+    }
+
+    @Test
+    @DisplayName("沖銷：reversalOfId 不是 UUID → 400，fields.reversalOfId = invalid format")
+    void malformedReversalOfIdNamesTheField() throws Exception {
+        String accessToken = register(
+            "cash-rev-badid-" + UUID.randomUUID() + "@example.com",
+            "cashrev" + UUID.randomUUID().toString().substring(0, 8));
+
+        postEntry(accessToken, UUID.randomUUID().toString(),
+            reversalBody("WITHDRAWAL", "USD", "1000", "not-a-uuid"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields.reversalOfId", equalTo("invalid format")));
+    }
+
+    @Test
+    @DisplayName("沖銷：金額 999（不等於原分錄 1000）→ 400，fields.reversalOfId = must mirror the original entry")
+    void reversalWithDifferentAmountNamesTheField() throws Exception {
+        String email = "cash-rev-amt-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashrev" + UUID.randomUUID().toString().substring(0, 8));
+        String originalId = entryIdOf(postEntry(accessToken, UUID.randomUUID().toString(), DEPOSIT_USD_1000)
+            .andExpect(status().isOk()));
+
+        postEntry(accessToken, UUID.randomUUID().toString(), reversalBody("WITHDRAWAL", "USD", "999", originalId))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields.reversalOfId", equalTo("must mirror the original entry")));
+
+        assertThat(rowCount(email)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("沖銷：方向相同或幣別不同 → 400，fields.reversalOfId = must mirror the original entry")
+    void reversalWithSameDirectionOrDifferentCurrencyNamesTheField() throws Exception {
+        String email = "cash-rev-dir-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashrev" + UUID.randomUUID().toString().substring(0, 8));
+        String originalId = entryIdOf(postEntry(accessToken, UUID.randomUUID().toString(), DEPOSIT_USD_1000)
+            .andExpect(status().isOk()));
+
+        postEntry(accessToken, UUID.randomUUID().toString(), reversalBody("DEPOSIT", "USD", "1000", originalId))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.fields.reversalOfId", equalTo("must mirror the original entry")));
+        postEntry(accessToken, UUID.randomUUID().toString(), reversalBody("WITHDRAWAL", "TWD", "1000", originalId))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.fields.reversalOfId", equalTo("must mirror the original entry")));
+
+        assertThat(rowCount(email)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("沖銷：同一把 key 重送已成功的沖銷 → 200 同一 id（冪等優先於「已沖銷」），帳本仍 2 列")
+    void replayOfASuccessfulReversalReturnsTheSameEntry() throws Exception {
+        String email = "cash-rev-replay-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashrev" + UUID.randomUUID().toString().substring(0, 8));
+        String originalId = entryIdOf(postEntry(accessToken, UUID.randomUUID().toString(), DEPOSIT_USD_1000)
+            .andExpect(status().isOk()));
+        String key = "rev-replay-" + UUID.randomUUID();
+        String body = reversalBody("WITHDRAWAL", "USD", "1000", originalId);
+
+        String firstId = entryIdOf(postEntry(accessToken, key, body).andExpect(status().isOk()));
+        String secondId = entryIdOf(postEntry(accessToken, key, body)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.reversalOfId", equalTo(originalId))));
+
+        assertThat(secondId).isEqualTo(firstId);
+        assertThat(rowCount(email)).isEqualTo(2);
     }
 
     private ResultActions getEntries(String accessToken, String page, String size) throws Exception {
