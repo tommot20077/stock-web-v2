@@ -18,8 +18,10 @@ import java.util.Base64;
  * </pre>
  *
  * <p>存在的理由與 {@code JwkKeyConverter} 相同:不要用線上工具產生或轉換簽章金鑰。
- * 已經有 PEM 金鑰、想沿用同一把(既有 token 不失效)時用 {@code JwkKeyConverter};
- * 要換一把新的時用本程式——換鑰後所有既有 access / refresh token 立即失效,使用者需重新登入。</p>
+ * 已經有 PEM 金鑰、想沿用同一把時用 {@code JwkKeyConverter};要換一把新的時用本程式。
+ * 換鑰只讓既有 access token 失效:refresh token 是 Redis 裡的不透明值、不經這把金鑰簽章,
+ * 前端下一次 401 會 refresh 一次並拿到新金鑰簽的 access token,使用者不會被登出。
+ * 要強制所有人重新登入,另外撤銷 refresh token(見 ai-docs/security.md「Key Rotation Strategy」)。</p>
  *
  * <p>{@code kid} 固定寫進 JWK:{@code JwtService} 有寫就沿用,沒寫才每次啟動補隨機值,
  * 日後若對外發布 JWKS,會讓消費端快取的金鑰集對不上。</p>

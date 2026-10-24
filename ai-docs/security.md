@@ -111,7 +111,8 @@ Access Token is short-lived (15-30 minutes), paired with a long-lived Refresh To
 
 #### Key Rotation Strategy
 
-- **MVP phase (current)**: Single key — replacing `STOCK_JWT_PRIVATE_KEY` invalidates every existing access / refresh token, forcing re-login.
+- **MVP phase (current)**: Single key. Replacing `STOCK_JWT_PRIVATE_KEY` invalidates **access tokens only**. Refresh tokens are opaque Redis entries (`user:refresh:{token}`), not signed by the JWT key, so existing sessions survive: the client's next 401 triggers one refresh and receives an access token signed with the new key. This is the intended behaviour for routine rotation (no forced re-login).
+- **When every session must end** (suspected session theft, not just key replacement): rotating the key is not enough. Also revoke refresh tokens — per user via token-version increment / `RefreshTokenService.revokeAllForUser`, or globally by deleting `user:refresh:*` in the Redis database configured by `STOCK_REDIS_DATABASE` (e.g. `redis-cli -n <db> --scan --pattern 'user:refresh:*' | xargs -r redis-cli -n <db> del`).
 - **Production phase (not implemented)**: Dual key coexistence (`STOCK_JWT_PRIVATE_KEY` + a previous key), selected by the `kid` already present in the JWT header. New tokens signed with new key, old tokens verified with old key until expiry. No JWKS needed (monolith does not require it).
 
 ### 7. AccessDeniedException Must Be Re-thrown

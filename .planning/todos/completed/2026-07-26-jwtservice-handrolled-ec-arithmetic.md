@@ -58,7 +58,7 @@ PEM 實跑過端到端。
 設定格式變了,每個環境的 `STOCK_JWT_PRIVATE_KEY` 都要從 PEM 換成 JWK。
 啟動時若偵測到值仍是 PEM,錯誤訊息會直接給出轉換指令,不會靜默失敗。
 
-**2026-10-23 更新**:Yuan 裁定**換新金鑰**(不沿用舊 PEM;換鑰後既有 token 失效、使用者需重新登入),
+**2026-10-23 更新**:Yuan 裁定**換新金鑰**(不沿用舊 PEM;換鑰只讓 access token 失效,refresh token 存在 Redis、不經 JWT 金鑰簽章,session 會經一次 refresh 自動接續——2026-10-24 依 PR #49 Codex review 更正,原文誤寫為「使用者需重新登入」),
 demo 由 Claude 產生,正式環境由 Yuan 在本機產生(私鑰不經雲端 session)。
 
 - [x] 新增 `scripts/GenerateJwtJwk.java`(只依賴 JDK,含固定 `kid`)——200 把金鑰驗證 x/y 由 d 推得且簽驗成功,
