@@ -117,6 +117,15 @@ public class JdbcUserRepository implements UserRepository {
             .optional();
     }
 
+    @Override
+    public Optional<CurrencyCode> findBaseCurrency(Long id) {
+        return jdbcClient.sql("select base_currency from users where id = :id")
+            .param("id", id)
+            .query(String.class)
+            .optional()
+            .map(CurrencyCode::valueOf);
+    }
+
     private RuntimeException duplicateResourceException(DataIntegrityViolationException exception) {
         String message = exception.getMessage();
         Throwable cause = exception.getCause();

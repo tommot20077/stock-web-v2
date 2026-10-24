@@ -226,6 +226,11 @@ class AuthServiceTest {
         }
 
         @Override
+        public Optional<CurrencyCode> findBaseCurrency(Long id) {
+            return Optional.ofNullable(byId.get(id)).map(User::baseCurrency);
+        }
+
+        @Override
         public int incrementTokenVersion(Long id) {
             User current = byId.get(id);
             User updated = new User(

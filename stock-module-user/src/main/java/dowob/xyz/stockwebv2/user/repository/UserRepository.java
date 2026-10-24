@@ -29,4 +29,12 @@ public interface UserRepository {
      * @return 更新後的使用者；使用者不存在時為空
      */
     Optional<User> updateBaseCurrency(Long id, CurrencyCode baseCurrency);
+
+    /**
+     * 查詢指定使用者的基準幣。
+     *
+     * @param id 使用者主鍵
+     * @return 使用者基準幣；使用者不存在時為空
+     */
+    Optional<CurrencyCode> findBaseCurrency(Long id);
 }
