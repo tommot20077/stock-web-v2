@@ -88,23 +88,26 @@ class PortfolioDayPnlIT extends ContainerIT {
     void summaryTotalsIncludeSoldAllToday() throws Exception {
         AuthTokens tokens = givenScenarioUser("daypnl-summary@example.com", "daypnlsummary");
 
-        // MSFT 125 + GOOGL 40（前收 110 賣在 120 共 4 股，最新價不影響已賣出的部分）+ META 20；AMZN 缺前收未計入
-        mockMvc.perform(get("/api/v1/portfolio/summary")
+        // MSFT 125 + GOOGL 40（前收 110 賣在 120 共 4 股）+ META 20；AMZN 缺前收未計入
+        JsonNode summary = objectMapper.readTree(mockMvc.perform(get("/api/v1/portfolio/summary")
                 .header("Authorization", "Bearer " + tokens.accessToken()))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.dayPricePnl", equalTo(185.00000000)))
-            // 185 / (MSFT 2875 + GOOGL 440 + META 1000)
-            .andExpect(jsonPath("$.data.dayPricePnlRatio", equalTo(0.04287370)))
-            .andExpect(jsonPath("$.data.dayPnlExcludedCount", equalTo(1)));
+            .andReturn().getResponse().getContentAsString()).get("data");
+        assertThat(summary.get("dayPricePnl").decimalValue()).isEqualByComparingTo("185.00000000");
+        // 185 / (MSFT 2875 + GOOGL 440 + META 1000)
+        assertThat(summary.get("dayPricePnlRatio").decimalValue()).isEqualByComparingTo("0.04287370");
+        assertThat(summary.get("dayPnlExcludedCount").asInt()).isEqualTo(1);
 
         AuthTokens empty = register("daypnl-empty@example.com", "daypnlempty", "Password1");
         patchBaseCurrency(empty, "USD");
-        mockMvc.perform(get("/api/v1/portfolio/summary")
+        JsonNode emptySummary = objectMapper.readTree(mockMvc.perform(get("/api/v1/portfolio/summary")
                 .header("Authorization", "Bearer " + empty.accessToken()))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.dayPricePnl", equalTo(0)))
-            .andExpect(jsonPath("$.data.dayPricePnlRatio").value(org.hamcrest.Matchers.nullValue()))
-            .andExpect(jsonPath("$.data.dayPnlExcludedCount", equalTo(0)));
+            .andReturn().getResponse().getContentAsString()).get("data");
+        // 沒有任何候選：真實的零，不是缺資料
+        assertThat(emptySummary.get("dayPricePnl").decimalValue()).isEqualByComparingTo("0");
+        assertThat(emptySummary.hasNonNull("dayPricePnlRatio")).isFalse();
+        assertThat(emptySummary.get("dayPnlExcludedCount").asInt()).isZero();
     }
 
     /**
