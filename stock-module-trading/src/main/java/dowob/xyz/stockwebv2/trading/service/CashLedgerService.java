@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
@@ -42,6 +43,11 @@ public class CashLedgerService {
     private static final int MAX_IDEMPOTENCY_KEY_LENGTH = 128;
     private static final String IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
 
+    /**
+     * 發生時間可超前伺服器現在的容忍量，吸收客戶端與伺服器的時鐘偏差（同 {@code TradingService}）。
+     */
+    private static final Duration OCCURRED_AT_FUTURE_TOLERANCE = Duration.ofMinutes(5);
+
     private final CashLedgerRepository repository;
 
     public CashLedgerService(CashLedgerRepository repository) {
@@ -62,8 +68,8 @@ public class CashLedgerService {
      * @param request        建立請求，已通過 bean validation
      * @param idempotencyKey 冪等鍵，由 {@code Idempotency-Key} header 原樣傳入
      * @return 新建立的分錄；重送時為既有分錄
-     * @throws BusinessException 冪等鍵為空白或過長、type 或 currency 不在白名單、同鍵但 payload 不同，
-     *                           或併發下重讀落空時
+     * @throws BusinessException 冪等鍵為空白或過長、type 或 currency 不在白名單、發生時間在未來、
+     *                           同鍵但 payload 不同，或併發下重讀落空時
      */
     @Transactional
     public CashEntryDto createEntry(Long userId, CreateCashEntryRequest request, String idempotencyKey) {
@@ -81,6 +87,7 @@ public class CashLedgerService {
             .orElse(null);
         OffsetDateTime occurredAt = Optional.ofNullable(requestedOccurredAt)
             .orElseGet(() -> OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS));
+        validateNotInFuture(requestedOccurredAt);
         Optional<CashLedgerEntry> known = repository.findByIdempotencyKey(userId, idempotencyKey);
         if (known.isPresent()) {
             return resolveIdempotentHit(known.get(), type, currency, request.amount(), requestedOccurredAt);
@@ -153,6 +160,23 @@ public class CashLedgerService {
         if (idempotencyKey.length() > MAX_IDEMPOTENCY_KEY_LENGTH) {
             throw new FieldValidationException("Idempotency-Key header exceeds the maximum length",
                 Map.of(IDEMPOTENCY_KEY_HEADER, "must be at most " + MAX_IDEMPOTENCY_KEY_LENGTH + " characters"));
+        }
+    }
+
+    /**
+     * 擋下超前現在過多的發生時間：入出金是「已發生」的紀錄，不是預約。
+     *
+     * <p>只檢查請求明確送出的值；省略時伺服器自行取「現在」，不可能在未來。訊息為靜態字串。</p>
+     *
+     * @param requestedOccurredAt 請求明確送出的發生時間；未送為 null
+     * @throws FieldValidationException 超前現在超過 5 分鐘時，
+     *                                  fields 指名 {@code occurredAt}
+     */
+    private void validateNotInFuture(OffsetDateTime requestedOccurredAt) {
+        if (requestedOccurredAt != null
+            && requestedOccurredAt.isAfter(OffsetDateTime.now().plus(OCCURRED_AT_FUTURE_TOLERANCE))) {
+            throw new FieldValidationException("Invalid occurredAt",
+                Map.of("occurredAt", "must not be in the future"));
         }
     }
 
