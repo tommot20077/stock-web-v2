@@ -103,6 +103,8 @@ class TradingApiIT extends ContainerIT {
             .andExpect(jsonPath("$.data.id", notNullValue()))
             .andExpect(jsonPath("$.data.symbol", equalTo("AAPL")))
             .andExpect(jsonPath("$.data.type", equalTo("BUY")))
+            // TRAD-10 / D-28：交易回應自帶標的交易幣別，前端才不必寫死 "$"。
+            .andExpect(jsonPath("$.data.currency", equalTo("USD")))
             // idempotency key 是請求層的實作細節，不得出現在交易 DTO（T-04-09）。
             .andExpect(jsonPath("$.data.idempotencyKey").doesNotExist())
             .andReturn()
@@ -185,6 +187,22 @@ class TradingApiIT extends ContainerIT {
             .param("assetId", assetId)
             .param("price", price)
             .update();
+    }
+
+    @Test
+    void tradeOfTwdAssetCarriesTwdCurrency() throws Exception {
+        AuthTokens tokens = register("trading-twd-currency@example.com", "tradingtwdcurrency", "Password1");
+
+        mockMvc.perform(post("/api/v1/trades")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + tokens.accessToken())
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .content("""
+                    {"symbol":"2330.TW","type":"BUY","quantity":2,"price":900,"fee":0}
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.symbol", equalTo("2330.TW")))
+            .andExpect(jsonPath("$.data.currency", equalTo("TWD")));
     }
 
     @Test
@@ -817,7 +835,10 @@ class TradingApiIT extends ContainerIT {
         String body = idempotentBuyBody(10, "initial buy");
 
         String firstId = tradeIdOf(postTrade(tokens, key, body).andExpect(status().isOk()));
-        String secondId = tradeIdOf(postTrade(tokens, key, body).andExpect(status().isOk()));
+        // 冪等命中的回應走另一條出口，同樣必須帶幣別（D-28）。
+        String secondId = tradeIdOf(postTrade(tokens, key, body)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.currency", equalTo("USD"))));
 
         /*
          * 三條斷言缺一不可：id 相同證明「回的是既有交易」，totalElements 為 1 證明帳本沒多一列，

@@ -27,6 +27,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -103,7 +104,8 @@ class TradingControllerWebMvcTest {
             BigDecimal.ONE,
             "slice test",
             OffsetDateTime.parse("2026-01-10T00:00:00Z"),
-            OffsetDateTime.parse("2026-01-10T00:00:01Z")
+            OffsetDateTime.parse("2026-01-10T00:00:01Z"),
+            "USD"
         ));
 
         mvc.perform(post("/api/v1/trades")
@@ -111,7 +113,8 @@ class TradingControllerWebMvcTest {
                 .header("Idempotency-Key", "key-1")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(VALID_BODY))
-            .andExpect(status().isOk());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.currency").value("USD"));
     }
 
     @Test

@@ -5,7 +5,9 @@ import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.error.FieldValidationException;
 import dowob.xyz.stockwebv2.common.model.AssetType;
+import dowob.xyz.stockwebv2.common.model.CurrencyCode;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
+import dowob.xyz.stockwebv2.infrastructure.asset.AssetProfile;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 import dowob.xyz.stockwebv2.trading.api.CreateTradeRequest;
 import dowob.xyz.stockwebv2.trading.api.TradeDto;
@@ -25,6 +27,7 @@ import org.mockito.ArgumentCaptor;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -495,6 +498,73 @@ class TradingServiceTest {
 
         verify(repository, never()).updateHolding(any());
         verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("建立交易：回應帶標的交易幣別，且幣別經 findProfiles 批次取得而非自行查詢（TRAD-10 / D-28）")
+    void createTradeCarriesAssetCurrency() {
+        stubTradeableAsset();
+        stubProfile(55L, "AAPL", CurrencyCode.USD);
+        when(repository.findByIdempotencyKey(7L, "key-1")).thenReturn(Optional.empty());
+        when(repository.findHoldingForUpdate(7L, 55L)).thenReturn(Optional.empty());
+        when(repository.insertHoldingIfAbsent(any(Holding.class)))
+            .thenAnswer(invocation -> Optional.of(invocation.getArgument(0)));
+        when(repository.insertTransactionIfAbsent(any(TradeTransaction.class)))
+            .thenAnswer(invocation -> Optional.of(invocation.getArgument(0)));
+
+        TradeDto dto = service.createTrade(7L, buyRequest(SENT_QUANTITY, null), "key-1");
+
+        assertThat(dto.currency()).isEqualTo("USD");
+        verify(assetFacade).findProfiles(List.of(55L));
+    }
+
+    @Test
+    @DisplayName("冪等鍵命中既有交易：重送的回應同樣帶幣別（D-28）")
+    void idempotentHitCarriesAssetCurrency() {
+        stubTradeableAsset();
+        stubProfile(55L, "AAPL", CurrencyCode.USD);
+        when(repository.findByIdempotencyKey(7L, "key-1")).thenReturn(Optional.of(storedTransaction(STORED_QUANTITY)));
+
+        TradeDto dto = service.createTrade(7L, buyRequest(SENT_QUANTITY, null), "key-1");
+
+        assertThat(dto.currency()).isEqualTo("USD");
+        verify(repository, never()).insertTransactionIfAbsent(any());
+    }
+
+    @Test
+    @DisplayName("findProfiles 查無該資產：currency 為 null 且不拋例外")
+    void missingProfileYieldsNullCurrencyWithoutThrowing() {
+        stubTradeableAsset();
+        when(repository.findByIdempotencyKey(7L, "key-1")).thenReturn(Optional.of(storedTransaction(STORED_QUANTITY)));
+        when(assetFacade.findProfiles(any())).thenReturn(Map.of());
+
+        TradeDto dto = service.createTrade(7L, buyRequest(SENT_QUANTITY, null), "key-1");
+
+        assertThat(dto.currency()).isNull();
+    }
+
+    @Test
+    @DisplayName("被拒絕的請求（未知標的、冪等鍵 payload 不符）不呼叫 findProfiles")
+    void rejectedRequestsDoNotResolveProfiles() {
+        CreateTradeRequest unknown = new CreateTradeRequest(
+            "NOPE", "BUY", BigDecimal.ONE, BigDecimal.TEN, null, null, null);
+        assertThatThrownBy(() -> service.createTrade(7L, unknown, "key-1"))
+            .isInstanceOf(BusinessException.class);
+
+        CreateTradeRequest unsupportedType = new CreateTradeRequest(
+            "AAPL", "DIV", BigDecimal.ONE, BigDecimal.TEN, null, null, null);
+        assertThatThrownBy(() -> service.createTrade(7L, unsupportedType, "key-1"))
+            .isInstanceOf(BusinessException.class);
+
+        assertThatThrownBy(() -> service.createTrade(7L, buyRequest(SENT_QUANTITY, null), " "))
+            .isInstanceOf(BusinessException.class);
+
+        verify(assetFacade, never()).findProfiles(any());
+    }
+
+    private void stubProfile(Long id, String symbol, CurrencyCode currency) {
+        when(assetFacade.findProfiles(any())).thenReturn(Map.of(
+            id, new AssetProfile(id, symbol, AssetType.STOCK, "US", currency, null)));
     }
 
     private void stubTradeableAsset() {

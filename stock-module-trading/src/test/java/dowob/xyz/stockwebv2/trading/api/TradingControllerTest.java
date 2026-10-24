@@ -73,7 +73,7 @@ class TradingControllerTest {
     private TradeDto tradeDto() {
         return new TradeDto(
             "11111111-1111-1111-1111-111111111111",
-            "AAPL", "BUY", BigDecimal.ONE, BigDecimal.TEN, null, null, null, null);
+            "AAPL", "BUY", BigDecimal.ONE, BigDecimal.TEN, null, null, null, null, "USD");
     }
 
     @Test
