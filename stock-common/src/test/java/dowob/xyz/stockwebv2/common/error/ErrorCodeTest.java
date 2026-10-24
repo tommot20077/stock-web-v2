@@ -199,6 +199,35 @@ class ErrorCodeTest {
                 .allMatch(status -> status == 409);
     }
 
+    // ── Phase 4.1：現金分錄冪等鍵重用的 409 error code（04.1-04 凍結契約字面）─────
+
+    @Test
+    @DisplayName("CASH_IDEMPOTENCY_KEY_REUSED 的 HTTP 狀態碼是 409")
+    void cashIdempotencyKeyReused_httpStatusIs409() {
+        assertThat(ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED.httpStatus()).isEqualTo(409);
+    }
+
+    @Test
+    @DisplayName("CASH_IDEMPOTENCY_KEY_REUSED 的預設訊息不為空且不含任何請求值佔位字串")
+    void cashIdempotencyKeyReused_defaultMessageDoesNotEchoRequestValues() {
+        assertThat(ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED.defaultMessage())
+                .isNotNull()
+                .isNotBlank()
+                .doesNotContain("%s")
+                .doesNotContain("{");
+    }
+
+    @Test
+    @DisplayName("CASH_IDEMPOTENCY_KEY_REUSED 與 TRADE_IDEMPOTENCY_KEY_REUSED 是相異常數且訊息不同（前端依 code 分派文案）")
+    void cashIdempotencyKeyReused_isDistinctFromTradeIdempotencyKeyReused() {
+        assertThat(ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED).isNotEqualTo(ErrorCode.TRADE_IDEMPOTENCY_KEY_REUSED);
+        assertThat(ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED.defaultMessage())
+                .isNotEqualTo(ErrorCode.TRADE_IDEMPOTENCY_KEY_REUSED.defaultMessage());
+        assertThat(ErrorCode.TRADE_IDEMPOTENCY_KEY_REUSED.defaultMessage())
+                .as("既有 trade 字面不得被動到")
+                .isEqualTo("Idempotency key was reused with a different trade payload");
+    }
+
     @Test
     void existingConstants_httpStatusesUnchanged() {
         assertThat(ErrorCode.VALIDATION_FAILED.httpStatus()).isEqualTo(400);

@@ -27,8 +27,9 @@ import tools.jackson.databind.ObjectMapper;
 /**
  * {@code POST /api/v1/portfolio/cash-entries} 的端到端整合測試（CASH-01 tracer）。
  *
- * <p>本檔先鎖「入金一筆寫入並回 DTO」與「出金不受餘額限制」兩條主線（D-01 / D-08）；
- * 冪等重送、payload 衝突、欄位驗證與稽核由 04.1-22 擴充至同一個類別。</p>
+ * <p>先鎖「入金一筆寫入並回 DTO」與「出金不受餘額限制」兩條主線（D-01 / D-08），
+ * 再鎖冪等語意（D-11）：同 key 同 payload 回既有、改 payload 回 409、只改 note 視為同一筆、
+ * 省略 occurredAt 的重送仍命中、跨使用者隔離。</p>
  *
  * @author Yuan
  * @version 1.0
@@ -89,6 +90,115 @@ class CashEntryApiIT extends ContainerIT {
             .andExpect(jsonPath("$.data.type", equalTo("WITHDRAWAL")))
             .andExpect(jsonPath("$.data.currency", equalTo("USD")))
             .andExpect(jsonPath("$.data.amount", equalTo(1000.00000000)));
+    }
+
+    @Test
+    @DisplayName("同 key 同 payload 送兩次：回同一筆（同 id）、帳本只有 1 列")
+    void sameKeySamePayloadReturnsExistingEntryAndLedgerHasOneRow() throws Exception {
+        String email = "cash-idem-same-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashidem" + UUID.randomUUID().toString().substring(0, 8));
+        String key = "same-" + UUID.randomUUID();
+        String body = """
+            {"type":"DEPOSIT","currency":"TWD","amount":50000,"occurredAt":"2026-10-01T09:00:00+08:00"}
+            """;
+
+        String firstId = entryIdOf(postEntry(accessToken, key, body).andExpect(status().isOk()));
+        String secondId = entryIdOf(postEntry(accessToken, key, body).andExpect(status().isOk()));
+
+        assertThat(secondId).isEqualTo(firstId);
+        assertThat(rowCount(email)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("同 key 改 amount：409 CASH_IDEMPOTENCY_KEY_REUSED，帳本仍只有 1 列")
+    void sameKeyDifferentAmountIsRejectedAndDoesNotAddRow() throws Exception {
+        String email = "cash-idem-diff-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashidem" + UUID.randomUUID().toString().substring(0, 8));
+        String key = "diff-" + UUID.randomUUID();
+
+        postEntry(accessToken, key, """
+            {"type":"DEPOSIT","currency":"TWD","amount":50000,"occurredAt":"2026-10-01T09:00:00+08:00"}
+            """).andExpect(status().isOk());
+
+        postEntry(accessToken, key, """
+            {"type":"DEPOSIT","currency":"TWD","amount":50001,"occurredAt":"2026-10-01T09:00:00+08:00"}
+            """)
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.success", equalTo(false)))
+            .andExpect(jsonPath("$.error.code", equalTo("CASH_IDEMPOTENCY_KEY_REUSED")));
+
+        assertThat(rowCount(email)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("同 key 只改 note：視為同一筆，回 200 同 id（備註不納入比對）")
+    void sameKeyWithOnlyDifferentNoteReturnsSameEntry() throws Exception {
+        String email = "cash-idem-note-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashidem" + UUID.randomUUID().toString().substring(0, 8));
+        String key = "note-" + UUID.randomUUID();
+
+        String firstId = entryIdOf(postEntry(accessToken, key, """
+            {"type":"DEPOSIT","currency":"USD","amount":1200.5,"note":"first","occurredAt":"2026-10-01T09:00:00+08:00"}
+            """).andExpect(status().isOk()));
+        String secondId = entryIdOf(postEntry(accessToken, key, """
+            {"type":"DEPOSIT","currency":"USD","amount":1200.5,"note":"edited before retry","occurredAt":"2026-10-01T09:00:00+08:00"}
+            """).andExpect(status().isOk()));
+
+        assertThat(secondId).isEqualTo(firstId);
+        assertThat(rowCount(email)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("兩位使用者用同一把 key：各自建立分錄（key 以使用者隔離）")
+    void sameKeyAcrossUsersCreatesOneEntryPerUser() throws Exception {
+        String emailA = "cash-idem-a-" + UUID.randomUUID() + "@example.com";
+        String emailB = "cash-idem-b-" + UUID.randomUUID() + "@example.com";
+        String tokenA = register(emailA, "cashidema" + UUID.randomUUID().toString().substring(0, 8));
+        String tokenB = register(emailB, "cashidemb" + UUID.randomUUID().toString().substring(0, 8));
+        String key = "shared-" + UUID.randomUUID();
+        String body = """
+            {"type":"DEPOSIT","currency":"TWD","amount":100,"occurredAt":"2026-10-01T09:00:00+08:00"}
+            """;
+
+        String idA = entryIdOf(postEntry(tokenA, key, body).andExpect(status().isOk()));
+        String idB = entryIdOf(postEntry(tokenB, key, body).andExpect(status().isOk()));
+
+        assertThat(idB).isNotEqualTo(idA);
+        assertThat(rowCount(emailA)).isEqualTo(1);
+        assertThat(rowCount(emailB)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("首次省略 occurredAt、重送也省略：同 key 仍命中原分錄（伺服器首次決定的時間成立）")
+    void resendWithoutOccurredAtStillHitsOriginalEntry() throws Exception {
+        String email = "cash-idem-omit-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashidem" + UUID.randomUUID().toString().substring(0, 8));
+        String key = "omit-" + UUID.randomUUID();
+        String body = """
+            {"type":"WITHDRAWAL","currency":"JPY","amount":3000}
+            """;
+
+        String firstId = entryIdOf(postEntry(accessToken, key, body).andExpect(status().isOk()));
+        String secondId = entryIdOf(postEntry(accessToken, key, body).andExpect(status().isOk()));
+
+        assertThat(secondId).isEqualTo(firstId);
+        assertThat(rowCount(email)).isEqualTo(1);
+    }
+
+    private String entryIdOf(ResultActions result) throws Exception {
+        String body = result.andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).get("data").get("id").asText();
+    }
+
+    private int rowCount(String email) {
+        Integer rows = jdbcClient.sql("""
+                SELECT count(*) FROM cash_ledger_entries
+                WHERE user_id = (SELECT id FROM users WHERE email = :email)
+                """)
+            .param("email", email)
+            .query(Integer.class)
+            .single();
+        return rows;
     }
 
     private ResultActions postEntry(String accessToken, String idempotencyKey, String body) throws Exception {

@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.trading.service;
 
+import dowob.xyz.stockwebv2.common.error.BusinessException;
+import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.model.CurrencyCode;
 import dowob.xyz.stockwebv2.trading.api.CashEntryDto;
 import dowob.xyz.stockwebv2.trading.api.CreateCashEntryRequest;
@@ -19,6 +21,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -28,8 +31,8 @@ import static org.mockito.Mockito.when;
 /**
  * {@link CashLedgerService#createEntry} 的 insert-first 冪等寫入骨架單元測試（CASH-01）。
  *
- * <p>本檔只鎖 happy path 與「已有同鍵紀錄走快路徑」兩條骨架行為；
- * payload 比對與 409 由 04.1-22 擴充。</p>
+ * <p>涵蓋 happy path、「已有同鍵紀錄走快路徑」，以及冪等命中時的 payload 比對（D-11）：
+ * 相同回既有、不同回 409 {@code CASH_IDEMPOTENCY_KEY_REUSED}，快路徑與 insert 落空後重讀兩處都要經過比對。</p>
  *
  * @author Yuan
  * @version 1.0
@@ -124,5 +127,123 @@ class CashLedgerServiceTest {
 
         assertThat(dto.id()).isEqualTo(uuid.toString());
         verify(repository, never()).insertIfAbsent(any(CashLedgerEntry.class));
+    }
+
+    private static CashLedgerEntry existing(UUID uuid, CashEntryType type, CurrencyCode currency,
+                                            String amount, OffsetDateTime occurredAt) {
+        return new CashLedgerEntry(
+            21L, uuid, 7L, type, currency, new BigDecimal(amount), null, occurredAt, occurredAt, "key-x", null);
+    }
+
+    private static void assertReused(Throwable thrown) {
+        assertThat(thrown).isInstanceOfSatisfying(BusinessException.class, exception -> {
+            assertThat(exception.errorCode()).isEqualTo(ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED);
+            assertThat(exception.getMessage()).isEqualTo(ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED.defaultMessage());
+        });
+    }
+
+    @Test
+    @DisplayName("快路徑命中但 amount 不同：409 CASH_IDEMPOTENCY_KEY_REUSED，不寫入")
+    void fastPathHitWithDifferentAmountIsRejected() {
+        OffsetDateTime occurredAt = OffsetDateTime.parse("2026-10-01T09:00:00+08:00");
+        when(repository.findByIdempotencyKey(7L, "key-x")).thenReturn(Optional.of(
+            existing(UUID.randomUUID(), CashEntryType.DEPOSIT, CurrencyCode.TWD, "50000.00000000", occurredAt)));
+
+        assertThatThrownBy(() -> service.createEntry(
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50001"), null, occurredAt), "key-x"))
+            .satisfies(CashLedgerServiceTest::assertReused);
+        verify(repository, never()).insertIfAbsent(any(CashLedgerEntry.class));
+    }
+
+    @Test
+    @DisplayName("快路徑命中但 type 或 currency 不同：409")
+    void fastPathHitWithDifferentTypeOrCurrencyIsRejected() {
+        OffsetDateTime occurredAt = OffsetDateTime.parse("2026-10-01T09:00:00+08:00");
+        when(repository.findByIdempotencyKey(7L, "key-x")).thenReturn(Optional.of(
+            existing(UUID.randomUUID(), CashEntryType.DEPOSIT, CurrencyCode.TWD, "50000.00000000", occurredAt)));
+
+        assertThatThrownBy(() -> service.createEntry(
+            7L, new CreateCashEntryRequest("WITHDRAWAL", "TWD", new BigDecimal("50000"), null, occurredAt), "key-x"))
+            .satisfies(CashLedgerServiceTest::assertReused);
+        assertThatThrownBy(() -> service.createEntry(
+            7L, new CreateCashEntryRequest("DEPOSIT", "USD", new BigDecimal("50000"), null, occurredAt), "key-x"))
+            .satisfies(CashLedgerServiceTest::assertReused);
+        verify(repository, never()).insertIfAbsent(any(CashLedgerEntry.class));
+    }
+
+    @Test
+    @DisplayName("快路徑命中、只有 note 不同：視為同一筆，回既有分錄（備註不納入比對）")
+    void fastPathHitWithOnlyDifferentNoteReturnsExisting() {
+        OffsetDateTime occurredAt = OffsetDateTime.parse("2026-10-01T09:00:00+08:00");
+        UUID uuid = UUID.randomUUID();
+        when(repository.findByIdempotencyKey(7L, "key-x")).thenReturn(Optional.of(
+            existing(uuid, CashEntryType.DEPOSIT, CurrencyCode.TWD, "50000.00000000", occurredAt)));
+
+        CashEntryDto dto = service.createEntry(
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50000"), "changed note", occurredAt), "key-x");
+
+        assertThat(dto.id()).isEqualTo(uuid.toString());
+        verify(repository, never()).insertIfAbsent(any(CashLedgerEntry.class));
+    }
+
+    @Test
+    @DisplayName("重送省略 occurredAt：仍命中原分錄（伺服器首次決定的時間成立）")
+    void fastPathHitWithOmittedOccurredAtReturnsExisting() {
+        OffsetDateTime occurredAt = OffsetDateTime.parse("2026-10-01T09:00:00+08:00");
+        UUID uuid = UUID.randomUUID();
+        when(repository.findByIdempotencyKey(7L, "key-x")).thenReturn(Optional.of(
+            existing(uuid, CashEntryType.DEPOSIT, CurrencyCode.TWD, "50000.00000000", occurredAt)));
+
+        CashEntryDto dto = service.createEntry(
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50000"), null, null), "key-x");
+
+        assertThat(dto.id()).isEqualTo(uuid.toString());
+        verify(repository, never()).insertIfAbsent(any(CashLedgerEntry.class));
+    }
+
+    @Test
+    @DisplayName("insert 落空後重讀命中且 payload 相同：回既有分錄")
+    void insertMissThenRereadWithSamePayloadReturnsExisting() {
+        OffsetDateTime occurredAt = OffsetDateTime.parse("2026-10-01T09:00:00+08:00");
+        UUID uuid = UUID.randomUUID();
+        when(repository.findByIdempotencyKey(7L, "key-x"))
+            .thenReturn(Optional.empty())
+            .thenReturn(Optional.of(
+                existing(uuid, CashEntryType.DEPOSIT, CurrencyCode.TWD, "50000.00000000", occurredAt)));
+        when(repository.insertIfAbsent(any(CashLedgerEntry.class))).thenReturn(Optional.empty());
+
+        CashEntryDto dto = service.createEntry(
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50000"), null, occurredAt), "key-x");
+
+        assertThat(dto.id()).isEqualTo(uuid.toString());
+    }
+
+    @Test
+    @DisplayName("insert 落空後重讀命中但 payload 不同：409 CASH_IDEMPOTENCY_KEY_REUSED（落空重讀也要經過比對）")
+    void insertMissThenRereadWithDifferentPayloadIsRejected() {
+        OffsetDateTime occurredAt = OffsetDateTime.parse("2026-10-01T09:00:00+08:00");
+        when(repository.findByIdempotencyKey(7L, "key-x"))
+            .thenReturn(Optional.empty())
+            .thenReturn(Optional.of(
+                existing(UUID.randomUUID(), CashEntryType.DEPOSIT, CurrencyCode.TWD, "50000.00000000", occurredAt)));
+        when(repository.insertIfAbsent(any(CashLedgerEntry.class))).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.createEntry(
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("99"), null, occurredAt), "key-x"))
+            .satisfies(CashLedgerServiceTest::assertReused);
+    }
+
+    @Test
+    @DisplayName("insert 落空且重讀仍落空（理論殘餘競態）：409 DUPLICATE_RESOURCE，而非 500")
+    void insertMissThenRereadMissIsDuplicateResource() {
+        when(repository.findByIdempotencyKey(7L, "key-x")).thenReturn(Optional.empty());
+        when(repository.insertIfAbsent(any(CashLedgerEntry.class))).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.createEntry(
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50000"), null, null), "key-x"))
+            .isInstanceOfSatisfying(BusinessException.class, exception -> {
+                assertThat(exception.errorCode()).isEqualTo(ErrorCode.DUPLICATE_RESOURCE);
+                assertThat(exception.getMessage()).isEqualTo(ErrorCode.DUPLICATE_RESOURCE.defaultMessage());
+            });
     }
 }
