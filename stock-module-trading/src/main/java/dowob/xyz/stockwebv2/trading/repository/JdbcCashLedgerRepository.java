@@ -240,7 +240,6 @@ public class JdbcCashLedgerRepository implements CashLedgerRepository {
      * @throws SQLException 讀取欄位失敗時
      */
     static CashLedgerEntry mapEntry(ResultSet rs, int rowNum) throws SQLException {
-        long reversalOfId = rs.getLong("reversal_of_id");
         return new CashLedgerEntry(
             rs.getLong("id"),
             rs.getObject("uuid", UUID.class),
@@ -252,7 +251,11 @@ public class JdbcCashLedgerRepository implements CashLedgerRepository {
             rs.getObject("occurred_at", OffsetDateTime.class),
             rs.getObject("created_at", OffsetDateTime.class),
             rs.getString("idempotency_key"),
-            rs.wasNull() ? null : reversalOfId
+            // 可為 NULL 的 BIGINT 一律用 getObject(欄位, Long.class)：它對 SQL NULL 回 null。
+            // 不可用 getLong + wasNull：getLong 對 NULL 回 0，而 wasNull 只反映「最近一次讀取」的欄位，
+            // 在建構子引數裡呼叫時最近讀的早已是別的欄位，會永遠回 false，於是一般分錄的
+            // reversalOfId 變成 0L（非 null），冪等重送被判成不同筆、所有沖銷被判成「原分錄本身是沖銷」。
+            rs.getObject("reversal_of_id", Long.class)
         );
     }
 }
