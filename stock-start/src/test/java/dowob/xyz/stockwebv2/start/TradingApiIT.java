@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -130,7 +131,13 @@ class TradingApiIT extends ContainerIT {
             .andExpect(jsonPath("$.data[0].avgCost", equalTo(100.50000000)))
             .andExpect(jsonPath("$.data[0].marketPrice", equalTo(200.00000000)))
             // 10 × (200.00 − 100.50)
-            .andExpect(jsonPath("$.data[0].unrealizedPnl", equalTo(995.00000000)));
+            .andExpect(jsonPath("$.data[0].unrealizedPnl", equalTo(995.00000000)))
+            // D-05：既有金額欄位為原幣，另帶幣別、資產屬性與基準幣市值（基準幣 USD，故等於原幣市值）。
+            .andExpect(jsonPath("$.data[0].currency", equalTo("USD")))
+            .andExpect(jsonPath("$.data[0].assetType", equalTo("STOCK")))
+            .andExpect(jsonPath("$.data[0].sector", equalTo("Tech")))
+            .andExpect(jsonPath("$.data[0].baseCurrency", equalTo("USD")))
+            .andExpect(jsonPath("$.data[0].marketValueInBase", equalTo(2000.00000000)));
 
         mockMvc.perform(post("/api/v1/trades")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -231,6 +238,17 @@ class TradingApiIT extends ContainerIT {
             // 10 × 100.5 USD × 32.418 + 2 × 900 TWD
             .andExpect(jsonPath("$.data.totalCostBasis", equalTo(34380.09000000)))
             .andExpect(jsonPath("$.data.unrealizedPnl", equalTo(32455.91000000)));
+
+        // holdings 的金額維持原幣；marketValueInBase 是折算成 TWD 的市值，供前端算權重。
+        mockMvc.perform(get("/api/v1/portfolio/holdings")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[?(@.symbol=='AAPL')].currency", hasItem("USD")))
+            .andExpect(jsonPath("$.data[?(@.symbol=='AAPL')].marketValue", hasItem(2000.00000000)))
+            .andExpect(jsonPath("$.data[?(@.symbol=='AAPL')].marketValueInBase", hasItem(64836.00000000)))
+            .andExpect(jsonPath("$.data[?(@.symbol=='2330.TW')].currency", hasItem("TWD")))
+            .andExpect(jsonPath("$.data[?(@.symbol=='2330.TW')].marketValueInBase", hasItem(2000.00000000)))
+            .andExpect(jsonPath("$.data[?(@.symbol=='2330.TW')].baseCurrency", hasItem("TWD")));
     }
 
     @Test

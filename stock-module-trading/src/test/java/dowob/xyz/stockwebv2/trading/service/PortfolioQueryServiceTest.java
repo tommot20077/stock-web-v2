@@ -71,6 +71,15 @@ class PortfolioQueryServiceTest {
         fxRateFacade = mock(FxRateFacade.class);
         service = new PortfolioQueryService(
             repository, marketDataFacade, portfolioCache, userPreferenceFacade, assetFacade, fxRateFacade);
+        // 預設：基準幣 TWD、V2 seed 匯率、任何被查的標的都是 USD 的 STOCK；個別測試再覆寫。
+        when(userPreferenceFacade.findBaseCurrency(7L)).thenReturn(CurrencyCode.TWD);
+        when(fxRateFacade.currentRates()).thenReturn(seedRates());
+        when(assetFacade.findProfiles(anyCollection())).thenAnswer(invocation -> {
+            Collection<Long> ids = invocation.getArgument(0);
+            Map<Long, AssetProfile> byId = new java.util.HashMap<>();
+            ids.forEach(id -> byId.put(id, new AssetProfile(id, "SYM" + id, AssetType.STOCK, "US", CurrencyCode.USD, "Tech")));
+            return byId;
+        });
     }
 
     @Test
@@ -131,7 +140,8 @@ class PortfolioQueryServiceTest {
         HoldingDto cachedMsft = new HoldingDto("22222222-2222-2222-2222-222222222222", "MSFT", "MSFT",
             new BigDecimal("5"), new BigDecimal("200"), new BigDecimal("1000"), new BigDecimal("210"),
             new BigDecimal("1050"), BigDecimal.ZERO, new BigDecimal("50"), new BigDecimal("0.05"),
-            OffsetDateTime.parse("2026-09-04T10:00:00+08:00"), OffsetDateTime.parse("2026-09-01T00:00:00+08:00"));
+            OffsetDateTime.parse("2026-09-04T10:00:00+08:00"), OffsetDateTime.parse("2026-09-01T00:00:00+08:00"),
+            "USD", "STOCK", "Tech", null, null);
         when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of(42L, cachedMsft));
         when(marketDataFacade.findLatestPrices(anyCollection())).thenReturn(Map.of(
             41L, new LatestMarketPrice(new BigDecimal("150"), OffsetDateTime.parse("2026-09-04T10:00:00+08:00")),
@@ -140,7 +150,9 @@ class PortfolioQueryServiceTest {
         List<HoldingDto> holdings = service.listHoldings(7L);
 
         assertThat(holdings).extracting(HoldingDto::symbol).containsExactly("AAPL", "MSFT", "NVDA");
-        assertThat(holdings.get(1)).isSameAs(cachedMsft);
+        // 快取命中者不重算估值；只在回傳時依本次基準幣補上 baseCurrency / marketValueInBase（新 record，非同一實例）。
+        assertThat(holdings.get(1)).usingRecursiveComparison()
+            .ignoringFields("baseCurrency", "marketValueInBase").isEqualTo(cachedMsft);
         assertThat(holdings.get(0).marketPrice()).isEqualByComparingTo("150");
         assertThat(holdings.get(2).marketPrice()).isEqualByComparingTo("310");
 
@@ -266,6 +278,122 @@ class PortfolioQueryServiceTest {
         PortfolioSummaryDto dto = service.summary(7L);
 
         verify(portfolioCache).writeSummary(7L, CurrencyCode.TWD, dto);
+    }
+
+    @Test
+    @DisplayName("持倉帶原幣幣別、資產類型、產業與基準幣市值；既有 marketValue 維持原幣")
+    void holdingsCarryProfileFieldsAndBaseValuation() {
+        HoldingPosition aapl = position(1L, 41L, "AAPL", new BigDecimal("10"), new BigDecimal("100"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(aapl));
+        when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of());
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(profiles());
+        when(marketDataFacade.findLatestPrices(anyCollection())).thenReturn(Map.of(
+            41L, new LatestMarketPrice(new BigDecimal("200"), OffsetDateTime.parse("2026-09-04T10:00:00+08:00"))));
+
+        HoldingDto dto = service.listHoldings(7L).getFirst();
+
+        assertThat(dto.currency()).isEqualTo("USD");
+        assertThat(dto.assetType()).isEqualTo("STOCK");
+        assertThat(dto.sector()).isEqualTo("Tech");
+        assertThat(dto.baseCurrency()).isEqualTo("TWD");
+        assertThat(dto.marketValue()).isEqualByComparingTo("2000.00000000");
+        assertThat(dto.marketValueInBase()).isEqualByComparingTo("64836.00000000");
+    }
+
+    @Test
+    @DisplayName("換不到匯率時 marketValueInBase 為 null，其餘欄位照常")
+    void holdingWithoutRateHasNullMarketValueInBase() {
+        when(fxRateFacade.currentRates()).thenReturn(FxRates.empty());
+        HoldingPosition aapl = position(1L, 41L, "AAPL", new BigDecimal("10"), new BigDecimal("100"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(aapl));
+        when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of());
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(profiles());
+        when(marketDataFacade.findLatestPrices(anyCollection())).thenReturn(Map.of(
+            41L, new LatestMarketPrice(new BigDecimal("200"), OffsetDateTime.parse("2026-09-04T10:00:00+08:00"))));
+
+        HoldingDto dto = service.listHoldings(7L).getFirst();
+
+        assertThat(dto.marketValueInBase()).isNull();
+        assertThat(dto.baseCurrency()).isEqualTo("TWD");
+        assertThat(dto.currency()).isEqualTo("USD");
+        assertThat(dto.marketValue()).isEqualByComparingTo("2000.00000000");
+    }
+
+    @Test
+    @DisplayName("快取中的原幣持倉依本次基準幣重新折算，快取內容不被覆寫成基準幣值")
+    void cachedHoldingIsReconvertedWithCurrentBase() {
+        when(userPreferenceFacade.findBaseCurrency(7L)).thenReturn(CurrencyCode.USD);
+        HoldingPosition tsmc = position(2L, 43L, "2330.TW", new BigDecimal("2"), new BigDecimal("900"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(tsmc));
+        HoldingDto cachedOriginal = new HoldingDto("u", "2330.TW", "TSMC",
+            new BigDecimal("2"), new BigDecimal("900"), new BigDecimal("1800"), new BigDecimal("1000"),
+            new BigDecimal("2000"), BigDecimal.ZERO, new BigDecimal("200"), new BigDecimal("0.11111111"),
+            OffsetDateTime.parse("2026-09-04T10:00:00+08:00"), OffsetDateTime.parse("2026-09-01T00:00:00+08:00"),
+            "TWD", "STOCK", "Tech", null, null);
+        when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of(43L, cachedOriginal));
+
+        HoldingDto dto = service.listHoldings(7L).getFirst();
+
+        assertThat(dto.baseCurrency()).isEqualTo("USD");
+        assertThat(dto.marketValueInBase()).isEqualByComparingTo("61.69400000");
+        assertThat(dto.marketValue()).isEqualByComparingTo("2000");
+        assertThat(cachedOriginal.baseCurrency()).isNull();
+        assertThat(cachedOriginal.marketValueInBase()).isNull();
+        verify(portfolioCache, never()).writeHolding(anyLong(), anyLong(), any(HoldingDto.class));
+    }
+
+    @Test
+    @DisplayName("持倉快取全部未命中時各 Facade 各一次批次呼叫；全部命中時只剩基準幣與匯率")
+    void holdingsMissPathCallsEachFacadeOnce() {
+        HoldingPosition aapl = position(1L, 41L, "AAPL", new BigDecimal("10"), new BigDecimal("100"));
+        HoldingPosition msft = position(2L, 42L, "MSFT", new BigDecimal("5"), new BigDecimal("200"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(aapl, msft));
+        when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of());
+        when(marketDataFacade.findLatestPrices(anyCollection())).thenReturn(Map.of());
+
+        service.listHoldings(7L);
+
+        verify(userPreferenceFacade, times(1)).findBaseCurrency(7L);
+        verify(assetFacade, times(1)).findProfiles(anyCollection());
+        verify(marketDataFacade, times(1)).findLatestPrices(anyCollection());
+        verify(fxRateFacade, times(1)).currentRates();
+    }
+
+    @Test
+    @DisplayName("持倉快取全部命中時只呼叫基準幣與匯率，不查資產屬性也不取價")
+    void holdingsHitPathOnlyResolvesBaseCurrencyAndRates() {
+        HoldingPosition aapl = position(1L, 41L, "AAPL", new BigDecimal("10"), new BigDecimal("100"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(aapl));
+        HoldingDto cached = new HoldingDto("u", "AAPL", "AAPL",
+            new BigDecimal("10"), new BigDecimal("100"), new BigDecimal("1000"), new BigDecimal("200"),
+            new BigDecimal("2000"), BigDecimal.ZERO, new BigDecimal("1000"), new BigDecimal("1"),
+            OffsetDateTime.parse("2026-09-04T10:00:00+08:00"), OffsetDateTime.parse("2026-09-01T00:00:00+08:00"),
+            "USD", "STOCK", "Tech", null, null);
+        when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of(41L, cached));
+
+        service.listHoldings(7L);
+
+        verify(userPreferenceFacade, times(1)).findBaseCurrency(7L);
+        verify(fxRateFacade, times(1)).currentRates();
+        verify(assetFacade, never()).findProfiles(anyCollection());
+        verify(marketDataFacade, never()).findLatestPrices(anyCollection());
+    }
+
+    @Test
+    @DisplayName("資產沒有產業分類時 sector 為 null，由前端顯示「未分類」")
+    void sectorNullIsPassedThrough() {
+        HoldingPosition usdTwd = position(1L, 44L, "USDTWD", new BigDecimal("1000"), new BigDecimal("32"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(usdTwd));
+        when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of());
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(Map.of(
+            44L, new AssetProfile(44L, "USDTWD", AssetType.FX, "FX", CurrencyCode.TWD, null)));
+        when(marketDataFacade.findLatestPrices(anyCollection())).thenReturn(Map.of());
+
+        HoldingDto dto = service.listHoldings(7L).getFirst();
+
+        assertThat(dto.sector()).isNull();
+        assertThat(dto.assetType()).isEqualTo("FX");
+        assertThat(dto.currency()).isEqualTo("TWD");
     }
 
     /**
