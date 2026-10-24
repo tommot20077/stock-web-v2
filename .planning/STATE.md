@@ -1,17 +1,21 @@
 ---
-gsd_state_version: 1.0
+gsd_state_version: "1.0"
 milestone: v1.0
-milestone_name: milestone
-status: Phase 04.1 CONTEXT ready (04.2 split out 2026-09-28); next up /gsd-plan-phase 04.1
-stopped_at: Phase 04.1 context gathered (04.2 split out)
-last_updated: "2026-10-23T10:40:00.000Z"
-last_activity: 2026-10-23 -- 狀態檔回填(todos / ROADMAP / REQUIREMENTS 對齊實況);JWT JWK 產生器與 demo 金鑰
+current_phase: "04.1"
+current_phase_name: "Backend Data Gap Backfill"
+status: Phase 04.1 planning in progress (RESEARCH / VALIDATION / UI-SPEC done; planner next)
+stopped_at: Phase 04.1 UI-SPEC approved
+last_updated: "2026-10-24T07:40:57.760Z"
+last_activity: 2026-10-24
+last_activity_desc: "Phase 04.1 plan-phase:RESEARCH、VALIDATION、UI-SPEC(approved)完成;Yuan 補充裁決 D-23 ~ D-30"
+state_head: a6a64066aec0f3faf8ac8886fe7adced8a4036ff
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 28
   completed_plans: 28
   percent: 57
+milestone_name: milestone
 ---
 
 # Project State
@@ -203,10 +207,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-27T16:37:42.750Z
-Stopped at: Phase 04.1 context gathered (04.2 split out)
+Last session: 2026-10-24T07:40:57.624Z
+Stopped at: Phase 04.1 UI-SPEC approved
 前端契約凍結(見 04-05-SUMMARY 末節)。
-Resume file: .planning/phases/04.1-backend-data-gap-backfill/04.1-CONTEXT.md
+Resume file: .planning/phases/04.1-backend-data-gap-backfill/04.1-UI-SPEC.md
 Next action: `/gsd-plan-phase 04.1`。
 
 ~~**前端 repo 的狀態**:04-06 ~ 04-09 的 commit 只在本機、分支未推送。~~
