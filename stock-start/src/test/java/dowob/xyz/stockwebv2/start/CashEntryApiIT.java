@@ -2,6 +2,8 @@ package dowob.xyz.stockwebv2.start;
 
 import dowob.xyz.stockwebv2.start.support.ContainerIT;
 
+import jakarta.servlet.http.Cookie;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,6 +13,10 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,7 +35,8 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p>先鎖「入金一筆寫入並回 DTO」與「出金不受餘額限制」兩條主線（D-01 / D-08），
  * 再鎖冪等語意（D-11）：同 key 同 payload 回既有、改 payload 回 409、只改 note 視為同一筆、
- * 省略 occurredAt 的重送仍命中、跨使用者隔離。</p>
+ * 省略 occurredAt 的重送仍命中、跨使用者隔離；最後是輸入邊界：欄位級錯誤（{@code error.fields}）、
+ * 錯誤不回射使用者輸入、cookie 登入未帶 CSRF 被擋、格式錯誤的 JSON body 回 400。</p>
  *
  * @author Yuan
  * @version 1.0
@@ -183,6 +190,184 @@ class CashEntryApiIT extends ContainerIT {
 
         assertThat(secondId).isEqualTo(firstId);
         assertThat(rowCount(email)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("缺少 Idempotency-Key header：400 VALIDATION_FAILED，fields 指名 Idempotency-Key，帳本無新增")
+    void missingIdempotencyKeyHeaderNamesTheHeader() throws Exception {
+        String email = "cash-val-nokey-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashval" + UUID.randomUUID().toString().substring(0, 8));
+
+        mockMvc.perform(post("/api/v1/portfolio/cash-entries")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + accessToken)
+                .content("""
+                    {"type":"DEPOSIT","currency":"TWD","amount":100}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields['Idempotency-Key']").exists());
+
+        assertThat(rowCount(email)).isZero();
+    }
+
+    @Test
+    @DisplayName("Idempotency-Key 129 字元：400，fields 指名 Idempotency-Key，帳本無新增")
+    void oversizedIdempotencyKeyNamesTheHeader() throws Exception {
+        String email = "cash-val-longkey-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashval" + UUID.randomUUID().toString().substring(0, 8));
+
+        postEntry(accessToken, "k".repeat(129), """
+            {"type":"DEPOSIT","currency":"TWD","amount":100}
+            """)
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields['Idempotency-Key']").exists());
+
+        assertThat(rowCount(email)).isZero();
+    }
+
+    @Test
+    @DisplayName("currency GBP：400，fields.currency")
+    void unsupportedCurrencyNamesTheField() throws Exception {
+        String accessToken = register(
+            "cash-val-ccy-" + UUID.randomUUID() + "@example.com",
+            "cashval" + UUID.randomUUID().toString().substring(0, 8));
+
+        postEntry(accessToken, UUID.randomUUID().toString(), """
+            {"type":"DEPOSIT","currency":"GBP","amount":100}
+            """)
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields.currency").exists());
+    }
+
+    @Test
+    @DisplayName("type TRANSFER：400，fields.type")
+    void unsupportedTypeNamesTheField() throws Exception {
+        String accessToken = register(
+            "cash-val-type-" + UUID.randomUUID() + "@example.com",
+            "cashval" + UUID.randomUUID().toString().substring(0, 8));
+
+        postEntry(accessToken, UUID.randomUUID().toString(), """
+            {"type":"TRANSFER","currency":"TWD","amount":100}
+            """)
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields.type").exists());
+    }
+
+    @Test
+    @DisplayName("amount 0：400，fields.amount，帳本無新增")
+    void zeroAmountNamesTheField() throws Exception {
+        String email = "cash-val-amt-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashval" + UUID.randomUUID().toString().substring(0, 8));
+
+        postEntry(accessToken, UUID.randomUUID().toString(), """
+            {"type":"DEPOSIT","currency":"TWD","amount":0}
+            """)
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields.amount").exists());
+
+        assertThat(rowCount(email)).isZero();
+    }
+
+    @Test
+    @DisplayName("occurredAt 為未來（+1 天）：400，fields.occurredAt，帳本無新增")
+    void futureOccurredAtNamesTheField() throws Exception {
+        String email = "cash-val-future-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashval" + UUID.randomUUID().toString().substring(0, 8));
+        String future = OffsetDateTime.now(ZoneOffset.UTC).plusDays(1).toString();
+
+        postEntry(accessToken, UUID.randomUUID().toString(), """
+            {"type":"DEPOSIT","currency":"TWD","amount":100,"occurredAt":"%s"}
+            """.formatted(future))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields.occurredAt", equalTo("must not be in the future")));
+
+        assertThat(rowCount(email)).isZero();
+    }
+
+    @Test
+    @DisplayName("所有錯誤回應的完整 body 都不回射使用者送出的 key 或備註（canary）")
+    void errorResponsesNeverEchoUserControlledInput() throws Exception {
+        String accessToken = register(
+            "cash-val-canary-" + UUID.randomUUID() + "@example.com",
+            "cashval" + UUID.randomUUID().toString().substring(0, 8));
+        String canaryNote = "CANARY-NOTE-" + UUID.randomUUID();
+        String canaryKey = "CANARY-KEY-" + UUID.randomUUID();
+
+        // 先成功建立一筆，才能製造同 key 不同 payload 的 409。
+        postEntry(accessToken, canaryKey, """
+            {"type":"DEPOSIT","currency":"TWD","amount":100,"occurredAt":"2026-10-01T09:00:00+08:00"}
+            """).andExpect(status().isOk());
+
+        List<String> errorBodies = new ArrayList<>();
+        errorBodies.add(postEntry(accessToken, canaryKey, """
+            {"type":"DEPOSIT","currency":"TWD","amount":101,"note":"%s","occurredAt":"2026-10-01T09:00:00+08:00"}
+            """.formatted(canaryNote)).andExpect(status().isConflict()).andReturn().getResponse().getContentAsString());
+        errorBodies.add(postEntry(accessToken, canaryKey + "x".repeat(130), """
+            {"type":"DEPOSIT","currency":"TWD","amount":100,"note":"%s"}
+            """.formatted(canaryNote)).andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString());
+        errorBodies.add(postEntry(accessToken, canaryKey + "-gbp", """
+            {"type":"DEPOSIT","currency":"GBP","amount":100,"note":"%s"}
+            """.formatted(canaryNote)).andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString());
+        errorBodies.add(postEntry(accessToken, canaryKey + "-future", """
+            {"type":"DEPOSIT","currency":"TWD","amount":100,"note":"%s","occurredAt":"%s"}
+            """.formatted(canaryNote, OffsetDateTime.now(ZoneOffset.UTC).plusDays(1)))
+            .andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString());
+        errorBodies.add(postEntry(accessToken, "   ", """
+            {"type":"DEPOSIT","currency":"TWD","amount":100,"note":"%s"}
+            """.formatted(canaryNote)).andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString());
+
+        assertThat(errorBodies).hasSize(5).allSatisfy(body -> assertThat(body)
+            .doesNotContain("CANARY-KEY-")
+            .doesNotContain("CANARY-NOTE-"));
+    }
+
+    @Test
+    @DisplayName("cookie 登入但未帶 CSRF header 的 POST：403 AUTH_CSRF_TOKEN_INVALID，帳本無新增（negative test）")
+    void cookieAuthenticatedPostWithoutCsrfIsForbidden() throws Exception {
+        String email = "cash-csrf-" + UUID.randomUUID() + "@example.com";
+        register(email, "cashcsrf" + UUID.randomUUID().toString().substring(0, 8));
+        Cookie accessCookie = mockMvc.perform(post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"email":"%s","password":"Password1"}
+                    """.formatted(email)))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getCookie("stock_access");
+
+        mockMvc.perform(post("/api/v1/portfolio/cash-entries")
+                .cookie(accessCookie)
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .content("""
+                    {"type":"DEPOSIT","currency":"TWD","amount":100}
+                    """))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.success", equalTo(false)))
+            .andExpect(jsonPath("$.error.code", equalTo("AUTH_CSRF_TOKEN_INVALID")));
+
+        assertThat(rowCount(email)).isZero();
+    }
+
+    @Test
+    @DisplayName("格式錯誤的 JSON body：400 VALIDATION_FAILED（D-27，不是 500）")
+    void malformedJsonBodyIsBadRequest() throws Exception {
+        String email = "cash-val-json-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashval" + UUID.randomUUID().toString().substring(0, 8));
+
+        postEntry(accessToken, UUID.randomUUID().toString(), "{\"type\":")
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.success", equalTo(false)))
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")));
+
+        assertThat(rowCount(email)).isZero();
     }
 
     private String entryIdOf(ResultActions result) throws Exception {
