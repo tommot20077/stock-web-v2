@@ -62,7 +62,7 @@ The tables above are the original design. **The implemented keys below are the r
 | `market:latest:{assetId}` | 5 min | market-data | design says `cache:market:latest:*`, 30 s |
 | `market:backfill:idem:{key}` | 1 h | market-data | backfill idempotency; not in design |
 | `portfolio:valuation:v2:{userId}:{assetId}` | 60 s | trading | stores the **original-currency** `HoldingDto` (`baseCurrency` / `marketValueInBase` are null); `v2` (2026-10-24, Phase 04.1) keeps old- and new-shape JSON from reading each other during a rolling deploy, old keys expire within 60 s; design says `cache:portfolio:*`, 5 min |
-| `portfolio:summary:v2:{userId}:{baseCurrency}` | 60 s | trading | amounts are in `baseCurrency` (D-05); the key includes it so switching base currency misses immediately (the user module cannot invalidate trading's cache); a committed trade deletes the holding key plus the `USD/TWD/EUR/JPY` summary keys; `v2` for the same deploy-compat reason as above; design says `cache:dashboard:*`, 5 min |
+| `portfolio:summary:v2:{userId}:{baseCurrency}` | 60 s | trading | amounts are in `baseCurrency` (D-05); the key includes it so switching base currency misses immediately (the user module cannot invalidate trading's cache); a committed trade deletes the holding key plus the `USD/TWD/EUR/JPY` summary keys, and a committed cash entry (including a reversal) deletes only the four summary keys because cash lives inside the cached summary; `v2` for the same deploy-compat reason as above; design says `cache:dashboard:*`, 5 min |
 
 Not implemented: `user:permissions:*`, `cache:risk:*`.
 

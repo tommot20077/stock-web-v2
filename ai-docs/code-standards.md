@@ -110,12 +110,12 @@ As implemented (2026-09-27), derived portfolio data is **computed on read and ca
 
 1. **Read Redis first** — cache hit returns immediately (batch `MGET` for many assets)
 2. **Miss → compute** from `holdings` + `MarketDataFacade` prices, then write the cache with a short TTL
-3. **Invalidate after commit** — trade writes evict the user's portfolio keys in `afterCommit`, never before (otherwise a concurrent read re-caches pre-trade data)
+3. **Invalidate after commit** — trade writes evict the user's portfolio keys, and cash-entry writes (including reversals) evict the user's summary keys, both in `afterCommit`, never before (otherwise a concurrent read re-caches pre-write data)
 
 | Data | Redis Key Pattern | TTL | Invalidation |
 |------|------------------|-----|--------------|
-| Holding valuation | `portfolio:valuation:{userId}:{assetId}` | 60 s | after trade commit |
-| Portfolio summary | `portfolio:summary:{userId}` | 60 s | after trade commit |
+| Holding valuation | `portfolio:valuation:v2:{userId}:{assetId}` | 60 s | after trade commit |
+| Portfolio summary | `portfolio:summary:v2:{userId}:{baseCurrency}` | 60 s | after trade commit; after cash-entry commit (all four `baseCurrency` keys, holding keys untouched) |
 | Latest price (market-data) | `market:latest:{assetId}` | 5 min | overwritten per tick |
 
 Risk indicators and a `portfolio_valuations` table are not implemented. If price-driven revaluation is ever needed, revisit this section rather than adding a parallel mechanism.
