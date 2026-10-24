@@ -27,6 +27,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -88,6 +89,8 @@ class TradingApiIT extends ContainerIT {
     @Test
     void buyThenSellUpdatesHoldingsAndPortfolioSummary() throws Exception {
         AuthTokens tokens = register("trading-owner@example.com", "tradingowner", "Password1");
+        // D-05：金額欄位改以基準幣表示；本測試的期望值是 USD 單幣數字，故先把基準幣切到 USD。
+        patchBaseCurrency(tokens, "USD");
 
         String buyResponse = mockMvc.perform(post("/api/v1/trades")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -142,6 +145,7 @@ class TradingApiIT extends ContainerIT {
         mockMvc.perform(get("/api/v1/portfolio/summary")
                 .header("Authorization", "Bearer " + tokens.accessToken()))
             .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.baseCurrency", equalTo("USD")))
             .andExpect(jsonPath("$.data.holdingCount", equalTo(1)))
             .andExpect(jsonPath("$.data.totalCostBasis", equalTo(603.00000000)))
             // 賣掉 4 股後剩 6 股：6 × 200.00
@@ -179,6 +183,7 @@ class TradingApiIT extends ContainerIT {
     @Test
     void fullyClosedPositionStillCountsRealizedPnlInSummary() throws Exception {
         AuthTokens tokens = register("trading-fullclose@example.com", "tradingfullclose", "Password1");
+        patchBaseCurrency(tokens, "USD");
 
         mockMvc.perform(post("/api/v1/trades")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -202,9 +207,107 @@ class TradingApiIT extends ContainerIT {
         mockMvc.perform(get("/api/v1/portfolio/summary")
                 .header("Authorization", "Bearer " + tokens.accessToken()))
             .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.baseCurrency", equalTo("USD")))
             .andExpect(jsonPath("$.data.holdingCount", equalTo(0)))
             .andExpect(jsonPath("$.data.realizedPnl", equalTo(194.00000000)))
             .andExpect(jsonPath("$.data.totalPnl", equalTo(194.00000000)));
+    }
+
+    @Test
+    void summaryConvertsMixedCurrencyHoldingsToTwdBase() throws Exception {
+        AuthTokens tokens = register("trading-mixed-twd@example.com", "tradingmixedtwd", "Password1");
+        buyAaplAndTsmc(tokens);
+
+        // 新註冊使用者的基準幣預設為 TWD（V14）。
+        mockMvc.perform(get("/api/v1/portfolio/summary")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.baseCurrency", equalTo("TWD")))
+            .andExpect(jsonPath("$.data.holdingCount", equalTo(2)))
+            .andExpect(jsonPath("$.data.fxExcludedCount", equalTo(0)))
+            .andExpect(jsonPath("$.data.unconvertedCurrencies.length()", equalTo(0)))
+            // 10 × 200 USD × 32.418 + 2 × 1000 TWD
+            .andExpect(jsonPath("$.data.totalMarketValue", equalTo(66836.00000000)))
+            // 10 × 100.5 USD × 32.418 + 2 × 900 TWD
+            .andExpect(jsonPath("$.data.totalCostBasis", equalTo(34380.09000000)))
+            .andExpect(jsonPath("$.data.unrealizedPnl", equalTo(32455.91000000)));
+    }
+
+    @Test
+    void realizedPnlAcrossCurrenciesIsConvertedToBase() throws Exception {
+        AuthTokens tokens = register("trading-mixed-realized@example.com", "tradingmixedrealized", "Password1");
+        createTrade(tokens, """
+            {"symbol":"AAPL","type":"BUY","quantity":10,"price":100,"fee":5}
+            """);
+        createTrade(tokens, """
+            {"symbol":"AAPL","type":"SELL","quantity":10,"price":120,"fee":1}
+            """);
+        createTrade(tokens, """
+            {"symbol":"2330.TW","type":"BUY","quantity":2,"price":900,"fee":0}
+            """);
+        createTrade(tokens, """
+            {"symbol":"2330.TW","type":"SELL","quantity":2,"price":950,"fee":0}
+            """);
+
+        // 兩檔皆已平倉：194 USD × 32.418 + 100 TWD，逐資產折算後加總。
+        mockMvc.perform(get("/api/v1/portfolio/summary")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.baseCurrency", equalTo("TWD")))
+            .andExpect(jsonPath("$.data.holdingCount", equalTo(0)))
+            .andExpect(jsonPath("$.data.realizedPnl", equalTo(6389.09200000)))
+            .andExpect(jsonPath("$.data.totalPnl", equalTo(6389.09200000)));
+    }
+
+    @Test
+    void summaryReflectsBaseCurrencySwitchImmediately() throws Exception {
+        AuthTokens tokens = register("trading-switch@example.com", "tradingswitch", "Password1");
+        buyAaplAndTsmc(tokens);
+
+        mockMvc.perform(get("/api/v1/portfolio/summary")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.baseCurrency", equalTo("TWD")))
+            .andExpect(jsonPath("$.data.totalMarketValue", equalTo(66836.00000000)));
+
+        patchBaseCurrency(tokens, "USD");
+
+        // 60 秒快取尚未過期，但 summary 鍵含基準幣，切換後必須立即拿到新幣別的值（Pitfall 4）。
+        // 10 × 200 USD + 2 × 1000 TWD × 0.030847（直接列）
+        mockMvc.perform(get("/api/v1/portfolio/summary")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.baseCurrency", equalTo("USD")))
+            .andExpect(jsonPath("$.data.totalMarketValue", equalTo(2061.69400000)));
+    }
+
+    /**
+     * 買入 AAPL（USD）10 股均價 100.5 與 2330.TW（TWD）2 股均價 900，並將兩檔市價寫為 200 / 1000。
+     *
+     * @param tokens 交易擁有者的權杖
+     */
+    private void buyAaplAndTsmc(AuthTokens tokens) throws Exception {
+        createTrade(tokens, buyBody());
+        createTrade(tokens, """
+            {"symbol":"2330.TW","type":"BUY","quantity":2,"price":900,"fee":0}
+            """);
+        seedMarketPrice("AAPL", new BigDecimal("200.00"));
+        seedMarketPrice("2330.TW", new BigDecimal("1000.00"));
+    }
+
+    /**
+     * 以 bearer 呼叫 {@code PATCH /api/v1/me/preferences} 切換基準幣。
+     *
+     * @param tokens       使用者權杖
+     * @param baseCurrency 目標基準幣代碼
+     */
+    private void patchBaseCurrency(AuthTokens tokens, String baseCurrency) throws Exception {
+        mockMvc.perform(patch("/api/v1/me/preferences")
+                .header("Authorization", "Bearer " + tokens.accessToken())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"baseCurrency\":\"" + baseCurrency + "\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.baseCurrency", equalTo(baseCurrency)));
     }
 
     @Test

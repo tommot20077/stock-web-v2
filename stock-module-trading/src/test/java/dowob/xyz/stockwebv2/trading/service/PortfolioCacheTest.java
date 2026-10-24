@@ -1,6 +1,8 @@
 package dowob.xyz.stockwebv2.trading.service;
 
+import dowob.xyz.stockwebv2.common.model.CurrencyCode;
 import dowob.xyz.stockwebv2.trading.api.HoldingDto;
+import dowob.xyz.stockwebv2.trading.api.PortfolioSummaryDto;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,11 +13,15 @@ import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionSynchronizationUtils;
 
+import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -69,13 +75,18 @@ class PortfolioCacheTest {
 
         cache.invalidateAfterTrade(7L, 42L);
 
-        verify(redisTemplate, never()).delete("portfolio:valuation:7:42");
-        verify(redisTemplate, never()).delete("portfolio:summary:7");
+        verify(redisTemplate, never()).delete("portfolio:valuation:v2:7:42");
+        for (CurrencyCode base : CurrencyCode.values()) {
+            verify(redisTemplate, never()).delete("portfolio:summary:v2:7:" + base.name());
+        }
 
         TransactionSynchronizationUtils.triggerAfterCommit();
 
-        verify(redisTemplate).delete("portfolio:valuation:7:42");
-        verify(redisTemplate).delete("portfolio:summary:7");
+        verify(redisTemplate).delete("portfolio:valuation:v2:7:42");
+        verify(redisTemplate).delete("portfolio:summary:v2:7:USD");
+        verify(redisTemplate).delete("portfolio:summary:v2:7:TWD");
+        verify(redisTemplate).delete("portfolio:summary:v2:7:EUR");
+        verify(redisTemplate).delete("portfolio:summary:v2:7:JPY");
     }
 
     @Test
@@ -83,8 +94,29 @@ class PortfolioCacheTest {
     void invalidatesImmediatelyWithoutTransaction() {
         cache.invalidateAfterTrade(7L, 42L);
 
-        verify(redisTemplate).delete("portfolio:valuation:7:42");
-        verify(redisTemplate).delete("portfolio:summary:7");
+        verify(redisTemplate).delete("portfolio:valuation:v2:7:42");
+        for (CurrencyCode base : CurrencyCode.values()) {
+            verify(redisTemplate).delete("portfolio:summary:v2:7:" + base.name());
+        }
+    }
+
+    @Test
+    @DisplayName("summary 快取鍵含版本與基準幣：portfolio:summary:v2:{userId}:{baseCurrency}")
+    @SuppressWarnings("unchecked")
+    void summaryKeyIncludesVersionAndBaseCurrency() {
+        ValueOperations<String, String> valueOps = mock(ValueOperations.class);
+        when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        when(valueOps.get("portfolio:summary:v2:7:TWD")).thenReturn(null);
+
+        assertThat(cache.readSummary(7L, CurrencyCode.TWD)).isEmpty();
+        verify(valueOps).get("portfolio:summary:v2:7:TWD");
+
+        PortfolioSummaryDto dto = new PortfolioSummaryDto(
+            BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+            1, "TWD", 0, List.of());
+        cache.writeSummary(7L, CurrencyCode.TWD, dto);
+
+        verify(valueOps).set(eq("portfolio:summary:v2:7:TWD"), anyString(), eq(Duration.ofSeconds(60)));
     }
 
     @Test
@@ -93,7 +125,7 @@ class PortfolioCacheTest {
     void readHoldingsUsesSingleMultiGet() {
         ValueOperations<String, String> valueOps = mock(ValueOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.multiGet(List.of("portfolio:valuation:7:41", "portfolio:valuation:7:42"))).thenReturn(Arrays.asList(
+        when(valueOps.multiGet(List.of("portfolio:valuation:v2:7:41", "portfolio:valuation:v2:7:42"))).thenReturn(Arrays.asList(
             null,
             "{\"assetId\":\"u\",\"symbol\":\"MSFT\",\"assetName\":\"MSFT\",\"totalQuantity\":5,\"avgCost\":200,"
                 + "\"costBasis\":1000,\"marketPrice\":210,\"marketValue\":1050,\"realizedPnl\":0,\"unrealizedPnl\":50,"
@@ -103,7 +135,7 @@ class PortfolioCacheTest {
 
         assertThat(cached).containsOnlyKeys(42L);
         assertThat(cached.get(42L).symbol()).isEqualTo("MSFT");
-        verify(valueOps, times(1)).multiGet(List.of("portfolio:valuation:7:41", "portfolio:valuation:7:42"));
+        verify(valueOps, times(1)).multiGet(List.of("portfolio:valuation:v2:7:41", "portfolio:valuation:v2:7:42"));
     }
 
     @Test
