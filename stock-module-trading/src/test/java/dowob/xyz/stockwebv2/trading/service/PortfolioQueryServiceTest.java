@@ -11,12 +11,14 @@ import dowob.xyz.stockwebv2.infrastructure.fx.FxRates;
 import dowob.xyz.stockwebv2.infrastructure.marketdata.DailyQuote;
 import dowob.xyz.stockwebv2.infrastructure.marketdata.MarketDataFacade;
 import dowob.xyz.stockwebv2.infrastructure.user.UserPreferenceFacade;
+import dowob.xyz.stockwebv2.trading.api.CashBalanceDto;
 import dowob.xyz.stockwebv2.trading.api.HoldingDto;
 import dowob.xyz.stockwebv2.trading.api.PortfolioSummaryDto;
 import dowob.xyz.stockwebv2.trading.domain.DayFill;
 import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
 import dowob.xyz.stockwebv2.trading.domain.HoldingSnapshot;
 import dowob.xyz.stockwebv2.trading.domain.TradeType;
+import dowob.xyz.stockwebv2.trading.repository.CashLedgerRepository;
 import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -63,6 +65,7 @@ class PortfolioQueryServiceTest {
     private static final OffsetDateTime PRICE_TIME = OffsetDateTime.parse("2026-09-04T10:00:00-04:00");
 
     private TradingRepository repository;
+    private CashLedgerRepository cashLedgerRepository;
     private MarketDataFacade marketDataFacade;
     private PortfolioCache portfolioCache;
     private UserPreferenceFacade userPreferenceFacade;
@@ -73,13 +76,15 @@ class PortfolioQueryServiceTest {
     @BeforeEach
     void setup() {
         repository = mock(TradingRepository.class);
+        cashLedgerRepository = mock(CashLedgerRepository.class);
         marketDataFacade = mock(MarketDataFacade.class);
         portfolioCache = mock(PortfolioCache.class);
         userPreferenceFacade = mock(UserPreferenceFacade.class);
         assetFacade = mock(AssetFacade.class);
         fxRateFacade = mock(FxRateFacade.class);
         service = new PortfolioQueryService(
-            repository, marketDataFacade, portfolioCache, userPreferenceFacade, assetFacade, fxRateFacade);
+            repository, cashLedgerRepository, marketDataFacade, portfolioCache, userPreferenceFacade, assetFacade,
+            fxRateFacade);
         // 預設：基準幣 TWD、V2 seed 匯率、任何被查的標的都是 USD 的 STOCK；個別測試再覆寫。
         when(userPreferenceFacade.findBaseCurrency(7L)).thenReturn(CurrencyCode.TWD);
         when(fxRateFacade.currentRates()).thenReturn(seedRates());
@@ -255,7 +260,7 @@ class PortfolioQueryServiceTest {
         when(userPreferenceFacade.findBaseCurrency(7L)).thenReturn(CurrencyCode.TWD);
         PortfolioSummaryDto cached = new PortfolioSummaryDto(
             BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-            0, "TWD", 0, List.of(), null, null, 0);
+            0, "TWD", 0, List.of(), null, null, 0, BigDecimal.ZERO, BigDecimal.ONE, List.of());
         when(portfolioCache.readSummary(7L, CurrencyCode.TWD)).thenReturn(Optional.of(cached));
 
         PortfolioSummaryDto dto = service.summary(7L);
@@ -263,6 +268,112 @@ class PortfolioQueryServiceTest {
         assertThat(dto).isSameAs(cached);
         verify(userPreferenceFacade, times(1)).findBaseCurrency(7L);
         verifyNoInteractions(assetFacade, fxRateFacade, marketDataFacade);
+    }
+
+    @Test
+    @DisplayName("可用現金依幣別推導：入出金淨額 + 交易現金流（以標的幣別），折成基準幣後併入總資產（D-06 ~ D-10、D-22）")
+    void cashIsDerivedFromLedgerAndTradeFlowsPerAssetCurrency() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        givenMixedPortfolio(BigDecimal.ZERO, BigDecimal.ZERO);
+        when(cashLedgerRepository.netByCurrency(7L)).thenReturn(Map.of(CurrencyCode.TWD, new BigDecimal("50000")));
+        when(repository.tradeCashFlowByAsset(7L)).thenReturn(Map.of(41L, new BigDecimal("-1000")));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        // 各幣別原幣餘額依 CurrencyCode 宣告順序（USD、TWD、EUR、JPY）
+        assertThat(dto.cashBalances()).extracting(CashBalanceDto::currency).containsExactly("USD", "TWD");
+        assertThat(dto.cashBalances().get(0).amount()).isEqualByComparingTo("-1000");
+        assertThat(dto.cashBalances().get(1).amount()).isEqualByComparingTo("50000");
+        // −1000 USD × 32.418 + 50000 TWD
+        assertThat(dto.cash()).isEqualByComparingTo("17582.00000000");
+        assertThat(dto.totalEquity()).isEqualByComparingTo(dto.totalMarketValue().add(dto.cash()));
+        assertThat(dto.totalEquity()).isEqualByComparingTo("84418.00000000");
+        // roi 語意不變（D-22）：仍是 totalPnl / totalCostBasis，不含現金
+        assertThat(dto.totalPnl()).isEqualByComparingTo("32455.91000000");
+        assertThat(dto.roi()).isEqualByComparingTo("0.94403214");
+    }
+
+    @Test
+    @DisplayName("只買不入金的現金為負，照實回報、不夾 0（D-08）")
+    void negativeCashIsReportedAsIs() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        when(repository.tradeCashFlowByAsset(7L)).thenReturn(Map.of(41L, new BigDecimal("-1000")));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        assertThat(dto.cash()).isEqualByComparingTo("-32418.00000000");
+        assertThat(dto.totalEquity()).isEqualByComparingTo("-32418.00000000");
+        assertThat(dto.cashBalances()).hasSize(1);
+        assertThat(dto.cashBalances().getFirst().currency()).isEqualTo("USD");
+        assertThat(dto.cashBalances().getFirst().amount()).isEqualByComparingTo("-1000");
+    }
+
+    @Test
+    @DisplayName("換不到匯率的現金幣別不計入 cash，列入 unconvertedCurrencies，原幣餘額仍列出（D-04）")
+    void unconvertibleCashCurrencyIsExcludedAndReported() {
+        givenBase(CurrencyCode.TWD, FxRates.empty());
+        when(cashLedgerRepository.netByCurrency(7L)).thenReturn(Map.of(CurrencyCode.USD, new BigDecimal("100")));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        assertThat(dto.cash()).isEqualByComparingTo("0");
+        assertThat(dto.unconvertedCurrencies()).contains("USD");
+        assertThat(dto.cashBalances()).hasSize(1);
+        assertThat(dto.cashBalances().getFirst().currency()).isEqualTo("USD");
+        assertThat(dto.cashBalances().getFirst().amount()).isEqualByComparingTo("100");
+    }
+
+    @Test
+    @DisplayName("沒有任何入出金與交易時 cash 為 0、cashBalances 為空，不是 null")
+    void noCashActivityYieldsZeroAndEmptyBalances() {
+        givenBase(CurrencyCode.TWD, seedRates());
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        assertThat(dto.cash()).isEqualByComparingTo("0");
+        assertThat(dto.cashBalances()).isEmpty();
+        assertThat(dto.totalEquity()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("現金推導不增加 Facade 呼叫：交易資產的幣別併入同一次 findProfiles")
+    void cashDoesNotAddFacadeCalls() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        givenMixedPortfolio(BigDecimal.ZERO, BigDecimal.ZERO);
+        // 44L 有交易但不在任何持倉快照內（例如部位資料缺漏）：其幣別仍須經同一次批次呼叫取得。
+        when(assetFacade.findProfiles(anyCollection())).thenAnswer(invocation -> {
+            Map<Long, AssetProfile> all = new java.util.HashMap<>(profiles());
+            all.put(44L, new AssetProfile(44L, "TSLA", AssetType.STOCK, "US", CurrencyCode.USD, "Auto"));
+            return all;
+        });
+        when(cashLedgerRepository.netByCurrency(7L)).thenReturn(Map.of(CurrencyCode.TWD, new BigDecimal("50000")));
+        when(repository.tradeCashFlowByAsset(7L)).thenReturn(Map.of(
+            41L, new BigDecimal("-1000"), 44L, new BigDecimal("-500")));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        verify(userPreferenceFacade, times(1)).findBaseCurrency(7L);
+        verify(fxRateFacade, times(1)).currentRates();
+        verify(marketDataFacade, times(1)).findDailyQuotes(anyMap());
+        ArgumentCaptor<Collection<Long>> profileIds = ArgumentCaptor.captor();
+        verify(assetFacade, times(1)).findProfiles(profileIds.capture());
+        assertThat(profileIds.getValue()).contains(41L, 43L, 44L);
+        // 1500 USD 流出（AAPL 1000 + TSLA 500）
+        assertThat(dto.cashBalances().getFirst().amount()).isEqualByComparingTo("-1500");
+    }
+
+    @Test
+    @DisplayName("摘要快取命中時不碰任何現金來源（現金項在快取內，失效由寫入端負責）")
+    void summaryCacheHitDoesNotTouchCashSources() {
+        PortfolioSummaryDto cached = new PortfolioSummaryDto(
+            BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+            0, "TWD", 0, List.of(), null, null, 0, BigDecimal.TEN, BigDecimal.valueOf(11), List.of());
+        when(portfolioCache.readSummary(7L, CurrencyCode.TWD)).thenReturn(Optional.of(cached));
+
+        service.summary(7L);
+
+        verifyNoInteractions(cashLedgerRepository);
+        verify(repository, never()).tradeCashFlowByAsset(anyLong());
     }
 
     @Test
