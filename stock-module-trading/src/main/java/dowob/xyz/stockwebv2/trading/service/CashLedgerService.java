@@ -1,5 +1,6 @@
 package dowob.xyz.stockwebv2.trading.service;
 
+import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.error.FieldValidationException;
@@ -8,6 +9,7 @@ import dowob.xyz.stockwebv2.trading.api.CashEntryDto;
 import dowob.xyz.stockwebv2.trading.api.CreateCashEntryRequest;
 import dowob.xyz.stockwebv2.trading.domain.CashEntryPayloadMatcher;
 import dowob.xyz.stockwebv2.trading.domain.CashEntryType;
+import dowob.xyz.stockwebv2.trading.domain.CashEntryView;
 import dowob.xyz.stockwebv2.trading.domain.CashLedgerEntry;
 import dowob.xyz.stockwebv2.trading.repository.CashLedgerRepository;
 
@@ -47,6 +49,12 @@ public class CashLedgerService {
      * 發生時間可超前伺服器現在的容忍量，吸收客戶端與伺服器的時鐘偏差（同 {@code TradingService}）。
      */
     private static final Duration OCCURRED_AT_FUTURE_TOLERANCE = Duration.ofMinutes(5);
+
+    /**
+     * 列表頁碼上限，與 {@code TradingService} 一致；超過上限的 offset 只會讓資料庫白白掃描。
+     */
+    private static final int MAX_PAGE = 10_000;
+    private static final int MAX_PAGE_SIZE = 100;
 
     private final CashLedgerRepository repository;
 
@@ -113,7 +121,28 @@ public class CashLedgerService {
                     ErrorCode.DUPLICATE_RESOURCE, ErrorCode.DUPLICATE_RESOURCE.defaultMessage()));
             return resolveIdempotentHit(concurrent, type, currency, request.amount(), requestedOccurredAt);
         }
-        return toDto(inserted.get());
+        return toDto(new CashEntryView(inserted.get(), null, null, false));
+    }
+
+    /**
+     * 取回登入者自己的一頁現金分錄，發生時間新到舊、同時間以 id 新到舊（D-24）。
+     *
+     * <p>標記為唯讀交易：repository 內 count 與 list 是兩道獨立述句，若不共用同一個交易快照，
+     * 併發寫入落在兩者之間時 {@code totalElements} 會與 {@code items} 漂移（理由同
+     * {@code TradingService#listTrades}）。</p>
+     *
+     * @param userId 分錄擁有者 id，一律由 controller 自已驗證的身分取得；其他使用者的分錄永遠不會出現
+     * @param page   頁碼，超出範圍會被夾限至 0..10000
+     * @param size   每頁筆數，超出範圍會被夾限至 1..100
+     * @return 該頁分錄 DTO（含 {@code reversed} 與指回原分錄的資訊）與該使用者的分錄總數
+     */
+    @Transactional(readOnly = true)
+    public PageResponse<CashEntryDto> listEntries(Long userId, int page, int size) {
+        int safePage = Math.min(Math.max(0, page), MAX_PAGE);
+        int safeSize = Math.max(1, Math.min(MAX_PAGE_SIZE, size));
+        PageResponse<CashEntryView> views = repository.listEntries(userId, safePage, safeSize);
+        return PageResponse.of(
+            views.items().stream().map(this::toDto).toList(), views.page(), views.size(), views.totalElements());
     }
 
     /**
@@ -140,7 +169,7 @@ public class CashLedgerService {
             throw new BusinessException(
                 ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED, ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED.defaultMessage());
         }
-        return toDto(existing);
+        return toDto(new CashEntryView(existing, null, null, false));
     }
 
     /**
@@ -205,7 +234,8 @@ public class CashLedgerService {
         return StringUtils.trimToNull(note);
     }
 
-    private CashEntryDto toDto(CashLedgerEntry entry) {
+    private CashEntryDto toDto(CashEntryView view) {
+        CashLedgerEntry entry = view.entry();
         return new CashEntryDto(
             entry.uuid().toString(),
             entry.type().name(),
@@ -214,9 +244,9 @@ public class CashLedgerService {
             entry.note(),
             entry.occurredAt(),
             entry.createdAt(),
-            null,
-            null,
-            false
+            Optional.ofNullable(view.reversalOfUuid()).map(UUID::toString).orElse(null),
+            view.reversalOfOccurredAt(),
+            view.reversed()
         );
     }
 }

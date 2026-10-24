@@ -1,7 +1,9 @@
 package dowob.xyz.stockwebv2.trading.repository;
 
+import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.common.model.CurrencyCode;
 import dowob.xyz.stockwebv2.trading.domain.CashEntryType;
+import dowob.xyz.stockwebv2.trading.domain.CashEntryView;
 import dowob.xyz.stockwebv2.trading.domain.CashLedgerEntry;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -10,6 +12,7 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -96,6 +99,58 @@ public class JdbcCashLedgerRepository implements CashLedgerRepository {
             .param("idempotencyKey", idempotencyKey)
             .query(this::mapEntry)
             .optional();
+    }
+
+    /**
+     * 取回該使用者的一頁分錄（含「是否已被沖銷」與「指回原分錄」資訊）。
+     *
+     * <p>以 self-join 取得原分錄的 UUID 與發生時間，join 條件同時綁 {@code o.user_id = e.user_id}，
+     * 即使資料被異常寫入也不會把他人分錄的資訊帶出來；{@code reversed} 由 {@code exists} 子查詢算出，
+     * 走 {@code uk_cash_ledger_entries_reversal_of} 的唯一索引。list 與 count 的 {@code where}
+     * 皆綁 {@code user_id}（威脅 T-04.1-22）。排序與 {@code idx_cash_ledger_entries_user_occurred}
+     * 逐欄一致。這是同模組自己的表的 self-join，不涉及 {@code assets}。</p>
+     *
+     * <p>count 與 list 須在同一個唯讀交易內執行以共用快照，呼叫端
+     * {@code CashLedgerService#listEntries} 已標記為 {@code @Transactional(readOnly = true)}。</p>
+     *
+     * @param userId 分錄擁有者 id
+     * @param page   頁碼，從 0 起
+     * @param size   每頁筆數
+     * @return 該頁分錄視圖與該使用者的分錄總數
+     */
+    @Override
+    public PageResponse<CashEntryView> listEntries(Long userId, int page, int size) {
+        long offset = (long) page * size;
+        long total = jdbcClient.sql("select count(*) from cash_ledger_entries where user_id = :userId")
+            .param("userId", userId)
+            .query(Long.class)
+            .single();
+        List<CashEntryView> items = jdbcClient.sql("""
+                select e.id, e.uuid, e.user_id, e.type, e.currency, e.amount, e.note, e.occurred_at,
+                       e.created_at, e.idempotency_key, e.reversal_of_id,
+                       o.uuid as reversal_of_uuid, o.occurred_at as reversal_of_occurred_at,
+                       exists (select 1 from cash_ledger_entries r where r.reversal_of_id = e.id) as reversed
+                from cash_ledger_entries e
+                left join cash_ledger_entries o on o.id = e.reversal_of_id and o.user_id = e.user_id
+                where e.user_id = :userId
+                order by e.occurred_at desc, e.id desc
+                limit :limit offset :offset
+                """)
+            .param("userId", userId)
+            .param("limit", size)
+            .param("offset", offset)
+            .query(this::mapView)
+            .list();
+        return PageResponse.of(items, page, size, total);
+    }
+
+    private CashEntryView mapView(ResultSet rs, int rowNum) throws SQLException {
+        return new CashEntryView(
+            mapEntry(rs, rowNum),
+            rs.getObject("reversal_of_uuid", UUID.class),
+            rs.getObject("reversal_of_occurred_at", OffsetDateTime.class),
+            rs.getBoolean("reversed")
+        );
     }
 
     private CashLedgerEntry mapEntry(ResultSet rs, int rowNum) throws SQLException {
