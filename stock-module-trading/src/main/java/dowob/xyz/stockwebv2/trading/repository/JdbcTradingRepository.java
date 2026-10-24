@@ -13,6 +13,7 @@ import dowob.xyz.stockwebv2.trading.domain.TradeType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
@@ -334,6 +335,36 @@ public class JdbcTradingRepository implements TradingRepository {
                 rs.getBigDecimal("price"),
                 rs.getObject("executed_at", OffsetDateTime.class)))
             .list();
+    }
+
+    /**
+     * 依標的彙總交易現金流；語意與 04.2 擴充時的必改點見 {@link TradingRepository#tradeCashFlowByAsset}。
+     *
+     * <p>{@code where} 綁 {@code user_id}（威脅 T-04.1-31），不 join {@code assets}。{@code CASE} 只列賣出與買入兩支，
+     * 刻意不寫兜底分支：未知類型的結果是 NULL，{@code sum} 略過它。
+     *
+     * @param userId 使用者 id
+     * @return 標的 id → 淨現金流（原樣取自 {@code NUMERIC(24, 8)} 的運算結果）
+     */
+    @Override
+    public Map<Long, BigDecimal> tradeCashFlowByAsset(Long userId) {
+        Map<Long, BigDecimal> flows = new LinkedHashMap<>();
+        jdbcClient.sql("""
+                select asset_id,
+                       sum(case when type = 'SELL' then quantity * price - fee
+                                when type = 'BUY' then -(quantity * price + fee) end) as net
+                from transactions
+                where user_id = :userId
+                group by asset_id
+                """)
+            .param("userId", userId)
+            .query(rs -> {
+                BigDecimal net = rs.getBigDecimal("net");
+                if (net != null) {
+                    flows.put(rs.getLong("asset_id"), net);
+                }
+            });
+        return flows;
     }
 
     private TradeTransaction mapTransaction(ResultSet rs, int rowNum) throws SQLException {

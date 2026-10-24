@@ -9,13 +9,17 @@ import dowob.xyz.stockwebv2.infrastructure.fx.FxRates;
 import dowob.xyz.stockwebv2.infrastructure.marketdata.DailyQuote;
 import dowob.xyz.stockwebv2.infrastructure.marketdata.MarketDataFacade;
 import dowob.xyz.stockwebv2.infrastructure.user.UserPreferenceFacade;
+import dowob.xyz.stockwebv2.trading.api.CashBalanceDto;
 import dowob.xyz.stockwebv2.trading.api.HoldingDto;
 import dowob.xyz.stockwebv2.trading.api.PortfolioSummaryDto;
+import dowob.xyz.stockwebv2.trading.domain.CashBalanceCalculator;
+import dowob.xyz.stockwebv2.trading.domain.CashFlow;
 import dowob.xyz.stockwebv2.trading.domain.DayFill;
 import dowob.xyz.stockwebv2.trading.domain.DayPnl;
 import dowob.xyz.stockwebv2.trading.domain.DayPnlCalculator;
 import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
 import dowob.xyz.stockwebv2.trading.domain.HoldingSnapshot;
+import dowob.xyz.stockwebv2.trading.repository.CashLedgerRepository;
 import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
 
 import org.slf4j.Logger;
@@ -60,10 +64,19 @@ import java.util.TreeSet;
  * 取代原本只取最新價的查詢，不是多一次呼叫），今日成交以 {@link TradingRepository#listFillsSince} 單次查詢，
  * 由 {@link DayPnlCalculator} 以恆等式計算，不需要日級快照表。</p>
  *
- * <p>快取未命中時每個 Facade 至多一次批次呼叫（共 4 次，D-23），見 {@link #summary} 內的呼叫點註解。</p>
+ * <p>CASH-02 起 summary 帶可用現金（D-06 ~ D-10、D-22）：入出金淨額（{@link CashLedgerRepository#netByCurrency}）
+ * 加上交易現金流（{@link TradingRepository#tradeCashFlowByAsset}，幣別取自標的、D-07），由
+ * {@link CashBalanceCalculator} 依幣別加總，不存任何餘額欄位。<strong>現金項放在 summary 快取之內</strong>，
+ * 所以寫入端必須使快取失效：交易走 {@link PortfolioCache#invalidateAfterTrade}、入出金（含沖銷）走
+ * {@link PortfolioCache#invalidateSummaryAfterCommit}，兩者皆排在 commit 之後。本類別不把現金另外算在快取之外——
+ * 那會讓命中路徑多兩道 SQL，抵銷快取的意義；失效時機由 {@code PortfolioCashAllocationIT} 的
+ * {@code depositRaisesCashImmediatelyAfterCommit} 證明。</p>
+ *
+ * <p>快取未命中時每個 Facade 至多一次批次呼叫（共 4 次，D-23），見 {@link #summary} 內的呼叫點註解；
+ * 現金的兩道聚合 SQL 是本模組自己的表，不算 Facade。</p>
  *
  * @author Yuan
- * @version 3.0
+ * @version 4.0
  */
 @Service
 public class PortfolioQueryService {
@@ -74,6 +87,7 @@ public class PortfolioQueryService {
     private static final int CLOSED_CANDIDATE_DAYS = 7;
 
     private final TradingRepository repository;
+    private final CashLedgerRepository cashLedgerRepository;
     private final MarketDataFacade marketDataFacade;
     private final PortfolioCache portfolioCache;
     private final UserPreferenceFacade userPreferenceFacade;
@@ -84,6 +98,7 @@ public class PortfolioQueryService {
      * 建立讀時計算服務。
      *
      * @param repository       交易與持倉資料存取
+     * @param cashLedgerRepository 現金分錄帳本的聚合查詢（可用現金推導）
      * @param marketDataFacade 跨模組最新價查詢
      * @param portfolioCache   持倉與摘要的 Redis 快取
      * @param userPreferenceFacade 跨模組取得使用者基準幣
@@ -92,6 +107,7 @@ public class PortfolioQueryService {
      */
     public PortfolioQueryService(
         TradingRepository repository,
+        CashLedgerRepository cashLedgerRepository,
         MarketDataFacade marketDataFacade,
         PortfolioCache portfolioCache,
         UserPreferenceFacade userPreferenceFacade,
@@ -99,6 +115,7 @@ public class PortfolioQueryService {
         FxRateFacade fxRateFacade
     ) {
         this.repository = repository;
+        this.cashLedgerRepository = cashLedgerRepository;
         this.marketDataFacade = marketDataFacade;
         this.portfolioCache = portfolioCache;
         this.userPreferenceFacade = userPreferenceFacade;
@@ -300,6 +317,12 @@ public class PortfolioQueryService {
      * <strong>null 與 0 的差異</strong>：沒有任何候選 → {@code 0}（真實的零）；有候選但全部不可得 → {@code null}
      * （缺資料，不塞 0）；否則為已計入者的總和，不可得的檔數回報於 {@code dayPnlExcludedCount}。
      *
+     * <p>可用現金（D-06 ~ D-10、D-22）：入出金淨額與各標的交易現金流（以標的幣別計）依幣別加總為
+     * {@code cashBalances}（原幣、可為負），逐幣別折成基準幣後加總為 {@code cash}，
+     * {@code totalEquity = totalMarketValue + cash}；{@code roi} 不含現金。換不到匯率的現金幣別不計入 {@code cash}，
+     * 列入 {@code unconvertedCurrencies}（D-04）。交易資產的幣別與持倉共用同一次 {@code findProfiles}。
+     * 此方法不驗證餘額、不擋任何操作（D-01）。快取失效由寫入端負責，見類別說明。
+     *
      * @param userId 使用者 id
      * @return 投資組合摘要 DTO
      */
@@ -319,9 +342,13 @@ public class PortfolioQueryService {
         }
         List<HoldingSnapshot> snapshots = repository.listHoldingSnapshots(userId);
         List<HoldingPosition> positions = repository.listHoldings(userId);
+        // 現金的兩道聚合 SQL 是本模組自己的表（不是 Facade）。交易資產的幣別併入下面同一次 findProfiles。
+        Map<Long, BigDecimal> tradeCashFlows = repository.tradeCashFlowByAsset(userId);
+        Map<CurrencyCode, BigDecimal> ledgerNet = cashLedgerRepository.netByCurrency(userId);
         Set<Long> assetIds = new LinkedHashSet<>();
         snapshots.forEach(snapshot -> assetIds.add(snapshot.assetId()));
         positions.forEach(position -> assetIds.add(position.assetId()));
+        assetIds.addAll(tradeCashFlows.keySet());
         Map<Long, AssetProfile> profiles = assetIds.isEmpty() ? Map.of() : assetFacade.findProfiles(assetIds);
         Set<Long> closedIds = closedCandidateIds(snapshots);
         Valuation valuation = valuePositions(userId, positions, profiles, closedIds);
@@ -373,6 +400,7 @@ public class PortfolioQueryService {
         BigDecimal unrealizedPnl = marketValue.subtract(costBasis);
         BigDecimal totalPnl = realizedPnl.add(unrealizedPnl);
         DayTotals dayTotals = dayTotals(base, rates, positions, holdings, closedIds, valuation.day(), profiles, unconverted);
+        CashSummary cashSummary = cashSummary(base, rates, ledgerNet, tradeCashFlows, profiles, unconverted);
         PortfolioSummaryDto dto = new PortfolioSummaryDto(
             marketValue,
             costBasis,
@@ -386,10 +414,72 @@ public class PortfolioQueryService {
             List.copyOf(unconverted),
             dayTotals.pnl(),
             dayTotals.ratio(),
-            dayTotals.excludedCount()
+            dayTotals.excludedCount(),
+            cashSummary.cash(),
+            marketValue.add(cashSummary.cash()),
+            cashSummary.balances()
         );
         portfolioCache.writeSummary(userId, base, dto);
         return dto;
+    }
+
+    /**
+     * 推導各幣別現金餘額，並折成基準幣合計。
+     *
+     * <p>現金流 = 入出金淨額（以帳本幣別）＋ 各標的交易現金流（以標的幣別，D-07），交給
+     * {@link CashBalanceCalculator#balances} 依幣別加總；加總後逐幣別以目前匯率折成基準幣。
+     * 換不到匯率的幣別不計入合計，改記入 {@code unconverted}（D-04），其原幣餘額仍列在 {@code balances}。
+     * 取不到資產屬性的交易標的無從得知幣別，略過並記 WARN（理論上不會發生，FK 保證存在），
+     * 與持倉缺屬性時的處理一致。
+     *
+     * @param base         使用者基準幣
+     * @param rates        目前匯率
+     * @param ledgerNet    入出金淨額（幣別 → 金額）
+     * @param tradeFlows   交易現金流（標的 id → 金額，標的幣別）
+     * @param profiles     資產屬性
+     * @param unconverted  換不到匯率的幣別（會被加入）
+     * @return 基準幣合計與各幣別原幣餘額
+     */
+    private CashSummary cashSummary(
+        CurrencyCode base,
+        FxRates rates,
+        Map<CurrencyCode, BigDecimal> ledgerNet,
+        Map<Long, BigDecimal> tradeFlows,
+        Map<Long, AssetProfile> profiles,
+        Set<String> unconverted
+    ) {
+        List<CashFlow> flows = new ArrayList<>();
+        ledgerNet.forEach((currency, amount) -> flows.add(new CashFlow(currency, amount)));
+        tradeFlows.forEach((assetId, amount) -> {
+            AssetProfile profile = profiles.get(assetId);
+            if (profile == null) {
+                log.warn("Trade asset profile missing for assetId={}, trade cash flow excluded from cash", assetId);
+                return;
+            }
+            flows.add(new CashFlow(profile.currency(), amount));
+        });
+        Map<CurrencyCode, BigDecimal> balances = CashBalanceCalculator.balances(flows);
+        BigDecimal cash = BigDecimal.ZERO.setScale(MONEY_SCALE);
+        List<CashBalanceDto> balanceDtos = new ArrayList<>();
+        for (Map.Entry<CurrencyCode, BigDecimal> balance : balances.entrySet()) {
+            balanceDtos.add(new CashBalanceDto(balance.getKey().name(), balance.getValue()));
+            Optional<BigDecimal> inBase = rates.convert(balance.getValue(), balance.getKey(), base);
+            if (inBase.isEmpty()) {
+                unconverted.add(balance.getKey().name());
+                continue;
+            }
+            cash = cash.add(inBase.get());
+        }
+        return new CashSummary(cash, List.copyOf(balanceDtos));
+    }
+
+    /**
+     * 可用現金的基準幣合計與各幣別原幣餘額。
+     *
+     * @param cash     基準幣合計（不含換不到匯率的幣別）
+     * @param balances 各幣別原幣餘額，依 {@link CurrencyCode} 宣告順序
+     */
+    private record CashSummary(BigDecimal cash, List<CashBalanceDto> balances) {
     }
 
     /**

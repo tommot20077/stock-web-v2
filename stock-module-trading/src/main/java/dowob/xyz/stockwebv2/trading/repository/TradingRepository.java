@@ -7,8 +7,10 @@ import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
 import dowob.xyz.stockwebv2.trading.domain.HoldingSnapshot;
 import dowob.xyz.stockwebv2.trading.domain.TradeTransaction;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public interface TradingRepository {
@@ -86,4 +88,22 @@ public interface TradingRepository {
      * @return 成交紀錄，順序不保證
      */
     List<DayFill> listFillsSince(Long userId, OffsetDateTime since);
+
+    /**
+     * 依標的彙總該使用者的交易現金流（以標的自己的幣別計），供推導可用現金（CASH-02）。
+     *
+     * <p>賣出為流入 {@code quantity × price − fee}，買入為流出 {@code −(quantity × price + fee)}；
+     * 結果為各標的的淨額，正 = 淨流入、負 = 淨流出。幣別不在此處決定：本方法不 join {@code assets}，
+     * 呼叫端以 {@code AssetFacade#findProfiles} 取得標的幣別（D-07）。
+     *
+     * <p><strong>04.2 擴充 {@code transactions.type} 時必改</strong>：SQL 的 {@code CASE} 刻意明寫 BUY 與 SELL 兩支、
+     * 沒有 {@code else}，未知的交易類型結果為 NULL，{@code sum} 會略過它，不會被誤當買入而扣錢（Pitfall 9）。
+     * 新增類型（例如股利、拆股）時必須在此補上對應的現金流分支，否則其現金流會被靜默忽略。
+     *
+     * <p>不分頁、不限時間：功能上線前的既有交易也計入（D-08），所以只買不入金的帳戶現金為負。
+     *
+     * @param userId 使用者 id，where 一律綁定
+     * @return 標的 id → 淨現金流；沒有任何交易的標的不出現
+     */
+    Map<Long, BigDecimal> tradeCashFlowByAsset(Long userId);
 }

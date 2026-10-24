@@ -27,8 +27,14 @@ import java.util.List;
  * @param dayPricePnlRatio      今日價格損益比率 = Σ損益 / Σ前收時市值與買入成本（皆基準幣）；總額為 null 或分母為零時為 null
  * @param dayPnlExcludedCount   因計算所需價格缺失（D-17）而未計入今日損益的檔數；換不到匯率者改計入
  *                              {@code fxExcludedCount} / {@code unconvertedCurrencies}（D-04），不在此數內
+ * @param cash                  可用現金合計（基準幣，D-22）：各幣別現金餘額以<strong>目前匯率</strong>折算後加總，
+ *                              換不到匯率的現金幣別不計入並列入 {@code unconvertedCurrencies}（D-04）；
+ *                              可為負（只買不入金，D-08）。不含在 {@code roi} 內
+ * @param totalEquity           總資產 = {@code totalMarketValue + cash}（基準幣）
+ * @param cashBalances          各幣別的原幣現金餘額，依 {@code CurrencyCode} 宣告順序（USD、TWD、EUR、JPY），
+ *                              只含有過入出金或交易的幣別；沒有任何紀錄時為空 list（不是 null）
  * @author Yuan
- * @version 2.0
+ * @version 3.0
  */
 public record PortfolioSummaryDto(
     BigDecimal totalMarketValue,
@@ -43,6 +49,9 @@ public record PortfolioSummaryDto(
     List<String> unconvertedCurrencies,
     BigDecimal dayPricePnl,
     BigDecimal dayPricePnlRatio,
-    int dayPnlExcludedCount
+    int dayPnlExcludedCount,
+    BigDecimal cash,
+    BigDecimal totalEquity,
+    List<CashBalanceDto> cashBalances
 ) {
 }

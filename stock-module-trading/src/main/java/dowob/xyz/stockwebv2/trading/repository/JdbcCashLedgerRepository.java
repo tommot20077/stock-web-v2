@@ -9,10 +9,13 @@ import dowob.xyz.stockwebv2.trading.domain.CashLedgerEntry;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -184,6 +187,36 @@ public class JdbcCashLedgerRepository implements CashLedgerRepository {
             .query(this::mapView)
             .list();
         return PageResponse.of(items, page, size, total);
+    }
+
+    /**
+     * 依幣別彙總入出金淨額。
+     *
+     * <p>{@code CASE} 只列入金與出金兩支、沒有兜底分支，與交易現金流同一個原則：未知類型不會被誤算。
+     * 沖銷分錄是反向分錄，自然抵銷。{@code where} 綁 {@code user_id}；本表不 join {@code assets}。
+     *
+     * @param userId 分錄擁有者 id
+     * @return 幣別 → 淨額（依 {@link CurrencyCode} 宣告順序）
+     */
+    @Override
+    public Map<CurrencyCode, BigDecimal> netByCurrency(Long userId) {
+        Map<CurrencyCode, BigDecimal> nets = new EnumMap<>(CurrencyCode.class);
+        jdbcClient.sql("""
+                select currency,
+                       sum(case when type = 'DEPOSIT' then amount
+                                when type = 'WITHDRAWAL' then -amount end) as net
+                from cash_ledger_entries
+                where user_id = :userId
+                group by currency
+                """)
+            .param("userId", userId)
+            .query(rs -> {
+                BigDecimal net = rs.getBigDecimal("net");
+                if (net != null) {
+                    nets.put(CurrencyCode.valueOf(rs.getString("currency")), net);
+                }
+            });
+        return nets;
     }
 
     private CashEntryView mapView(ResultSet rs, int rowNum) throws SQLException {

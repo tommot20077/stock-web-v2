@@ -1,9 +1,12 @@
 package dowob.xyz.stockwebv2.trading.repository;
 
 import dowob.xyz.stockwebv2.common.api.PageResponse;
+import dowob.xyz.stockwebv2.common.model.CurrencyCode;
 import dowob.xyz.stockwebv2.trading.domain.CashEntryView;
 import dowob.xyz.stockwebv2.trading.domain.CashLedgerEntry;
 
+import java.math.BigDecimal;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -72,4 +75,15 @@ public interface CashLedgerRepository {
      * @return 已被沖銷時為 true
      */
     boolean existsReversalOf(Long originalId);
+
+    /**
+     * 依幣別彙總該使用者的入出金淨額，供推導可用現金（CASH-02）。
+     *
+     * <p>入金為正、出金為負；沖銷分錄本身是方向相反的分錄，加總時自然與原分錄抵銷，不需要特別處理。
+     * 不分頁、不限時間。{@code where} 綁 {@code user_id}（威脅 T-04.1-31）。
+     *
+     * @param userId 分錄擁有者 id
+     * @return 幣別 → 入出金淨額；沒有任何分錄的幣別不出現。結果依 {@link CurrencyCode} 宣告順序排列
+     */
+    Map<CurrencyCode, BigDecimal> netByCurrency(Long userId);
 }
