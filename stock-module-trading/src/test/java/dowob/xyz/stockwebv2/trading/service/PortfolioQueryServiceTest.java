@@ -11,9 +11,11 @@ import dowob.xyz.stockwebv2.infrastructure.fx.FxRates;
 import dowob.xyz.stockwebv2.infrastructure.marketdata.DailyQuote;
 import dowob.xyz.stockwebv2.infrastructure.marketdata.MarketDataFacade;
 import dowob.xyz.stockwebv2.infrastructure.user.UserPreferenceFacade;
+import dowob.xyz.stockwebv2.trading.api.AllocationSliceDto;
 import dowob.xyz.stockwebv2.trading.api.CashBalanceDto;
 import dowob.xyz.stockwebv2.trading.api.HoldingDto;
 import dowob.xyz.stockwebv2.trading.api.PortfolioSummaryDto;
+import dowob.xyz.stockwebv2.trading.api.SectorAllocationDto;
 import dowob.xyz.stockwebv2.trading.domain.DayFill;
 import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
 import dowob.xyz.stockwebv2.trading.domain.HoldingSnapshot;
@@ -47,6 +49,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -808,6 +811,143 @@ class PortfolioQueryServiceTest {
         verify(assetFacade, times(1)).findProfiles(anyCollection());
         verify(fxRateFacade, times(1)).currentRates();
         verify(repository, times(1)).listFillsSince(eq(7L), any(OffsetDateTime.class));
+    }
+
+    @Test
+    @DisplayName("allocation 含類別與正現金、sectorAllocation 不含現金：以基準幣市值與目前匯率折算（D-18 ~ D-21）")
+    void allocationAndSectorsAreBuiltFromConvertedHoldingsAndPositiveCash() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        givenStockAndCryptoPortfolio("Crypto");
+        when(cashLedgerRepository.netByCurrency(7L)).thenReturn(Map.of(CurrencyCode.TWD, new BigDecimal("746")));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        // STOCK = AAPL 10 × 200 USD × 32.418 + 2330.TW 2 × 1000 TWD = 66836；CRYPTO = 1 × 1000 USD × 32.418 = 32418
+        assertThat(dto.allocation()).extracting(AllocationSliceDto::category).containsExactly("STOCK", "CRYPTO", "CASH");
+        assertThat(dto.allocation().get(0).value()).isEqualByComparingTo("66836");
+        assertThat(dto.allocation().get(0).weight()).isEqualByComparingTo("0.66836");
+        assertThat(dto.allocation().get(1).value()).isEqualByComparingTo("32418");
+        assertThat(dto.allocation().get(1).weight()).isEqualByComparingTo("0.32418");
+        assertThat(dto.allocation().get(2).value()).isEqualByComparingTo("746");
+        assertThat(dto.allocation().get(2).weight()).isEqualByComparingTo("0.00746");
+        // 產業分母 = 持倉 99254，不含現金 746
+        assertThat(dto.sectorAllocation()).extracting(SectorAllocationDto::sector).containsExactly("Tech", "Crypto");
+        assertThat(dto.sectorAllocation().get(0).value()).isEqualByComparingTo("66836");
+        assertThat(dto.sectorAllocation().get(0).weight()).isEqualByComparingTo("0.67338344");
+        assertThat(dto.sectorAllocation().get(0).holdingCount()).isEqualTo(2);
+        // AAPL (2000 − 1005) USD × 32.418 + 2330.TW (2000 − 1800) TWD
+        assertThat(dto.sectorAllocation().get(0).unrealizedPnl()).isEqualByComparingTo("32455.91");
+        assertThat(dto.sectorAllocation().get(1).weight()).isEqualByComparingTo("0.32661656");
+        assertThat(dto.sectorAllocation().get(1).holdingCount()).isEqualTo(1);
+        // (1000 − 500) USD × 32.418
+        assertThat(dto.sectorAllocation().get(1).unrealizedPnl()).isEqualByComparingTo("16209");
+    }
+
+    @Test
+    @DisplayName("換不到匯率的持倉不進配置：只剩可折算者，權重以可折算總值為分母")
+    void holdingWithoutRateIsLeftOutOfAllocation() {
+        givenBase(CurrencyCode.TWD, FxRates.empty());
+        givenMixedPortfolio(BigDecimal.ZERO, BigDecimal.ZERO);
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        // AAPL（USD）換不到 TWD 被排除；2330.TW 2 × 1000 TWD 留下
+        assertThat(dto.fxExcludedCount()).isEqualTo(1);
+        assertThat(dto.allocation()).hasSize(1);
+        assertThat(dto.allocation().get(0).category()).isEqualTo("STOCK");
+        assertThat(dto.allocation().get(0).value()).isEqualByComparingTo("2000");
+        assertThat(dto.allocation().get(0).weight()).isEqualByComparingTo("1");
+        assertThat(dto.sectorAllocation()).hasSize(1);
+        assertThat(dto.sectorAllocation().get(0).holdingCount()).isEqualTo(1);
+        assertThat(dto.sectorAllocation().get(0).unrealizedPnl()).isEqualByComparingTo("200");
+    }
+
+    @Test
+    @DisplayName("現金為負（只買不入金）時 allocation 不列 CASH（D-18）")
+    void negativeCashIsNotAnAllocationSlice() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        givenMixedPortfolio(BigDecimal.ZERO, BigDecimal.ZERO);
+        when(repository.tradeCashFlowByAsset(7L)).thenReturn(Map.of(41L, new BigDecimal("-1000")));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        assertThat(dto.cash()).isEqualByComparingTo("-32418");
+        assertThat(dto.allocation()).extracting(AllocationSliceDto::category).containsExactly("STOCK");
+        assertThat(dto.allocation().get(0).weight()).isEqualByComparingTo("1");
+    }
+
+    @Test
+    @DisplayName("sector 為 null 的持倉在 sectorAllocation 以 null 原樣回傳（D-19）")
+    void nullSectorIsPassedThroughToSectorAllocation() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        HoldingPosition aapl = position(1L, 41L, "AAPL", new BigDecimal("10"), new BigDecimal("100"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(aapl));
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of(
+            snapshot(41L, new BigDecimal("10"), new BigDecimal("100"), BigDecimal.ZERO)));
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(Map.of(
+            41L, new AssetProfile(41L, "AAPL", AssetType.STOCK, "US", CurrencyCode.USD, null)));
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(
+            41L, quote(new BigDecimal("200"), null, OffsetDateTime.parse("2026-09-04T10:00:00+08:00"))));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        assertThat(dto.sectorAllocation()).hasSize(1);
+        assertThat(dto.sectorAllocation().get(0).sector()).isNull();
+        assertThat(dto.sectorAllocation().get(0).value()).isEqualByComparingTo("64836");
+    }
+
+    @Test
+    @DisplayName("沒有持倉也沒有現金：allocation 與 sectorAllocation 為空 list，不是 null")
+    void emptyPortfolioHasEmptyAllocationLists() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        when(repository.listHoldings(7L)).thenReturn(List.of());
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of());
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        assertThat(dto.allocation()).isNotNull().isEmpty();
+        assertThat(dto.sectorAllocation()).isNotNull().isEmpty();
+    }
+
+    @Test
+    @DisplayName("配置計算不新增任何 Facade 呼叫：四個 Facade 仍各至多一次（D-23）")
+    void allocationAddsNoFacadeCalls() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        givenStockAndCryptoPortfolio("Crypto");
+        when(cashLedgerRepository.netByCurrency(7L)).thenReturn(Map.of(CurrencyCode.TWD, new BigDecimal("746")));
+
+        service.summary(7L);
+
+        verify(userPreferenceFacade, times(1)).findBaseCurrency(7L);
+        verify(assetFacade, times(1)).findProfiles(anyCollection());
+        verify(marketDataFacade, times(1)).findDailyQuotes(anyMap());
+        verify(fxRateFacade, times(1)).currentRates();
+        verifyNoMoreInteractions(userPreferenceFacade, assetFacade, marketDataFacade, fxRateFacade);
+    }
+
+    /**
+     * 股票加加密貨幣組合：AAPL（USD、Tech）10 股均價 100.5 市價 200；2330.TW（TWD、Tech）2 股均價 900 市價 1000；
+     * SOL（USD、CRYPTO）1 股均價 500 市價 1000。
+     *
+     * @param solSector SOL 的產業分類
+     */
+    private void givenStockAndCryptoPortfolio(String solSector) {
+        HoldingPosition aapl = position(1L, 41L, "AAPL", new BigDecimal("10"), new BigDecimal("100.5"));
+        HoldingPosition tsmc = position(2L, 43L, "2330.TW", new BigDecimal("2"), new BigDecimal("900"));
+        HoldingPosition sol = position(3L, 44L, "SOL", new BigDecimal("1"), new BigDecimal("500"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(tsmc, aapl, sol));
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of(
+            snapshot(41L, new BigDecimal("10"), new BigDecimal("100.5"), BigDecimal.ZERO),
+            snapshot(43L, new BigDecimal("2"), new BigDecimal("900"), BigDecimal.ZERO),
+            snapshot(44L, new BigDecimal("1"), new BigDecimal("500"), BigDecimal.ZERO)));
+        Map<Long, AssetProfile> profiles = new java.util.HashMap<>(profiles());
+        profiles.put(44L, new AssetProfile(44L, "SOL", AssetType.CRYPTO, "CRYPTO", CurrencyCode.USD, solSector));
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(profiles);
+        OffsetDateTime priceTime = OffsetDateTime.parse("2026-09-04T10:00:00+08:00");
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(
+            41L, quote(new BigDecimal("200"), null, priceTime),
+            43L, quote(new BigDecimal("1000"), null, priceTime),
+            44L, quote(new BigDecimal("1000"), null, priceTime)));
     }
 
     /**

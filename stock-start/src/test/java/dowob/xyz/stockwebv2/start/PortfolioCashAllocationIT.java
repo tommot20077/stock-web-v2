@@ -26,9 +26,11 @@ import tools.jackson.databind.ObjectMapper;
  * 可用現金（CASH-02）的端到端驗收。
  *
  * <p>現金是「入出金 ± 全部交易現金流」的推導值（D-10，不存餘額），所以只買不入金的帳戶現金為負（D-08）。
- * 本類使用其他 IT 沒用到的 TSLA（USD），基準幣取預設 TWD、匯率取 V2 seed 的 USD/TWD 32.418；
+ * 本類使用其他 IT 沒用到的 TSLA（USD、Auto）與 SOL（USD、Crypto），基準幣取預設 TWD、匯率取 V2 seed 的 USD/TWD 32.418；
  * 以 SQL 直接寫 {@code market_prices} 種最新價，並先刪 Redis {@code market:latest:{id}}，
  * 確保讀到的是本測試寫的值。每個測試使用獨立的新使用者，互不污染。</p>
+ *
+ * <p>資產配置（PORT-12）：{@code allocation} 含正現金、{@code sectorAllocation} 不含現金，兩者皆由後端以基準幣算好。</p>
  *
  * @author Yuan
  * @version 1.0
@@ -120,6 +122,91 @@ class PortfolioCashAllocationIT extends ContainerIT {
         JsonNode summary = summary(token);
         assertThat(balanceOf(summary, "TWD").get("amount").decimalValue()).isEqualByComparingTo("50000.00000000");
         assertThat(summary.get("cash").decimalValue()).isEqualByComparingTo("50000.00000000");
+    }
+
+    @Test
+    @DisplayName("資產配置：類別含正現金，產業不含現金；TSLA + SOL 各 10@100、入金 TWD 100000（D-18、D-19）")
+    void allocationIncludesPositiveCashAndSectorsExcludeIt() throws Exception {
+        String token = register("cashalloc-alloc-" + UUID.randomUUID() + "@example.com");
+        seedLatestPrice("TSLA", new BigDecimal("100"));
+        seedLatestPrice("SOL", new BigDecimal("100"));
+        trade(token, "TSLA", "BUY", "10", "100", "0");
+        trade(token, "SOL", "BUY", "10", "100", "0");
+        postCashEntry(token, "DEPOSIT", "TWD", "100000", null);
+
+        JsonNode summary = summary(token);
+
+        // 現金 = 100000 − 2 × 1000 USD × 32.418 = 35164；兩檔持倉各 32418，分母 100000
+        JsonNode cash = sliceOf(summary, "CASH");
+        assertThat(cash.get("value").decimalValue()).isEqualByComparingTo("35164.00000000");
+        assertThat(cash.get("weight").decimalValue()).isEqualByComparingTo("0.35164000");
+        JsonNode crypto = sliceOf(summary, "CRYPTO");
+        assertThat(crypto.get("value").decimalValue()).isEqualByComparingTo("32418.00000000");
+        assertThat(crypto.get("weight").decimalValue()).isEqualByComparingTo("0.32418000");
+        JsonNode stock = sliceOf(summary, "STOCK");
+        assertThat(stock.get("value").decimalValue()).isEqualByComparingTo("32418.00000000");
+        assertThat(stock.get("weight").decimalValue()).isEqualByComparingTo("0.32418000");
+        // 依金額降冪，同值依類別字母升冪
+        assertThat(summary.get("allocation").get(0).get("category").asText()).isEqualTo("CASH");
+        assertThat(summary.get("allocation").get(1).get("category").asText()).isEqualTo("CRYPTO");
+        assertThat(summary.get("allocation").get(2).get("category").asText()).isEqualTo("STOCK");
+
+        // 產業分母 = 持倉總值 64836（不含現金）
+        assertThat(summary.get("sectorAllocation")).hasSize(2);
+        JsonNode auto = sectorOf(summary, "Auto");
+        assertThat(auto.get("weight").decimalValue()).isEqualByComparingTo("0.50000000");
+        assertThat(auto.get("holdingCount").asInt()).isEqualTo(1);
+        assertThat(auto.get("unrealizedPnl").decimalValue()).isEqualByComparingTo("0");
+        JsonNode cryptoSector = sectorOf(summary, "Crypto");
+        assertThat(cryptoSector.get("weight").decimalValue()).isEqualByComparingTo("0.50000000");
+        assertThat(cryptoSector.get("holdingCount").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("只買不入金：現金為負，allocation 沒有 CASH 一塊，權重以持倉總值為分母（D-18）")
+    void negativeCashIsNotListedInAllocation() throws Exception {
+        String token = register("cashalloc-noslice-" + UUID.randomUUID() + "@example.com");
+        seedLatestPrice("TSLA", new BigDecimal("100"));
+        trade(token, "TSLA", "BUY", "10", "100", "0");
+
+        JsonNode summary = summary(token);
+
+        assertThat(summary.get("cash").decimalValue()).isNegative();
+        assertThat(sliceOf(summary, "CASH")).isNull();
+        assertThat(summary.get("allocation")).hasSize(1);
+        assertThat(sliceOf(summary, "STOCK").get("weight").decimalValue()).isEqualByComparingTo("1.00000000");
+    }
+
+    /**
+     * 在 {@code allocation} 中依類別找出一塊。
+     *
+     * @param summary  summary 的 data 節點
+     * @param category 類別（STOCK / CRYPTO / BOND / FX / CASH）
+     * @return 該塊；沒有該類別時為 null
+     */
+    private JsonNode sliceOf(JsonNode summary, String category) {
+        for (JsonNode slice : summary.get("allocation")) {
+            if (category.equals(slice.get("category").asText())) {
+                return slice;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 在 {@code sectorAllocation} 中依產業找出一列。
+     *
+     * @param summary summary 的 data 節點
+     * @param sector  產業名稱
+     * @return 該列；沒有該產業時為 null
+     */
+    private JsonNode sectorOf(JsonNode summary, String sector) {
+        for (JsonNode row : summary.get("sectorAllocation")) {
+            if (sector.equals(row.get("sector").asText())) {
+                return row;
+            }
+        }
+        return null;
     }
 
     /**
