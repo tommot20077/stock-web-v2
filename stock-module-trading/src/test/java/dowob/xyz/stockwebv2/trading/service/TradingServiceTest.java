@@ -25,7 +25,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -33,11 +35,13 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -560,6 +564,71 @@ class TradingServiceTest {
             .isInstanceOf(BusinessException.class);
 
         verify(assetFacade, never()).findProfiles(any());
+    }
+
+    @Test
+    @DisplayName("列表：一頁 3 筆屬於 2 個資產 → findProfiles 恰好一次、參數為 2 個 distinct id，各列幣別依其資產（D-28）")
+    void listTradesResolvesCurrenciesWithOneBatchedCall() {
+        when(repository.listTransactions(any(TradeQuery.class))).thenReturn(PageResponse.of(
+            List.of(listedTrade(1L, 55L, "AAPL"), listedTrade(2L, 66L, "2330.TW"), listedTrade(3L, 55L, "AAPL")),
+            0, 20, 3L));
+        when(assetFacade.findProfiles(any())).thenReturn(Map.of(
+            55L, new AssetProfile(55L, "AAPL", AssetType.STOCK, "US", CurrencyCode.USD, "Tech"),
+            66L, new AssetProfile(66L, "2330.TW", AssetType.STOCK, "TW", CurrencyCode.TWD, "Semiconductors")));
+
+        PageResponse<TradeDto> result = service.listTrades(7L, null, null, null, null, null, null, 0, 20);
+
+        assertThat(result.items()).extracting(TradeDto::symbol, TradeDto::currency)
+            .containsExactly(
+                tuple("AAPL", "USD"),
+                tuple("2330.TW", "TWD"),
+                tuple("AAPL", "USD"));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<Long>> captor = ArgumentCaptor.forClass(Collection.class);
+        verify(assetFacade, org.mockito.Mockito.times(1)).findProfiles(captor.capture());
+        assertThat(captor.getValue()).containsExactlyInAnyOrder(55L, 66L);
+    }
+
+    @Test
+    @DisplayName("列表：空頁不呼叫 findProfiles")
+    void emptyPageDoesNotResolveProfiles() {
+        service.listTrades(7L, null, null, null, null, null, null, 0, 20);
+
+        verify(assetFacade, never()).findProfiles(any());
+    }
+
+    @Test
+    @DisplayName("列表：帶 symbol 篩選時 Facade 呼叫總數為 2（findBySymbol + findProfiles）")
+    void symbolFilteredListUsesTwoFacadeCallsInTotal() {
+        stubTradeableAsset();
+        stubProfile(55L, "AAPL", CurrencyCode.USD);
+        when(repository.listTransactions(any(TradeQuery.class))).thenReturn(PageResponse.of(
+            List.of(listedTrade(1L, 55L, "AAPL")), 0, 20, 1L));
+
+        PageResponse<TradeDto> result = service.listTrades(7L, "AAPL", null, null, null, null, null, 0, 20);
+
+        assertThat(result.items()).extracting(TradeDto::currency).containsExactly("USD");
+        verify(assetFacade).findBySymbol("AAPL");
+        verify(assetFacade).findProfiles(any());
+        verifyNoMoreInteractions(assetFacade);
+    }
+
+    private TradeTransaction listedTrade(long id, long assetId, String symbol) {
+        return new TradeTransaction(
+            id,
+            UUID.nameUUIDFromBytes(("trade-" + id).getBytes(StandardCharsets.UTF_8)),
+            7L,
+            assetId,
+            symbol,
+            TradeType.BUY,
+            STORED_QUANTITY,
+            new BigDecimal("123.45000000"),
+            BigDecimal.ZERO,
+            null,
+            OffsetDateTime.parse("2026-01-10T00:00:00Z"),
+            OffsetDateTime.parse("2026-01-10T00:00:01Z"),
+            null
+        );
     }
 
     private void stubProfile(Long id, String symbol, CurrencyCode currency) {
