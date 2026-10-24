@@ -83,7 +83,7 @@ public class JdbcCashLedgerRepository implements CashLedgerRepository {
             .param("occurredAt", entry.occurredAt())
             .param("idempotencyKey", entry.idempotencyKey())
             .param("reversalOfId", entry.reversalOfId())
-            .query(this::mapEntry)
+            .query(JdbcCashLedgerRepository::mapEntry)
             .optional();
     }
 
@@ -106,7 +106,7 @@ public class JdbcCashLedgerRepository implements CashLedgerRepository {
                 """)
             .param("userId", userId)
             .param("idempotencyKey", idempotencyKey)
-            .query(this::mapEntry)
+            .query(JdbcCashLedgerRepository::mapEntry)
             .optional();
     }
 
@@ -128,7 +128,7 @@ public class JdbcCashLedgerRepository implements CashLedgerRepository {
                 """)
             .param("userId", userId)
             .param("uuid", uuid)
-            .query(this::mapEntry)
+            .query(JdbcCashLedgerRepository::mapEntry)
             .optional();
     }
 
@@ -228,7 +228,18 @@ public class JdbcCashLedgerRepository implements CashLedgerRepository {
         );
     }
 
-    private CashLedgerEntry mapEntry(ResultSet rs, int rowNum) throws SQLException {
+    /**
+     * 把結果集的當前列對應成 {@link CashLedgerEntry}。
+     *
+     * <p>package-private 且 static：它不依賴任何實例狀態，單元測試可以不經資料庫、直接餵一個
+     * 行為與 JDBC 一致的結果集來驗證欄位對應。</p>
+     *
+     * @param rs     已定位在目標列的結果集
+     * @param rowNum 列序號（RowMapper 介面要求，未使用）
+     * @return 對應的分錄
+     * @throws SQLException 讀取欄位失敗時
+     */
+    static CashLedgerEntry mapEntry(ResultSet rs, int rowNum) throws SQLException {
         long reversalOfId = rs.getLong("reversal_of_id");
         return new CashLedgerEntry(
             rs.getLong("id"),
