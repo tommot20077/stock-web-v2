@@ -150,7 +150,6 @@ Plans:
 
 **Plans**: 25 plans（7 waves；後端 14 + 前端 10 + 收尾閘門 1）。後端與前端在契約凍結後平行推進；本環境無 Docker，所有 `*IT` 以 CI Integration job 為證。2026-10-24 revision：依 plan-checker scope_sanity（每 plan < 15 檔）自 02 / 04 / 05 / 09 拆出 21 ~ 24，收尾閘門由 21 改號為 25。
 Plans:
-
 - [ ] `04.1-01-PLAN.md` — D-27 格式錯誤 JSON → 400（tracer：POST /trades）+ 需求註冊 + D-23 Facade 規則修訂（wave 1，backend）
 - [ ] `04.1-02-PLAN.md` — PORT-09 後端：V14 `users.base_currency`、`/me` 回 `baseCurrency`、`PATCH /me/preferences`（wave 1，backend）
 - [ ] `04.1-03-PLAN.md` — 參考資料 Facade：`AssetFacade.findProfiles` + `FxRateFacade` / `FxRates` 三角換算（wave 1，backend）

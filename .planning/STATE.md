@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: "04.1"
-current_phase_name: "Backend Data Gap Backfill"
-status: Phase 04.1 planning in progress (RESEARCH / VALIDATION / UI-SPEC done; planner next)
-stopped_at: Phase 04.1 UI-SPEC approved
-last_updated: "2026-10-24T07:40:57.760Z"
+current_phase_name: Backend Data Gap Backfill
+status: Phase 04.1 planned — ready to execute (25 plans / 7 waves); next up /gsd-execute-phase 04.1
+stopped_at: Phase 04.1 plans verified by gsd-plan-checker
+last_updated: "2026-10-24T09:50:56.131Z"
 last_activity: 2026-10-24
-last_activity_desc: "Phase 04.1 plan-phase:RESEARCH、VALIDATION、UI-SPEC(approved)完成;Yuan 補充裁決 D-23 ~ D-30"
-state_head: a6a64066aec0f3faf8ac8886fe7adced8a4036ff
+last_activity_desc: "Phase 04.1 plan-phase 完成:RESEARCH、VALIDATION、UI-SPEC(approved)、PATTERNS、25 plans(plan-checker 第 2 輪通過,僅 1 條 info)"
+state_head: 1d83e6f869be5492a15af86844bc429eb2a06da6
 progress:
   total_phases: 7
   completed_phases: 4
-  total_plans: 28
+  total_plans: 53
   completed_plans: 28
   percent: 57
 milestone_name: milestone
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-05-30)
 
 ## Current Position
 
-Phase: 04 (manual-trade-creation-idempotency-post-trade-refetch) — **COMPLETE**
-Plan: 13 of 13 完成；`04-13` 兩個 task 皆結案（Task 2 於 2026-09-04 由 Yuan 走完 17 步後回覆「都 ok」）。
-Next: **`/gsd-plan-phase 04.1`**——04.1 與 04.2 的 CONTEXT 已於 2026-09-28 寫入;Phase 5 尚無 CONTEXT(排在 04.2 之後)。
-Last activity: 2026-10-23 -- 狀態檔回填;9/2 審查的 P0 與 P1 程式項已於 2026-09-04 ~ 09-28 修完合併(後端 PR #27–#48、前端 PR #11–#15)
+Phase: 04.1 (Backend Data Gap Backfill) — READY TO EXECUTE
+Plan: 0 of 25(Phase 04.1 已規劃,7 waves;Phase 04 的 13 個 plan 已於 2026-09-04 全數完成)。
+Next: **`/gsd-execute-phase 04.1`**——plans 位於 `.planning/phases/04.1-backend-data-gap-backfill/04.1-01..25-PLAN.md`;Phase 5 尚無 CONTEXT(排在 04.2 之後)。
+Last activity: 2026-10-24 -- Phase 04.1 規劃完成(gsd-core 1.18.0):25 plans / 7 waves,plan-checker 第 2 輪通過;前一日完成狀態檔回填與 JWT 換鑰(後端 PR #49、前端 PR #17)
 
 > ✅ **Phase 4 已完成（2026-09-04）。** 13 個 plan 全數執行完畢，`04-13` 的 blocking human-verify
 > checkpoint 由 Yuan 親自走完甲／乙／丙三段共 17 步後通過（未提出任何不符項）。
