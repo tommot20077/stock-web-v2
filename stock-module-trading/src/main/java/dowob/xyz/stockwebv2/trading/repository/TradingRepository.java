@@ -1,11 +1,13 @@
 package dowob.xyz.stockwebv2.trading.repository;
 
 import dowob.xyz.stockwebv2.common.api.PageResponse;
+import dowob.xyz.stockwebv2.trading.domain.DayFill;
 import dowob.xyz.stockwebv2.trading.domain.Holding;
 import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
 import dowob.xyz.stockwebv2.trading.domain.HoldingSnapshot;
 import dowob.xyz.stockwebv2.trading.domain.TradeTransaction;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -72,4 +74,16 @@ public interface TradingRepository {
      */
     List<HoldingSnapshot> listHoldingSnapshots(Long userId);
 
+    /**
+     * 列出該使用者在 {@code since} 之後（含）的所有成交，供計算今日價格損益。
+     *
+     * <p>where 一律綁 {@code user_id}，不 join {@code assets}（D-21 / H-1）；以既有的
+     * {@code idx_transactions_user_executed} 走索引。呼叫端以相關資產交易日起點的最小值作 {@code since}，
+     * 再逐資產以各自的交易日起點過濾。
+     *
+     * @param userId 使用者 id
+     * @param since  起算時間（含）
+     * @return 成交紀錄，順序不保證
+     */
+    List<DayFill> listFillsSince(Long userId, OffsetDateTime since);
 }

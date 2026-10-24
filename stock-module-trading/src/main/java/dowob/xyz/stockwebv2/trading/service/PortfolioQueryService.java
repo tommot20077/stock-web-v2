@@ -1,15 +1,19 @@
 package dowob.xyz.stockwebv2.trading.service;
 
 import dowob.xyz.stockwebv2.common.model.CurrencyCode;
+import dowob.xyz.stockwebv2.common.model.TradingDay;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetProfile;
 import dowob.xyz.stockwebv2.infrastructure.fx.FxRateFacade;
 import dowob.xyz.stockwebv2.infrastructure.fx.FxRates;
-import dowob.xyz.stockwebv2.infrastructure.marketdata.LatestMarketPrice;
+import dowob.xyz.stockwebv2.infrastructure.marketdata.DailyQuote;
 import dowob.xyz.stockwebv2.infrastructure.marketdata.MarketDataFacade;
 import dowob.xyz.stockwebv2.infrastructure.user.UserPreferenceFacade;
 import dowob.xyz.stockwebv2.trading.api.HoldingDto;
 import dowob.xyz.stockwebv2.trading.api.PortfolioSummaryDto;
+import dowob.xyz.stockwebv2.trading.domain.DayFill;
+import dowob.xyz.stockwebv2.trading.domain.DayPnl;
+import dowob.xyz.stockwebv2.trading.domain.DayPnlCalculator;
 import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
 import dowob.xyz.stockwebv2.trading.domain.HoldingSnapshot;
 import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
@@ -21,6 +25,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -45,10 +56,14 @@ import java.util.TreeSet;
  * {@code fxExcludedCount} 與 {@code unconvertedCurrencies} 回報（D-04）。summary 快取鍵含基準幣，
  * 切換基準幣後立即 miss。</p>
  *
+ * <p>D-12 起持倉帶單檔今日價格損益：取價改經 {@link MarketDataFacade#findDailyQuotes}（最新價與前收一次取回，
+ * 取代原本只取最新價的查詢，不是多一次呼叫），今日成交以 {@link TradingRepository#listFillsSince} 單次查詢，
+ * 由 {@link DayPnlCalculator} 以恆等式計算，不需要日級快照表。</p>
+ *
  * <p>快取未命中時每個 Facade 至多一次批次呼叫（共 4 次，D-23），見 {@link #summary} 內的呼叫點註解。</p>
  *
  * @author Yuan
- * @version 2.0
+ * @version 3.0
  */
 @Service
 public class PortfolioQueryService {
@@ -110,8 +125,9 @@ public class PortfolioQueryService {
         }
         // Facade 呼叫點（D-23：快取未命中時每個 Facade 至多一次批次呼叫）：
         // 1. userPreferenceFacade.findBaseCurrency — 取基準幣，只用來補 marketValueInBase，不進持倉快取。
-        // 2. assetFacade.findProfiles、3. marketDataFacade.findLatestPrices — 皆只為持倉快取未命中者批次呼叫
-        //    （見 valuePositions）；全部命中時兩者皆不呼叫。
+        // 2. assetFacade.findProfiles、3. marketDataFacade.findDailyQuotes — 皆只為持倉快取未命中者批次呼叫
+        //    （見 valuePositions；findDailyQuotes 同時帶回最新價與前收，取代原本只取最新價的查詢）；
+        //    全部命中時兩者皆不呼叫。今日成交 repository.listFillsSince 是本模組自己的表，不算 Facade。
         // 4. fxRateFacade.currentRates — 一次取回完整匯率表，逐列折算在記憶體完成。
         CurrencyCode base = userPreferenceFacade.findBaseCurrency(userId);
         List<HoldingDto> original = valuePositions(userId, positions, null);
@@ -139,22 +155,76 @@ public class PortfolioQueryService {
         Map<Long, HoldingDto> cached = portfolioCache.readHoldings(userId, assetIds);
         List<Long> misses = assetIds.stream().filter(id -> !cached.containsKey(id)).toList();
         Map<Long, AssetProfile> profiles = Map.of();
-        Map<Long, LatestMarketPrice> prices = Map.of();
+        DayContext day = DayContext.EMPTY;
         if (!misses.isEmpty()) {
             profiles = knownProfiles != null ? knownProfiles : assetFacade.findProfiles(misses);
-            prices = marketDataFacade.findLatestPrices(misses);
+            day = loadDayContext(userId, misses, profiles);
         }
         Map<Long, AssetProfile> missProfiles = profiles;
-        Map<Long, LatestMarketPrice> missPrices = prices;
+        DayContext missDay = day;
         return positions.stream()
             .map(position -> {
                 HoldingDto hit = cached.get(position.assetId());
                 return hit != null
                     ? hit
                     : calculateAndCacheHolding(
-                        position, missPrices.get(position.assetId()), missProfiles.get(position.assetId()));
+                        position,
+                        missDay.quotes().get(position.assetId()),
+                        missProfiles.get(position.assetId()),
+                        missDay.fillsOf(position.assetId()));
             })
             .toList();
+    }
+
+    /**
+     * 批次取得一組資產的報價與今日成交：一次 {@code findDailyQuotes}、至多一次 {@code listFillsSince}。
+     *
+     * <p>交易日規則由資產屬性建立（{@code TradingDay.of(assetType, market)}）；資產屬性缺失時退回 UTC，
+     * 讓行情仍可取得。各資產的交易日起點以<strong>與 market-data 相同的公式</strong>
+     * {@code tradingDay.dayStart(quote.priceTime().toInstant())} 計算，兩邊才會逐位元一致。
+     * 今日成交以所有交易日起點的最小值一次查詢，再逐資產以各自的起點過濾。
+     *
+     * @param userId   使用者 id
+     * @param assetIds 要取價的資產 id
+     * @param profiles 已取得的資產屬性
+     * @return 報價與各資產今日成交；沒有行情的資產不在 {@code quotes} 內
+     */
+    private DayContext loadDayContext(Long userId, Collection<Long> assetIds, Map<Long, AssetProfile> profiles) {
+        Map<Long, TradingDay> tradingDays = new LinkedHashMap<>();
+        for (Long assetId : assetIds) {
+            AssetProfile profile = profiles.get(assetId);
+            tradingDays.put(assetId, profile == null ? TradingDay.UTC : TradingDay.of(profile.assetType(), profile.market()));
+        }
+        Map<Long, DailyQuote> quotes = marketDataFacade.findDailyQuotes(tradingDays);
+        Map<Long, Instant> dayStarts = new HashMap<>();
+        quotes.forEach((assetId, quote) -> dayStarts.put(
+            assetId, tradingDays.getOrDefault(assetId, TradingDay.UTC).dayStart(quote.priceTime().toInstant())));
+        if (dayStarts.isEmpty()) {
+            return new DayContext(quotes, Map.of());
+        }
+        Instant earliest = dayStarts.values().stream().min(Instant::compareTo).orElseThrow();
+        Map<Long, List<DayFill>> fillsByAsset = new HashMap<>();
+        for (DayFill fill : repository.listFillsSince(userId, OffsetDateTime.ofInstant(earliest, ZoneOffset.UTC))) {
+            Instant dayStart = dayStarts.get(fill.assetId());
+            if (dayStart != null && !fill.executedAt().toInstant().isBefore(dayStart)) {
+                fillsByAsset.computeIfAbsent(fill.assetId(), id -> new ArrayList<>()).add(fill);
+            }
+        }
+        return new DayContext(quotes, fillsByAsset);
+    }
+
+    /**
+     * 一次請求內的報價與今日成交。
+     *
+     * @param quotes       資產 id → 目前交易日報價；沒有行情的資產不在內
+     * @param fillsByAsset 資產 id → 該資產在其交易日起點之後的成交
+     */
+    private record DayContext(Map<Long, DailyQuote> quotes, Map<Long, List<DayFill>> fillsByAsset) {
+        static final DayContext EMPTY = new DayContext(Map.of(), Map.of());
+
+        List<DayFill> fillsOf(Long assetId) {
+            return fillsByAsset.getOrDefault(assetId, List.of());
+        }
     }
 
     /**
@@ -200,7 +270,7 @@ public class PortfolioQueryService {
         // Facade 呼叫點（D-23：快取未命中時 4 次批次呼叫，皆為批次、結果有快取、命中路徑只有第 1 次）：
         // 1. userPreferenceFacade.findBaseCurrency — 取基準幣，同時是 summary 快取鍵的一部分，必須先於快取讀取。
         // 2. assetFacade.findProfiles — 一次取全部持倉（含已平倉）的幣別，供市值與已實現損益折算。
-        // 3. marketDataFacade.findLatestPrices — 只為持倉快取未命中者一次批次取價（見 valuePositions）。
+        // 3. marketDataFacade.findDailyQuotes — 只為持倉快取未命中者一次批次取最新價與前收（見 valuePositions）。
         // 4. fxRateFacade.currentRates — 一次取回完整匯率表，之後逐筆折算在記憶體完成。
         // 四者分屬 user / asset / market-data / asset(fx) 不同資料來源，無法合併成同一次往返。
         CurrencyCode base = userPreferenceFacade.findBaseCurrency(userId);
@@ -280,32 +350,40 @@ public class PortfolioQueryService {
     /**
      * 為單一持倉估值並寫入快取。
      *
-     * <p>最新價一律經 {@link MarketDataFacade} 取得（Redis latest → {@code market_prices}）。
+     * <p>最新價與前收一律經 {@link MarketDataFacade#findDailyQuotes} 取得（Redis latest → {@code market_prices}）。
      * <strong>不得改回自己查 {@code asset_latest_prices}</strong> —— 那張表只有 V2 seed 寫過一次，
      * 沒有任何程式更新它，讀它等於讓市值永遠停在種子價；何況跨模組取資料本來就該走 Facade。
      *
-     * <p>查無行情時退回平均成本估值：市值等於成本、未實現損益為零。這是刻意的——寧可顯示「沒有變化」，
-     * 也不要拿一個不知道多舊的價格假裝賺賠。
+     * <p>查無行情時退回平均成本估值：市值等於成本、未實現損益為零，今日損益三欄為 null。這是刻意的——
+     * 寧可顯示「沒有變化」，也不要拿一個不知道多舊的價格假裝賺賠。
+     *
+     * <p>今日損益由 {@link DayPnlCalculator} 以 04.2 的拆股擴充點為空 list 計算；只依賴該資產今日成交與行情，
+     * 所以隨持倉一起寫入快取（交易 commit 已會失效該鍵）。
      *
      * <p>估值結果存原幣（{@code baseCurrency} / {@code marketValueInBase} 為 null）。查無資產屬性
      * （理論上不會發生，FK 保證存在）時不寫快取，讓下一次請求重試，並以 null 的幣別讓呼叫端排除折算。
      *
-     * @param position    持倉位置
-     * @param marketPrice 已批次取得的最新價；null 表示查無行情
-     * @param profile     已批次取得的資產屬性；null 表示查無
+     * @param position 持倉位置
+     * @param quote    已批次取得的報價；null 表示查無行情
+     * @param profile  已批次取得的資產屬性；null 表示查無
+     * @param fills    該資產在其交易日起點之後的成交
      * @return 估值後的持倉 DTO
      */
     private HoldingDto calculateAndCacheHolding(
         HoldingPosition position,
-        LatestMarketPrice marketPrice,
-        AssetProfile profile
+        DailyQuote quote,
+        AssetProfile profile,
+        List<DayFill> fills
     ) {
-        LatestMarketPrice latest = marketPrice != null
-            ? marketPrice
-            : new LatestMarketPrice(position.avgCost(), position.lastUpdated());
+        BigDecimal price = quote != null ? quote.latestPrice() : position.avgCost();
+        OffsetDateTime priceTime = quote != null ? quote.priceTime() : position.lastUpdated();
         BigDecimal costBasis = position.totalQuantity().multiply(position.avgCost()).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
-        BigDecimal marketValue = position.totalQuantity().multiply(latest.price()).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+        BigDecimal marketValue = position.totalQuantity().multiply(price).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
         BigDecimal unrealized = marketValue.subtract(costBasis);
+        Optional<DayPnl> dayPnl = quote == null
+            ? Optional.empty()
+            : DayPnlCalculator.calculate(
+                position.totalQuantity(), quote.latestPrice(), quote.previousClose(), fills, List.of());
         HoldingDto dto = new HoldingDto(
             position.assetUuid().toString(),
             position.symbol(),
@@ -313,18 +391,22 @@ public class PortfolioQueryService {
             position.totalQuantity(),
             position.avgCost(),
             costBasis,
-            latest.price(),
+            price,
             marketValue,
             position.realizedPnl(),
             unrealized,
             roi(unrealized, costBasis),
-            latest.priceTime(),
+            priceTime,
             position.lastUpdated(),
             profile == null ? null : profile.currency().name(),
             profile == null ? null : profile.assetType().name(),
             profile == null ? null : profile.sector(),
             null,
-            null
+            null,
+            quote == null ? null : quote.previousClose(),
+            dayPnl.map(DayPnl::pnl).orElse(null),
+            dayPnl.map(DayPnl::ratio).orElse(null),
+            dayPnl.map(DayPnl::basis).orElse(null)
         );
         if (profile == null) {
             log.warn("Asset profile missing for assetId={}, holding not cached", position.assetId());

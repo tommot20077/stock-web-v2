@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.trading.repository;
 import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.trading.domain.DayFill;
 import dowob.xyz.stockwebv2.trading.domain.Holding;
 import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
 import dowob.xyz.stockwebv2.trading.domain.HoldingSnapshot;
@@ -314,6 +315,24 @@ public class JdbcTradingRepository implements TradingRepository {
                 rs.getBigDecimal("avg_cost"),
                 rs.getBigDecimal("realized_pnl"),
                 rs.getObject("last_updated", OffsetDateTime.class)))
+            .list();
+    }
+
+    @Override
+    public List<DayFill> listFillsSince(Long userId, OffsetDateTime since) {
+        return jdbcClient.sql("""
+                select asset_id, type, quantity, price, executed_at
+                from transactions
+                where user_id = :userId and executed_at >= :since
+                """)
+            .param("userId", userId)
+            .param("since", since)
+            .query((rs, rowNum) -> new DayFill(
+                rs.getLong("asset_id"),
+                TradeType.valueOf(rs.getString("type")),
+                rs.getBigDecimal("quantity"),
+                rs.getBigDecimal("price"),
+                rs.getObject("executed_at", OffsetDateTime.class)))
             .list();
     }
 

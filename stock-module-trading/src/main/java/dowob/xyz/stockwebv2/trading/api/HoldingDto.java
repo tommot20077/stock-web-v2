@@ -29,8 +29,14 @@ import java.time.OffsetDateTime;
  * @param sector            產業分類；可為 null，由前端顯示「未分類」
  * @param baseCurrency      使用者基準幣代碼；快取中的原幣 DTO 為 null
  * @param marketValueInBase 折算成基準幣的市值；換不到匯率時為 null
+ * @param previousClose     前收（原幣）；本交易日前沒有成交或查無行情時為 null
+ * @param dayPricePnl       單檔今日價格損益（原幣）；只含價格損益、不含匯差、不扣手續費（D-15）；
+ *                          計算所需價格缺失時為 null（D-17、D-26）
+ * @param dayPricePnlRatio  今日價格損益比率 = dayPricePnl / dayPnlBasis；分母為零或損益不可得時為 null
+ * @param dayPnlBasis       今日損益比率的分母（原幣）= 前收時市值 + 今日買入成本；供 summary 折算後計算總額比率，
+ *                          隨持倉一起快取，所以快取命中的持倉也能參與總額
  * @author Yuan
- * @version 2.0
+ * @version 3.0
  */
 public record HoldingDto(
     String assetId,
@@ -50,7 +56,11 @@ public record HoldingDto(
     String assetType,
     String sector,
     String baseCurrency,
-    BigDecimal marketValueInBase
+    BigDecimal marketValueInBase,
+    BigDecimal previousClose,
+    BigDecimal dayPricePnl,
+    BigDecimal dayPricePnlRatio,
+    BigDecimal dayPnlBasis
 ) {
 
     /**
@@ -63,6 +73,6 @@ public record HoldingDto(
     public HoldingDto withBaseValuation(String baseCurrency, BigDecimal valueInBase) {
         return new HoldingDto(assetId, symbol, assetName, totalQuantity, avgCost, costBasis, marketPrice, marketValue,
             realizedPnl, unrealizedPnl, roi, priceTime, lastUpdated, currency, assetType, sector,
-            baseCurrency, valueInBase);
+            baseCurrency, valueInBase, previousClose, dayPricePnl, dayPricePnlRatio, dayPnlBasis);
     }
 }
