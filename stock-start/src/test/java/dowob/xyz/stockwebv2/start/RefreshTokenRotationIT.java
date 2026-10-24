@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.start;
 
 import dowob.xyz.stockwebv2.common.error.BusinessException;
+import dowob.xyz.stockwebv2.common.model.CurrencyCode;
 import dowob.xyz.stockwebv2.common.model.Role;
 import dowob.xyz.stockwebv2.common.model.UserStatus;
 import dowob.xyz.stockwebv2.start.support.ContainerIT;
@@ -112,6 +113,7 @@ class RefreshTokenRotationIT extends ContainerIT {
             Role.USER,
             UserStatus.ACTIVE,
             1,
+            CurrencyCode.TWD,
             OffsetDateTime.now(),
             OffsetDateTime.now()
         );

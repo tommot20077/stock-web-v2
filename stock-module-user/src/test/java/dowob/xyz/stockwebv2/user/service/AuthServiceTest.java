@@ -166,6 +166,7 @@ class AuthServiceTest {
             user.role(),
             status,
             user.tokenVersion(),
+            user.baseCurrency(),
             user.createdAt(),
             user.updatedAt()
         );
@@ -215,6 +216,7 @@ class AuthServiceTest {
                 current.role(),
                 current.status(),
                 current.tokenVersion() + 1,
+                current.baseCurrency(),
                 current.createdAt(),
                 current.updatedAt()
             );
