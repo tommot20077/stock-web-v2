@@ -22,6 +22,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -147,5 +148,51 @@ class PortfolioCacheTest {
         when(valueOps.multiGet(org.mockito.ArgumentMatchers.anyList())).thenThrow(new IllegalStateException("redis down"));
 
         assertThat(cache.readHoldings(7L, List.of(41L))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("入出金：交易進行中不立刻刪 summary，COMMIT 之後只刪四把 summary 鍵、不刪任何持倉鍵")
+    void summaryInvalidationIsDeferredUntilAfterCommitAndSparesHoldings() {
+        TransactionSynchronizationManager.initSynchronization();
+
+        cache.invalidateSummaryAfterCommit(7L);
+
+        for (CurrencyCode base : CurrencyCode.values()) {
+            verify(redisTemplate, never()).delete("portfolio:summary:v2:7:" + base.name());
+        }
+
+        TransactionSynchronizationUtils.triggerAfterCommit();
+
+        verify(redisTemplate).delete("portfolio:summary:v2:7:USD");
+        verify(redisTemplate).delete("portfolio:summary:v2:7:TWD");
+        verify(redisTemplate).delete("portfolio:summary:v2:7:EUR");
+        verify(redisTemplate).delete("portfolio:summary:v2:7:JPY");
+        // 分錄不影響持倉估值：持倉鍵一把都不能刪
+        verify(redisTemplate, times(CurrencyCode.values().length)).delete(anyString());
+        verify(redisTemplate, never()).delete(startsWith("portfolio:valuation:"));
+    }
+
+    @Test
+    @DisplayName("入出金：沒有進行中的交易時立刻刪四把 summary 鍵，不會靜默漏掉失效")
+    void summaryInvalidationRunsImmediatelyWithoutTransaction() {
+        cache.invalidateSummaryAfterCommit(7L);
+
+        for (CurrencyCode base : CurrencyCode.values()) {
+            verify(redisTemplate).delete("portfolio:summary:v2:7:" + base.name());
+        }
+        verify(redisTemplate, never()).delete(startsWith("portfolio:valuation:"));
+    }
+
+    @Test
+    @DisplayName("入出金：交易回滾時不刪快取（資料沒變，不該丟掉有效的快取）")
+    void summaryInvalidationIsSkippedOnRollback() {
+        TransactionSynchronizationManager.initSynchronization();
+
+        cache.invalidateSummaryAfterCommit(7L);
+        TransactionSynchronizationUtils.invokeAfterCompletion(
+            TransactionSynchronizationManager.getSynchronizations(),
+            org.springframework.transaction.support.TransactionSynchronization.STATUS_ROLLED_BACK);
+
+        verify(redisTemplate, never()).delete(anyString());
     }
 }

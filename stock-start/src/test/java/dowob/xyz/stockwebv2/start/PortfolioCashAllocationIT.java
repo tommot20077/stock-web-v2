@@ -68,6 +68,85 @@ class PortfolioCashAllocationIT extends ContainerIT {
         assertThat(summary.get("totalEquity").decimalValue()).isEqualByComparingTo("0");
     }
 
+    @Test
+    @DisplayName("入金 commit 後立刻重讀 summary 即反映新現金：快取在分錄 commit 之後失效（D-22）")
+    void depositRaisesCashImmediatelyAfterCommit() throws Exception {
+        String token = register("cashalloc-dep-" + UUID.randomUUID() + "@example.com");
+        seedLatestPrice("TSLA", new BigDecimal("100"));
+        trade(token, "TSLA", "BUY", "10", "100", "0");
+        // 先讀一次，讓 summary 進快取（TTL 60 秒）；若入金沒有使快取失效，下一次讀會拿到這份舊值。
+        assertThat(summary(token).get("cash").decimalValue()).isEqualByComparingTo("-32418.00000000");
+
+        postCashEntry(token, "DEPOSIT", "TWD", "50000", null);
+
+        JsonNode summary = summary(token);
+        // −1000 USD × 32.418 + 50000 TWD
+        assertThat(summary.get("cash").decimalValue()).isEqualByComparingTo("17582.00000000");
+        assertThat(summary.get("totalEquity").decimalValue()).isEqualByComparingTo("50000.00000000");
+        assertThat(balanceOf(summary, "TWD").get("amount").decimalValue()).isEqualByComparingTo("50000.00000000");
+        assertThat(balanceOf(summary, "USD").get("amount").decimalValue()).isEqualByComparingTo("-1000.00000000");
+    }
+
+    @Test
+    @DisplayName("賣出加入淨收入（數量 × 價格 − 手續費）：USD 餘額由 -1000 變 -561")
+    void sellAddsProceedsNetOfFee() throws Exception {
+        String token = register("cashalloc-sell-" + UUID.randomUUID() + "@example.com");
+        seedLatestPrice("TSLA", new BigDecimal("100"));
+        trade(token, "TSLA", "BUY", "10", "100", "0");
+        assertThat(balanceOf(summary(token), "USD").get("amount").decimalValue())
+            .isEqualByComparingTo("-1000.00000000");
+
+        trade(token, "TSLA", "SELL", "4", "110", "1");
+
+        // −1000 + (4 × 110 − 1)
+        assertThat(balanceOf(summary(token), "USD").get("amount").decimalValue())
+            .isEqualByComparingTo("-561.00000000");
+    }
+
+    @Test
+    @DisplayName("出金扣減餘額；沖銷該筆出金後回到原值（沖銷是反向分錄，自然抵銷）")
+    void withdrawalAndReversalAreReflected() throws Exception {
+        String token = register("cashalloc-wd-" + UUID.randomUUID() + "@example.com");
+        postCashEntry(token, "DEPOSIT", "TWD", "50000", null);
+        assertThat(balanceOf(summary(token), "TWD").get("amount").decimalValue())
+            .isEqualByComparingTo("50000.00000000");
+
+        JsonNode withdrawal = postCashEntry(token, "WITHDRAWAL", "TWD", "10000", null);
+        assertThat(balanceOf(summary(token), "TWD").get("amount").decimalValue())
+            .isEqualByComparingTo("40000.00000000");
+
+        postCashEntry(token, "DEPOSIT", "TWD", "10000", withdrawal.get("id").asText());
+
+        JsonNode summary = summary(token);
+        assertThat(balanceOf(summary, "TWD").get("amount").decimalValue()).isEqualByComparingTo("50000.00000000");
+        assertThat(summary.get("cash").decimalValue()).isEqualByComparingTo("50000.00000000");
+    }
+
+    /**
+     * 記一筆入出金（或沖銷）。
+     *
+     * @param token        access token
+     * @param type         DEPOSIT / WITHDRAWAL
+     * @param currency     幣別代碼
+     * @param amount       金額
+     * @param reversalOfId 沖銷對象的分錄 id；一般入出金為 null
+     * @return 回應的 {@code data}（分錄 DTO）
+     * @throws Exception MockMvc 失敗時
+     */
+    private JsonNode postCashEntry(String token, String type, String currency, String amount, String reversalOfId)
+        throws Exception {
+        String reversal = reversalOfId == null ? "" : ",\"reversalOfId\":\"" + reversalOfId + "\"";
+        String body = mockMvc.perform(post("/api/v1/portfolio/cash-entries")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + token)
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .content("{\"type\":\"%s\",\"currency\":\"%s\",\"amount\":%s%s}"
+                    .formatted(type, currency, amount, reversal)))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).get("data");
+    }
+
     /**
      * 讀取 summary 的 data 節點。
      *

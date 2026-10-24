@@ -28,10 +28,13 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -49,12 +52,14 @@ import static org.mockito.Mockito.when;
 class CashLedgerServiceTest {
 
     private CashLedgerRepository repository;
+    private PortfolioCache portfolioCache;
     private CashLedgerService service;
 
     @BeforeEach
     void setup() {
         repository = mock(CashLedgerRepository.class);
-        service = new CashLedgerService(repository);
+        portfolioCache = mock(PortfolioCache.class);
+        service = new CashLedgerService(repository, portfolioCache);
     }
 
     @Test
@@ -609,5 +614,94 @@ class CashLedgerServiceTest {
 
         assertThat(dto.id()).isEqualTo(reversalUuid.toString());
         assertThat(dto.reversalOfId()).isEqualTo(originalUuid.toString());
+    }
+
+    @Test
+    @DisplayName("新建入金：commit 之後失效該使用者的 summary 快取一次（summary 含現金項，D-22）")
+    void newDepositInvalidatesSummaryCacheOnce() {
+        when(repository.findByIdempotencyKey(7L, "key-inv")).thenReturn(Optional.empty());
+        when(repository.insertIfAbsent(any(CashLedgerEntry.class))).thenAnswer(invocation ->
+            Optional.of(invocation.<CashLedgerEntry>getArgument(0)));
+
+        service.createEntry(
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50000"), null, null, null), "key-inv");
+
+        verify(portfolioCache, times(1)).invalidateSummaryAfterCommit(7L);
+        verifyNoMoreInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("新建沖銷分錄同樣失效 summary 快取一次（沖銷是反向分錄，現金會變）")
+    void newReversalInvalidatesSummaryCacheOnce() {
+        UUID originalUuid = UUID.randomUUID();
+        when(repository.findByUuid(7L, originalUuid)).thenReturn(Optional.of(
+            original(originalUuid, CashEntryType.DEPOSIT, CurrencyCode.USD, "1000.00000000")));
+        when(repository.findByIdempotencyKey(7L, "key-r")).thenReturn(Optional.empty());
+        when(repository.existsReversalOf(31L)).thenReturn(false);
+        when(repository.insertIfAbsent(any(CashLedgerEntry.class))).thenAnswer(invocation ->
+            Optional.of(invocation.<CashLedgerEntry>getArgument(0)));
+
+        service.createEntry(7L, reversalRequest("WITHDRAWAL", "USD", "1000", originalUuid), "key-r");
+
+        verify(portfolioCache, times(1)).invalidateSummaryAfterCommit(7L);
+    }
+
+    @Test
+    @DisplayName("冪等命中（快路徑）資料未變，不失效快取（比照 Phase 4 DP-8）")
+    void idempotentFastPathHitDoesNotInvalidateSummaryCache() {
+        OffsetDateTime occurredAt = OffsetDateTime.parse("2026-10-01T09:00:00+08:00");
+        when(repository.findByIdempotencyKey(7L, "key-3")).thenReturn(Optional.of(new CashLedgerEntry(
+            13L, UUID.randomUUID(), 7L, CashEntryType.DEPOSIT, CurrencyCode.TWD, new BigDecimal("50000.00000000"),
+            null, occurredAt, occurredAt, "key-3", null)));
+
+        service.createEntry(
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50000"), null, occurredAt, null), "key-3");
+
+        verify(portfolioCache, never()).invalidateSummaryAfterCommit(anyLong());
+    }
+
+    @Test
+    @DisplayName("insert 落空後重讀命中（同 key 併發落敗）也不失效快取：這個請求沒有寫入任何資料")
+    void insertMissThenRereadHitDoesNotInvalidateSummaryCache() {
+        OffsetDateTime occurredAt = OffsetDateTime.parse("2026-10-01T09:00:00+08:00");
+        when(repository.findByIdempotencyKey(7L, "key-4"))
+            .thenReturn(Optional.empty())
+            .thenReturn(Optional.of(new CashLedgerEntry(
+                14L, UUID.randomUUID(), 7L, CashEntryType.DEPOSIT, CurrencyCode.TWD, new BigDecimal("50000.00000000"),
+                null, occurredAt, occurredAt, "key-4", null)));
+        when(repository.insertIfAbsent(any(CashLedgerEntry.class))).thenReturn(Optional.empty());
+
+        service.createEntry(
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("50000"), null, occurredAt, null), "key-4");
+
+        verify(portfolioCache, never()).invalidateSummaryAfterCommit(anyLong());
+    }
+
+    @Test
+    @DisplayName("被拒的請求（驗證失敗、原分錄不存在、已沖銷、併發落敗）都不失效快取")
+    void rejectedRequestsDoNotInvalidateSummaryCache() {
+        UUID missing = UUID.randomUUID();
+        when(repository.findByUuid(7L, missing)).thenReturn(Optional.empty());
+        UUID reversedUuid = UUID.randomUUID();
+        when(repository.findByUuid(7L, reversedUuid)).thenReturn(Optional.of(
+            original(reversedUuid, CashEntryType.DEPOSIT, CurrencyCode.USD, "1000.00000000")));
+        when(repository.existsReversalOf(31L)).thenReturn(true);
+        when(repository.findByIdempotencyKey(7L, "key-lose")).thenReturn(Optional.empty());
+        when(repository.insertIfAbsent(any(CashLedgerEntry.class))).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.createEntry(
+            7L, new CreateCashEntryRequest("TRANSFER", "TWD", new BigDecimal("1"), null, null, null), "key-v"))
+            .isInstanceOf(FieldValidationException.class);
+        assertThatThrownBy(() -> service.createEntry(
+            7L, reversalRequest("WITHDRAWAL", "USD", "1000", missing), "key-nf"))
+            .satisfies(thrown -> assertBusiness(thrown, ErrorCode.CASH_ENTRY_NOT_FOUND));
+        assertThatThrownBy(() -> service.createEntry(
+            7L, reversalRequest("WITHDRAWAL", "USD", "1000", reversedUuid), "key-ar"))
+            .satisfies(thrown -> assertBusiness(thrown, ErrorCode.CASH_ENTRY_ALREADY_REVERSED));
+        assertThatThrownBy(() -> service.createEntry(
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("1"), null, null, null), "key-lose"))
+            .satisfies(thrown -> assertBusiness(thrown, ErrorCode.DUPLICATE_RESOURCE));
+
+        verifyNoInteractions(portfolioCache);
     }
 }
