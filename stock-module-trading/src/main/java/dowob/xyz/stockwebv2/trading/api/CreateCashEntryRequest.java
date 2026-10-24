@@ -26,6 +26,8 @@ import java.time.OffsetDateTime;
  * @param amount     金額，恆為正
  * @param note       備註，選填，最長 500 字元；不納入冪等 payload 比對
  * @param occurredAt 分錄發生時間，選填；省略代表伺服器現在
+ * @param reversalOfId 要沖銷的原分錄 UUID 字串，選填；帶值代表這是一筆沖銷（D-25），
+ *                   方向、幣別與金額必須與原分錄鏡像。刻意用 String：格式錯誤要能以 {@code fields.reversalOfId} 指名
  * @author Yuan
  * @version 1.0
  */
@@ -35,6 +37,7 @@ public record CreateCashEntryRequest(
     @NotNull @DecimalMin(value = "0.00000001") @DecimalMax(value = "1000000000000")
     @Digits(integer = 13, fraction = 8) BigDecimal amount,
     @Size(max = 500) String note,
-    OffsetDateTime occurredAt
+    OffsetDateTime occurredAt,
+    @Size(max = 36) String reversalOfId
 ) {
 }

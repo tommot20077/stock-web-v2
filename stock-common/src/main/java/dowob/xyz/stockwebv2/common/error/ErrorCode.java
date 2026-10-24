@@ -46,6 +46,9 @@ public enum ErrorCode {
 
     // Cash ledger error codes
     CASH_IDEMPOTENCY_KEY_REUSED(409, "Idempotency key was reused with a different cash entry payload"),
+    CASH_ENTRY_NOT_FOUND(404, "Cash entry not found"),
+    CASH_ENTRY_ALREADY_REVERSED(409, "Cash entry has already been reversed"),
+    CASH_ENTRY_NOT_REVERSIBLE(409, "A reversal entry cannot be reversed"),
 
     INTERNAL_ERROR(500, "Internal server error");
 

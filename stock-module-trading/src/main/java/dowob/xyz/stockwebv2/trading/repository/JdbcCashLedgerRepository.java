@@ -47,11 +47,17 @@ public class JdbcCashLedgerRepository implements CashLedgerRepository {
      * 把「冪等命中」這個正常結果誤報成系統錯誤）。也不可改成「先 insert、撞唯一約束例外再重讀」：
      * PostgreSQL 在例外後該交易已中止，重讀必定失敗。</p>
      *
-     * <p>衝突目標的欄位組合與 V15 的 {@code uk_cash_ledger_entries_user_idempotency} 一致。
-     * 04.1-06 的沖銷寫入會把衝突目標放寬以涵蓋 {@code uk_cash_ledger_entries_reversal_of}。</p>
+     * <p><strong>衝突子句刻意不指定目標</strong>（只寫 {@code on conflict} 後接 {@code do nothing}）：本表有兩個會讓正常請求撞上的
+     * 唯一約束 —— {@code uk_cash_ledger_entries_user_idempotency}（冪等重送／同 key 併發）與
+     * {@code uk_cash_ledger_entries_reversal_of}（兩個不同 key 的請求併發沖銷同一筆）。指定其中一個為目標，
+     * 另一個撞上時仍會拋唯一約束例外，在 PostgreSQL 把交易中止後變成 500。不指定目標則兩者都被吸收成
+     * 「回零列」，由呼叫端以冪等鍵重讀區分：命中 → 冪等；落空 → 被另一筆沖銷搶先。
+     * 代價是無法在這一句內分辨原因，換來整條路徑不依賴例外。
+     * 其他約束（uuid 唯一、CHECK、外鍵）不受影響，違反時仍照常拋例外；沖銷驗證 trigger
+     * （{@code validate_cash_ledger_reversal}）在 insert 前執行，亦不受影響，是應用層檢查之外的最後防線。</p>
      *
      * @param entry 待寫入的分錄
-     * @return 實際建立的分錄；冪等鍵已被同一使用者用過時回傳空 Optional
+     * @return 實際建立的分錄；任一唯一約束衝突時回傳空 Optional
      */
     @Override
     public Optional<CashLedgerEntry> insertIfAbsent(CashLedgerEntry entry) {
@@ -63,7 +69,7 @@ public class JdbcCashLedgerRepository implements CashLedgerRepository {
                     coalesce(:uuid, uuid_generate_v4()), :userId, :type, :currency,
                     :amount, :note, :occurredAt, :idempotencyKey, :reversalOfId
                 )
-                on conflict (user_id, idempotency_key) do nothing
+                on conflict do nothing
                 returning """ + " " + COLUMNS)
             .param("uuid", entry.uuid())
             .param("userId", entry.userId())
@@ -99,6 +105,42 @@ public class JdbcCashLedgerRepository implements CashLedgerRepository {
             .param("idempotencyKey", idempotencyKey)
             .query(this::mapEntry)
             .optional();
+    }
+
+    /**
+     * 以對外 UUID 查出該使用者自己的分錄。
+     *
+     * <p>{@code where} 同時綁 {@code user_id}：他人的分錄查不到，呼叫端回 404 而不洩漏存在性
+     * （威脅 T-04.1-20）。</p>
+     *
+     * @param userId 分錄擁有者 id
+     * @param uuid   分錄的對外 UUID
+     * @return 該使用者的分錄；查無（含屬於他人）時回傳空 Optional
+     */
+    @Override
+    public Optional<CashLedgerEntry> findByUuid(Long userId, UUID uuid) {
+        return jdbcClient.sql("select " + COLUMNS + """
+                from cash_ledger_entries
+                where user_id = :userId and uuid = :uuid
+                """)
+            .param("userId", userId)
+            .param("uuid", uuid)
+            .query(this::mapEntry)
+            .optional();
+    }
+
+    /**
+     * 判斷某筆分錄是否已有沖銷分錄指向它（走 {@code uk_cash_ledger_entries_reversal_of} 的索引）。
+     *
+     * @param originalId 原分錄的內部主鍵
+     * @return 已被沖銷時為 true
+     */
+    @Override
+    public boolean existsReversalOf(Long originalId) {
+        return jdbcClient.sql("select exists (select 1 from cash_ledger_entries where reversal_of_id = :originalId)")
+            .param("originalId", originalId)
+            .query(Boolean.class)
+            .single();
     }
 
     /**

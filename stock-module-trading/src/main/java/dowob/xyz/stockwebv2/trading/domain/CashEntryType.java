@@ -27,6 +27,15 @@ public enum CashEntryType {
     WITHDRAWAL;
 
     /**
+     * 沖銷分錄的方向：與原分錄相反（D-25）。
+     *
+     * @return 入金回傳出金，出金回傳入金
+     */
+    public CashEntryType opposite() {
+        return this == DEPOSIT ? WITHDRAWAL : DEPOSIT;
+    }
+
+    /**
      * 解析建立分錄請求中的<strong>必填</strong> type 欄位，大小寫不敏感。
      *
      * <p>type 在請求中是 String 而非列舉，是為了讓失敗能以 {@code fields} 指名 {@code type}

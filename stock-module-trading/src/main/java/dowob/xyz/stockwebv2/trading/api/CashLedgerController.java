@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>本 controller 只負責取出已驗證身分的 userId 並轉交 {@link CashLedgerService}；
  * 冪等鍵與欄位驗證都在 service 層，避免驗證邏輯散落兩層。
- * 無論成功或被業務規則拒絕，都會輸出一筆 {@code cash_entry_create} 稽核事件（security.md §13）。</p>
+ * 無論成功或被業務規則拒絕，都會輸出一筆 {@code cash_entry_create}（沖銷為 {@code cash_entry_reverse}）稽核事件（security.md §13）。</p>
  *
  * @author Yuan
  * @version 1.2
@@ -46,7 +46,10 @@ public class CashLedgerController {
     }
 
     /**
-     * 記一筆入金或出金。這是「使用者自行記帳」的紀錄，不會驗證餘額、也不會真的移動資金。
+     * 記一筆入金、出金或沖銷。這是「使用者自行記帳」的紀錄，不會驗證餘額、也不會真的移動資金。
+     *
+     * <p>body 帶 {@code reversalOfId} 時為沖銷（D-25）：稽核事件記為 {@code cash_entry_reverse}，
+     * 一般入出金仍為 {@code cash_entry_create}。</p>
      *
      * <p>被業務規則拒絕時稽核記 {@code failure:<code>} 後原例外照常重拋，交由
      * {@code GlobalExceptionHandler} 轉成錯誤信封。</p>
@@ -69,12 +72,14 @@ public class CashLedgerController {
     ) {
         Long userId = AuthenticatedUserResolver.resolve(authentication);
         String ip = ClientIpResolver.resolve(servletRequest);
+        // 沖銷與一般入出金是不同的稽核事件：事後追查「誰沖銷了哪一筆」不必從 payload 反推。
+        String action = request.reversalOfId() == null ? "cash_entry_create" : "cash_entry_reverse";
         try {
             CashEntryDto entry = cashLedgerService.createEntry(userId, request, idempotencyKey);
-            auditLogger.log(userId, "cash_entry_create", "cash_entry:" + entry.id(), "success", ip);
+            auditLogger.log(userId, action, "cash_entry:" + entry.id(), "success", ip);
             return ApiResponse.success(entry, ApiMetaFactory.current());
         } catch (BusinessException exception) {
-            auditLogger.log(userId, "cash_entry_create", "cash_entry", "failure:" + exception.errorCode().name(), ip);
+            auditLogger.log(userId, action, "cash_entry", "failure:" + exception.errorCode().name(), ip);
             throw exception;
         }
     }

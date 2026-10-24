@@ -44,6 +44,7 @@ public class CashLedgerService {
      */
     private static final int MAX_IDEMPOTENCY_KEY_LENGTH = 128;
     private static final String IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
+    private static final String REVERSAL_FIELD = "reversalOfId";
 
     /**
      * 發生時間可超前伺服器現在的容忍量，吸收客戶端與伺服器的時鐘偏差（同 {@code TradingService}）。
@@ -63,20 +64,31 @@ public class CashLedgerService {
     }
 
     /**
-     * 記一筆入金或出金；同一使用者的同一把冪等鍵只會寫入一列。
+     * 記一筆入金、出金或沖銷；同一使用者的同一把冪等鍵只會寫入一列。
      *
      * <p>順序與 {@code TradingService#createTrade} 一致：零 I/O 的驗證先行，接著冪等鍵快路徑，
      * 再 insert-first。整條路徑靠 {@code ON CONFLICT DO NOTHING} 避開唯一約束例外，因此
      * <strong>不需要也不可以</strong>在本交易內 catch 例外後重讀（PostgreSQL 在例外後該交易已中止）。</p>
      *
+     * <p>請求帶 {@code reversalOfId} 時為沖銷（D-25）：先以使用者範圍解析原分錄（查無即 404，別人的與不存在的
+     * 無法區分），再走冪等快路徑，之後才檢查沖銷規則。<strong>冪等快路徑必須排在「已沖銷」判斷之前</strong>：
+     * 一筆沖銷成功後，原分錄就「已被沖銷」；若網路逾時後以同一把 key 重送先被「已沖銷」擋下，使用者會看到
+     * 假性的 409，而實際上他的沖銷早已成功。先查 key，重送才會拿回同一筆。</p>
+     *
      * <p>冪等命中（快路徑或 insert 落空後重讀）時一律經 {@link CashEntryPayloadMatcher} 比對：
      * payload 相同回既有分錄，不同則 409 {@code CASH_IDEMPOTENCY_KEY_REUSED}（D-11）。</p>
+     *
+     * <p>insert 落空而以 key 重讀也落空，代表衝突的不是冪等鍵：沖銷時是另一把 key 的沖銷搶先
+     * （{@code uk_cash_ledger_entries_reversal_of}），回 {@code CASH_ENTRY_ALREADY_REVERSED}；
+     * 一般分錄則是理論殘餘競態，回 {@code DUPLICATE_RESOURCE}。</p>
      *
      * @param userId         分錄擁有者 id，一律由 controller 自已驗證的身分取得
      * @param request        建立請求，已通過 bean validation
      * @param idempotencyKey 冪等鍵，由 {@code Idempotency-Key} header 原樣傳入
      * @return 新建立的分錄；重送時為既有分錄
      * @throws BusinessException 冪等鍵為空白或過長、type 或 currency 不在白名單、發生時間在未來、
+     *                           reversalOfId 格式錯誤、沖銷內容與原分錄不鏡像（皆為 400 欄位錯誤）、
+     *                           原分錄不存在（404）、原分錄已被沖銷或本身是沖銷（409）、
      *                           同鍵但 payload 不同，或併發下重讀落空時
      */
     @Transactional
@@ -96,9 +108,16 @@ public class CashLedgerService {
         OffsetDateTime occurredAt = Optional.ofNullable(requestedOccurredAt)
             .orElseGet(() -> OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS));
         validateNotInFuture(requestedOccurredAt);
+        UUID reversalUuid = parseReversalOfId(request.reversalOfId());
+        CashLedgerEntry original = resolveOriginal(userId, reversalUuid);
+        Long reversalOfId = original == null ? null : original.id();
         Optional<CashLedgerEntry> known = repository.findByIdempotencyKey(userId, idempotencyKey);
         if (known.isPresent()) {
-            return resolveIdempotentHit(known.get(), type, currency, request.amount(), requestedOccurredAt);
+            return resolveIdempotentHit(
+                known.get(), type, currency, request.amount(), requestedOccurredAt, original);
+        }
+        if (original != null) {
+            validateReversalRules(original, type, currency, request.amount());
         }
         Optional<CashLedgerEntry> inserted = repository.insertIfAbsent(new CashLedgerEntry(
             null,
@@ -111,17 +130,132 @@ public class CashLedgerService {
             occurredAt,
             null,
             idempotencyKey,
-            null
+            reversalOfId
         ));
         if (inserted.isEmpty()) {
-            // 併發下被同一把鍵的另一個請求搶先。DO NOTHING 不會中止本交易，因此重讀是安全的；
-            // 重讀仍落空是理論上的殘餘競態，一律回 409 而非讓它變成 500。
-            CashLedgerEntry concurrent = repository.findByIdempotencyKey(userId, idempotencyKey)
-                .orElseThrow(() -> new BusinessException(
-                    ErrorCode.DUPLICATE_RESOURCE, ErrorCode.DUPLICATE_RESOURCE.defaultMessage()));
-            return resolveIdempotentHit(concurrent, type, currency, request.amount(), requestedOccurredAt);
+            // 衝突被 DO NOTHING 吸收，不會中止本交易，因此重讀是安全的。可能的原因有二：
+            // 同一把 key 的另一個請求搶先（重讀命中，走比對）；或另一把 key 的沖銷搶先沖銷了同一筆（重讀落空）。
+            Optional<CashLedgerEntry> concurrent = repository.findByIdempotencyKey(userId, idempotencyKey);
+            if (concurrent.isPresent()) {
+                return resolveIdempotentHit(
+                    concurrent.get(), type, currency, request.amount(), requestedOccurredAt, original);
+            }
+            ErrorCode lost = original == null ? ErrorCode.DUPLICATE_RESOURCE : ErrorCode.CASH_ENTRY_ALREADY_REVERSED;
+            throw new BusinessException(lost, lost.defaultMessage());
         }
-        return toDto(new CashEntryView(inserted.get(), null, null, false));
+        return toDto(viewOf(inserted.get(), original));
+    }
+
+    /**
+     * 解析請求的 {@code reversalOfId}；未帶（null）代表一般入出金。
+     *
+     * <p>錯誤訊息為靜態字串，不回射輸入。非 null 但為空白或不是 UUID 一律視為格式錯誤，
+     * 而不是當作「沒帶」—— 否則一個本意是沖銷、卻帶了空字串的請求，會默默變成一筆真的出金。</p>
+     *
+     * @param value 請求中的原始字串
+     * @return 解析出的 UUID；未帶時為 null
+     * @throws FieldValidationException 格式錯誤時，fields 指名 {@code reversalOfId}
+     */
+    private UUID parseReversalOfId(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value.trim());
+        } catch (IllegalArgumentException exception) {
+            throw new FieldValidationException("Invalid reversalOfId", Map.of(REVERSAL_FIELD, "invalid format"));
+        }
+    }
+
+    /**
+     * 以使用者範圍解析沖銷的原分錄。
+     *
+     * @param userId       目前登入者
+     * @param reversalUuid 請求指定的原分錄 UUID；null 代表不是沖銷
+     * @return 原分錄；不是沖銷時為 null
+     * @throws BusinessException 查無（含屬於他人）時 {@code CASH_ENTRY_NOT_FOUND}，訊息不含 UUID
+     */
+    private CashLedgerEntry resolveOriginal(Long userId, UUID reversalUuid) {
+        if (reversalUuid == null) {
+            return null;
+        }
+        return repository.findByUuid(userId, reversalUuid)
+            .orElseThrow(() -> new BusinessException(
+                ErrorCode.CASH_ENTRY_NOT_FOUND, ErrorCode.CASH_ENTRY_NOT_FOUND.defaultMessage()));
+    }
+
+    /**
+     * 沖銷規則的應用層檢查；與 V15 的 {@code validate_cash_ledger_reversal} trigger 一致，
+     * 差別是這裡回的是前端可分派的錯誤碼，trigger 只是繞過應用層時的最後防線。
+     *
+     * @param original 已解析的原分錄
+     * @param type     本次請求的方向
+     * @param currency 本次請求的幣別
+     * @param amount   本次請求的金額
+     * @throws BusinessException        原分錄本身是沖銷 {@code CASH_ENTRY_NOT_REVERSIBLE}，
+     *                                  或已被沖銷 {@code CASH_ENTRY_ALREADY_REVERSED}
+     * @throws FieldValidationException 方向未相反、幣別或金額不同時，fields 指名 {@code reversalOfId}
+     */
+    private void validateReversalRules(
+        CashLedgerEntry original, CashEntryType type, CurrencyCode currency, BigDecimal amount) {
+        if (original.reversalOfId() != null) {
+            throw new BusinessException(
+                ErrorCode.CASH_ENTRY_NOT_REVERSIBLE, ErrorCode.CASH_ENTRY_NOT_REVERSIBLE.defaultMessage());
+        }
+        if (repository.existsReversalOf(original.id())) {
+            throw new BusinessException(
+                ErrorCode.CASH_ENTRY_ALREADY_REVERSED, ErrorCode.CASH_ENTRY_ALREADY_REVERSED.defaultMessage());
+        }
+        if (type != original.type().opposite()
+            || currency != original.currency()
+            || amount.compareTo(original.amount()) != 0) {
+            throw new FieldValidationException("Reversal must mirror the original entry",
+                Map.of(REVERSAL_FIELD, "must mirror the original entry"));
+        }
+    }
+
+    /**
+     * 冪等命中時的 payload 比對：相同回既有分錄，不同則拒絕且不寫入。
+     *
+     * <p>錯誤訊息為靜態字串，不回射冪等鍵、金額或備註（T-04.1-13）。沖銷對象也是比對維度：
+     * 同一把 key 換了沖銷對象，是不同的意圖。</p>
+     *
+     * @param existing            以同一把鍵查出的既有分錄
+     * @param type                本次請求的方向
+     * @param currency            本次請求的幣別
+     * @param amount              本次請求的金額
+     * @param requestedOccurredAt 本次請求明確送出的發生時間（已截到微秒）；未送為 null
+     * @param original            本次請求解析出的原分錄；一般分錄為 null
+     * @return 既有分錄的 DTO
+     * @throws BusinessException payload 與既有分錄不同時，{@code CASH_IDEMPOTENCY_KEY_REUSED}
+     */
+    private CashEntryDto resolveIdempotentHit(
+        CashLedgerEntry existing,
+        CashEntryType type,
+        CurrencyCode currency,
+        BigDecimal amount,
+        OffsetDateTime requestedOccurredAt,
+        CashLedgerEntry original
+    ) {
+        Long requestedReversalOfId = original == null ? null : original.id();
+        if (!CashEntryPayloadMatcher.matches(
+            existing, type, currency, amount, requestedOccurredAt, requestedReversalOfId)) {
+            throw new BusinessException(
+                ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED, ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED.defaultMessage());
+        }
+        return toDto(viewOf(existing, original));
+    }
+
+    /**
+     * 組出寫入路徑回傳用的視圖：沖銷分錄帶原分錄的 UUID 與發生時間；剛寫入的分錄不可能已被沖銷。
+     */
+    private CashEntryView viewOf(CashLedgerEntry entry, CashLedgerEntry original) {
+        return new CashEntryView(
+            entry,
+            original == null ? null : original.uuid(),
+            original == null ? null : original.occurredAt(),
+            false
+        );
     }
 
     /**
@@ -143,33 +277,6 @@ public class CashLedgerService {
         PageResponse<CashEntryView> views = repository.listEntries(userId, safePage, safeSize);
         return PageResponse.of(
             views.items().stream().map(this::toDto).toList(), views.page(), views.size(), views.totalElements());
-    }
-
-    /**
-     * 冪等命中時的 payload 比對：相同回既有分錄，不同則拒絕且不寫入。
-     *
-     * <p>錯誤訊息為靜態字串，不回射冪等鍵、金額或備註（T-04.1-13）。</p>
-     *
-     * @param existing            以同一把鍵查出的既有分錄
-     * @param type                本次請求的方向
-     * @param currency            本次請求的幣別
-     * @param amount              本次請求的金額
-     * @param requestedOccurredAt 本次請求明確送出的發生時間（已截到微秒）；未送為 null
-     * @return 既有分錄的 DTO
-     * @throws BusinessException payload 與既有分錄不同時，{@code CASH_IDEMPOTENCY_KEY_REUSED}
-     */
-    private CashEntryDto resolveIdempotentHit(
-        CashLedgerEntry existing,
-        CashEntryType type,
-        CurrencyCode currency,
-        BigDecimal amount,
-        OffsetDateTime requestedOccurredAt
-    ) {
-        if (!CashEntryPayloadMatcher.matches(existing, type, currency, amount, requestedOccurredAt)) {
-            throw new BusinessException(
-                ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED, ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED.defaultMessage());
-        }
-        return toDto(new CashEntryView(existing, null, null, false));
     }
 
     /**
