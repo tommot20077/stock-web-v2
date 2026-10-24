@@ -8,6 +8,7 @@ import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
 import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
 import dowob.xyz.stockwebv2.infrastructure.web.AuthenticatedUserResolver;
 import dowob.xyz.stockwebv2.infrastructure.web.ClientIpResolver;
+import dowob.xyz.stockwebv2.trading.service.PortfolioQueryService;
 import dowob.xyz.stockwebv2.trading.service.TradingService;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,7 +31,8 @@ import java.util.List;
  *
  * <p>本 controller 只負責取出已驗證身分的 userId、把 query string 原始字串原樣往下傳，
  * 以及為交易建立留下稽核事件；所有參數的白名單驗證與型別解析都在
- * {@link TradingService} 完成，避免驗證邏輯散落在兩層。唯一的例外是 {@code page} /
+ * {@link TradingService} 完成，避免驗證邏輯散落在兩層；持倉與摘要的讀時計算則委派
+ * {@link PortfolioQueryService}。唯一的例外是 {@code page} /
  * {@code size}：它們宣告為 String 再自行轉數字，讓「非數字」也走統一的
  * {@code VALIDATION_FAILED} 錯誤信封，而不是 Spring 型別轉換的通用 400。</p>
  *
@@ -41,10 +43,16 @@ import java.util.List;
 @RequestMapping("/api/v1")
 public class TradingController {
     private final TradingService tradingService;
+    private final PortfolioQueryService portfolioQueryService;
     private final AuditLogger auditLogger;
 
-    public TradingController(TradingService tradingService, AuditLogger auditLogger) {
+    public TradingController(
+        TradingService tradingService,
+        PortfolioQueryService portfolioQueryService,
+        AuditLogger auditLogger
+    ) {
         this.tradingService = tradingService;
+        this.portfolioQueryService = portfolioQueryService;
         this.auditLogger = auditLogger;
     }
 
@@ -135,13 +143,13 @@ public class TradingController {
     @GetMapping("/portfolio/holdings")
     @PreAuthorize("hasAuthority('PORTFOLIO_VIEW')")
     public ApiResponse<List<HoldingDto>> holdings(Authentication authentication) {
-        return ApiResponse.success(tradingService.listHoldings(AuthenticatedUserResolver.resolve(authentication)), ApiMetaFactory.current());
+        return ApiResponse.success(portfolioQueryService.listHoldings(AuthenticatedUserResolver.resolve(authentication)), ApiMetaFactory.current());
     }
 
     @GetMapping("/portfolio/summary")
     @PreAuthorize("hasAuthority('PORTFOLIO_VIEW')")
     public ApiResponse<PortfolioSummaryDto> summary(Authentication authentication) {
-        return ApiResponse.success(tradingService.summary(AuthenticatedUserResolver.resolve(authentication)), ApiMetaFactory.current());
+        return ApiResponse.success(portfolioQueryService.summary(AuthenticatedUserResolver.resolve(authentication)), ApiMetaFactory.current());
     }
 
     private int parseQueryInt(String value, String field) {

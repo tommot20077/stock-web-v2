@@ -4,6 +4,7 @@ import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
+import dowob.xyz.stockwebv2.trading.service.PortfolioQueryService;
 import dowob.xyz.stockwebv2.trading.service.TradingService;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -46,6 +47,7 @@ class TradingControllerTest {
     private static final String IDEM_KEY_CANARY = "LEAK-CANARY-12345";
 
     private TradingService tradingService;
+    private PortfolioQueryService portfolioQueryService;
     private AuditLogger auditLogger;
     private TradingController controller;
     private Authentication authentication;
@@ -54,8 +56,9 @@ class TradingControllerTest {
     @BeforeEach
     void setup() {
         tradingService = mock(TradingService.class);
+        portfolioQueryService = mock(PortfolioQueryService.class);
         auditLogger = mock(AuditLogger.class);
-        controller = new TradingController(tradingService, auditLogger);
+        controller = new TradingController(tradingService, portfolioQueryService, auditLogger);
         authentication = mock(Authentication.class);
         when(authentication.getName()).thenReturn("42");
         servletRequest = mock(HttpServletRequest.class);

@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.trading.api;
 
 import dowob.xyz.stockwebv2.infrastructure.audit.AuditLogger;
+import dowob.xyz.stockwebv2.trading.service.PortfolioQueryService;
 import dowob.xyz.stockwebv2.trading.service.TradingService;
 
 import org.junit.jupiter.api.DisplayName;
@@ -53,6 +54,9 @@ class TradingControllerWebMvcTest {
 
     @MockitoBean
     TradingService tradingService;
+
+    @MockitoBean
+    PortfolioQueryService portfolioQueryService;
 
     @MockitoBean
     AuditLogger auditLogger;
