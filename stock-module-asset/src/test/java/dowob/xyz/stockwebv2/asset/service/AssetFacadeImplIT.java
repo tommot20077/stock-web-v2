@@ -1,6 +1,8 @@
 package dowob.xyz.stockwebv2.asset.service;
 
 import dowob.xyz.stockwebv2.common.model.AssetType;
+import dowob.xyz.stockwebv2.common.model.CurrencyCode;
+import dowob.xyz.stockwebv2.infrastructure.asset.AssetProfile;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 
 import org.flywaydb.core.Flyway;
@@ -15,7 +17,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -28,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *   <li>findAllTradeable 只回傳 active + tradeable 的 asset，並按 symbol 升冪排序</li>
  *   <li>findBySymbol 依大小寫敏感的 symbol 查詢，找不到回 Optional.empty()</li>
  *   <li>findBySymbol null 輸入拋出 NullPointerException</li>
+ *   <li>findProfiles 一次查詢回傳幣別 / 類型 / 產業，查無者省略，空輸入回空 map</li>
  * </ul>
  *
  * @author Yuan
@@ -46,6 +51,8 @@ class AssetFacadeImplIT {
 
     static AssetFacadeImpl facade;
 
+    static JdbcClient jdbc;
+
     @BeforeAll
     static void setup() {
         Flyway.configure()
@@ -62,6 +69,7 @@ class AssetFacadeImplIT {
         ds.setPassword(postgres.getPassword());
 
         JdbcClient client = JdbcClient.create(ds);
+        jdbc = client;
         facade = new AssetFacadeImpl(client);
     }
 
@@ -159,5 +167,51 @@ class AssetFacadeImplIT {
     void findBySymbol_nullThrows() {
         assertThatThrownBy(() -> facade.findBySymbol(null))
                 .isInstanceOf(NullPointerException.class);
+    }
+
+    // ── findProfiles ──────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("findProfiles：一次查詢取得 AAPL / 2330.TW / BTC / USD/TWD 的幣別與產業")
+    void findProfilesReturnsCurrencyAndSectorInOneQuery() {
+        Long aapl = idOf("AAPL");
+        Long tsmc = idOf("2330.TW");
+        Long btc = idOf("BTC");
+        Long usdTwd = idOf("USD/TWD");
+
+        Map<Long, AssetProfile> profiles = facade.findProfiles(List.of(aapl, tsmc, btc, usdTwd));
+
+        assertThat(profiles).containsOnlyKeys(aapl, tsmc, btc, usdTwd);
+        assertThat(profiles.get(aapl)).isEqualTo(
+                new AssetProfile(aapl, "AAPL", AssetType.STOCK, "US", CurrencyCode.USD, "Tech"));
+        assertThat(profiles.get(tsmc)).isEqualTo(
+                new AssetProfile(tsmc, "2330.TW", AssetType.STOCK, "TW", CurrencyCode.TWD, "Tech"));
+        assertThat(profiles.get(btc)).isEqualTo(
+                new AssetProfile(btc, "BTC", AssetType.CRYPTO, "CRYPTO", CurrencyCode.USD, "Crypto"));
+        assertThat(profiles.get(usdTwd)).isEqualTo(
+                new AssetProfile(usdTwd, "USD/TWD", AssetType.FX, "FX", CurrencyCode.TWD, null));
+    }
+
+    @Test
+    @DisplayName("findProfiles：不存在的 id 不出現在結果中且不拋例外")
+    void findProfilesOmitsUnknownIds() {
+        Long aapl = idOf("AAPL");
+
+        Map<Long, AssetProfile> profiles = facade.findProfiles(Set.of(aapl, 999999L));
+
+        assertThat(profiles).containsOnlyKeys(aapl);
+    }
+
+    @Test
+    @DisplayName("findProfiles：空集合回傳空 map")
+    void findProfilesWithEmptyInputReturnsEmptyMap() {
+        assertThat(facade.findProfiles(List.of())).isEmpty();
+    }
+
+    private static Long idOf(String symbol) {
+        return jdbc.sql("select id from assets where symbol = :symbol")
+                .param("symbol", symbol)
+                .query(Long.class)
+                .single();
     }
 }
