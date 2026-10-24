@@ -129,7 +129,7 @@ Plans:
 
 **Goal**: 補齊四個「前端有 UI、後端無資料來源」的缺口，讓 Phase 5 的瀏覽器驗證能涵蓋完整畫面而非一堆隱藏區塊。
 **Depends on**: Phase 4
-**Requirements**: TBD（新需求 ID 待 `/gsd-discuss-phase 04.1` 時定；四條來源 todo 見 `.planning/todos/pending/`）
+**Requirements**: PORT-09, PORT-10, PORT-11, PORT-12, CASH-01, CASH-02, CASH-03, TRAD-10, ERR-01（2026-10-24 plan-phase 依 RESEARCH 提議註冊並擴充 D-24 / D-25 / D-27 / D-28；需求字面由 `04.1-01` Task 2 寫入 REQUIREMENTS.md）
 **Insertion note**（2026-07-26）：**非緊急插入**。`(INSERTED)` 是 gsd 的結構標記，不代表急迫性。Yuan 於 Phase 4 discuss 時決定把四條後端資料缺口從 backlog 提前處理，排在 Phase 4 之後、Phase 5 之前，理由是 Phase 5 的跨 repo 瀏覽器驗證若在一堆 API-mode 隱藏區塊上跑，證明力會被削弱。
 **Scope**（2026-07-26 查證的實際後端現況，四條成本差異很大）:
 
@@ -139,9 +139,41 @@ Plans:
   4. **watchlist API 化** — 後端**沒有**（整個 repo 只有 `Permission.WATCHLIST_MANAGE` 一個 enum 值，無表無 endpoint）。屬 PORT-06（原列 v2）。
 
 **Scope update**(2026-09-28 discuss):第 1、2、3 條留在 04.1 並新增「基準幣與匯率折算」;第 4 條 watchlist 與 DIV 股利移至 **Phase 04.2**。決策見 `04.1-CONTEXT.md`。
-**Success Criteria** (what must be TRUE): TBD（plan-phase 依 04.1-CONTEXT.md 定義；每條都需明確「後端有資料 → API mode 顯示真實值」而非解除隱藏卻顯示 0）
-**Plans**: TBD
-**UI hint**: yes（受影響畫面：Overview 今日損益/可用現金/資產配置 donut、Positions sector breakdown、Chart/Markets watchlist）
+**Success Criteria** (what must be TRUE)（每條都是「後端有資料 → API mode 顯示真實值」，不得是解除隱藏卻顯示 0）:
+
+  1. 使用者在 Overview 快速切換或 Settings 欄位改基準幣後，後端儲存新值（`/api/v1/me` 回 `baseCurrency`），summary 與 holdings 以新基準幣重讀；USD 與 TWD 部位、已實現損益不再直接相加，Positions 權重以基準幣市值計算（PORT-09、PORT-10）。
+  2. Overview 在 API mode 恰好顯示 4 張 KPI（總資產 `totalEquity` / 今日損益 `dayPricePnl` / 可用現金 `cash` / 總報酬率 `roi`），元件測試以刻意不同於 mock 的數值證明資料來自後端；缺前收或缺匯率時顯示 `—` 與「N 檔未計入」，不塞 0（PORT-10、PORT-11、CASH-02）。
+  3. 使用者可記入金 / 出金（`Idempotency-Key` 冪等、append-only），可用現金依幣別即時推導、允許為負並提示；獨立「現金」頁顯示分頁紀錄並可一鍵沖銷，DB 層擋下重複沖銷 / 沖銷沖銷分錄 / 金額幣別不一致（CASH-01、CASH-02、CASH-03）。
+  4. 資產配置 donut 與 Positions 產業分布在 API mode 以後端 `allocation` / `sectorAllocation` 渲染（`sector` null 顯示「未分類」）；持倉表顯示單檔今日損益（PORT-11、PORT-12）。
+  5. Trades 頁、Overview 近期交易、OrderTicket review / result 的金額帶交易幣別（ISO 代碼後綴，不寫死 `$`）；格式錯誤的 JSON body 回 400 `VALIDATION_FAILED` 而非 500（TRAD-10、ERR-01）。
+  6. 後端 unit + CI Integration job、前端 mock / API 雙模式測試 + build + lint、跨 repo 驗證（judgment §8）全綠，Yuan 完成瀏覽器走查。
+
+**Plans**: 21 plans（6 waves；後端 10 + 前端 10 + 收尾閘門 1）。後端與前端在契約凍結後平行推進；本環境無 Docker，所有 `*IT` 以 CI Integration job 為證。
+Plans:
+
+- [ ] `04.1-01-PLAN.md` — D-27 格式錯誤 JSON → 400（tracer：POST /trades）+ 需求註冊 + D-23 Facade 規則修訂（wave 1，backend）
+- [ ] `04.1-02-PLAN.md` — PORT-09 後端：V14 `users.base_currency`、`/me` 回 `baseCurrency`、`PATCH /me/preferences`、`UserPreferenceFacade`（wave 1，backend）
+- [ ] `04.1-03-PLAN.md` — 參考資料 Facade：`AssetFacade.findProfiles` + `FxRateFacade` / `FxRates` 三角換算（wave 1，backend）
+- [ ] `04.1-04-PLAN.md` — CASH-01 後端：V15 現金分錄表（append-only + 沖銷 DB 保護）+ `POST /portfolio/cash-entries` 冪等寫入（wave 1，backend）
+- [ ] `04.1-05-PLAN.md` — PORT-10 後端：`PortfolioQueryService` + summary / holdings 基準幣折算 + 快取 v2 鍵 + 契約 D-05（wave 2，backend）
+- [ ] `04.1-06-PLAN.md` — CASH-03 後端：入出金分頁列表 + 一鍵沖銷（`reversalOfId`）+ PROJECT.md D-01（wave 2，backend）
+- [ ] `04.1-07-PLAN.md` — PORT-11 後端：`DayPnlCalculator` 恆等式 + 單檔與總額今日損益（含今日賣光、D-26）（wave 3，backend）
+- [ ] `04.1-08-PLAN.md` — TRAD-10 後端：`TradeDto.currency` 經 `AssetFacade`（wave 3，backend）
+- [ ] `04.1-09-PLAN.md` — CASH-02 後端：summary `cash` / `cashBalances` / `totalEquity` + 現金分錄 commit 後失效（wave 4，backend）
+- [ ] `04.1-10-PLAN.md` — PORT-12 後端：`allocation` / `sectorAllocation` + 契約檔收尾（wave 5，backend）
+- [ ] `04.1-11-PLAN.md` — 前端：`moneyFormat` + Trades API 列幣別（tracer）+ 新 DTO 型別與 mock（wave 1，frontend）
+- [ ] `04.1-12-PLAN.md` — 前端：`cashApi` / `profileApi` 三件組 + `pageApiClients` 註冊 + Phase 04.1 i18n 鍵（wave 1，frontend）
+- [ ] `04.1-13-PLAN.md` — 前端：Settings 基準幣真欄位 + `MockDataNotice` 例外行（wave 2，frontend）
+- [ ] `04.1-14-PLAN.md` — 前端：OrderTicket review / result 幣別 + Trades CSV `currency` 欄（wave 2，frontend）
+- [ ] `04.1-15-PLAN.md` — 前端：`CashEntryDialog`（入金 / 出金 / 沖銷模式）+ `portfolioRevision` cause（wave 2，frontend）
+- [ ] `04.1-16-PLAN.md` — 前端：Positions 今日損益欄、基準幣權重、幣別標籤、產業分布（wave 2，frontend）
+- [ ] `04.1-17-PLAN.md` — 前端：「現金」頁 + 導覽 / CmdK / 捷徑登錄（wave 3，frontend）
+- [ ] `04.1-18-PLAN.md` — 前端：Overview 4 KPI、基準幣切換、可用現金卡、資產配置、近期交易幣別（wave 4，frontend）
+- [ ] `04.1-19-PLAN.md` — 前端：Playwright 窄螢幕版面回歸（UI-SPEC backstop）（wave 5，frontend）
+- [ ] `04.1-20-PLAN.md` — 前端：Playwright 真後端旅程（基準幣持久化、入金 → 現金頁 → 沖銷、未入金買進的幣別與負現金）（wave 5，frontend）
+- [ ] `04.1-21-PLAN.md` — 收尾閘門：judgment §8 跨 repo 驗證 + 需求證據 + CI 證據 + Yuan 瀏覽器走查（wave 6，checkpoint）
+
+**UI hint**: yes（受影響畫面：Overview KPI / 基準幣切換 / 可用現金 / 資產配置 donut / 近期交易、Positions 今日損益與 sector breakdown、Settings 基準幣、新「現金」頁、Trades 與 OrderTicket 幣別）
 
 ### Phase 04.2: Dividends, Share Adjustments & Watchlist (INSERTED)
 
@@ -179,6 +211,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 4.1 -> 4.2 -> 5
 | 2. Frontend Session & API Client Foundation | 5/5 | Completed | 2026-05-31 |
 | 3. Portfolio Read API Mode | 5/5 | Completed | 2026-07-26 |
 | 4. Manual Trade Creation, Idempotency & Post-Trade Refetch | 13/13 | Completed | 2026-09-04 |
-| 04.1 Backend Data Gap Backfill (INSERTED) | 0/TBD | Context gathered | - |
+| 04.1 Backend Data Gap Backfill (INSERTED) | 0/21 | Planned | - |
 | 04.2 Dividends, Share Adjustments & Watchlist (INSERTED) | 0/TBD | Context gathered | - |
 | 5. Cross-Repo Browser Flow Verification & Contract Hardening | 0/TBD | Not started | - |
