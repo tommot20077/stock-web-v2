@@ -76,6 +76,7 @@
 | HTTP | code | 情境 |
 |---|---|---|
 | 400 | `VALIDATION_FAILED` | body 欄位或 `Idempotency-Key` 不合法；看 `error.fields` |
+| 400 | `VALIDATION_FAILED` | body 不是合法 JSON 或欄位型別錯（2026-10-24 前為 500，D-27）；訊息固定、無 `error.fields` |
 | 400 | `TRADE_UNSUPPORTED_TYPE` | `type` 不是 BUY / SELL |
 | 404 | `ASSET_NOT_FOUND` | 標的不存在或不可交易 |
 | 409 | `TRADE_INSUFFICIENT_HOLDING` | SELL 數量超過持有 |

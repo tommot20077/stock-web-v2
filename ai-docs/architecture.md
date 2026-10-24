@@ -69,7 +69,7 @@ Inter-module communication uses two independent channels, each with clearly defi
 **Rules:**
 - Facade interfaces may only be called by Application Services — Controllers must NOT call them directly
 - Kafka Consumers consume events directly, not through Facades (Event channel is independent of Facade)
-- Application layer Facade calls are limited to **≤ 3 per request** — beyond that, use Redis pre-computation
+- Facade calls are counted per request as cross-module round trips, default ≤ 3 — the conditions for exceeding it are in `code-standards.md` §Facade Call Rules (single source; not restated here)
 
 ## Phased Introduction Strategy (Hard Requirement)
 

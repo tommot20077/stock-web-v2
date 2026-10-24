@@ -62,7 +62,7 @@
 
 ## 7. 高頻計算走 Redis,低頻直寫 DB
 
-**規則**(來源:code-standards.md):價格事件驅動的計算(估值/ROI/dashboard)→ 先寫 Redis、批次回寫 DB、API 只讀 Redis。`holdings`/`transactions`/`assets`/`users` 低頻 → 直寫 DB。Facade 呼叫每請求 ≤3 次,超過改批次或預計算。
+**規則**(來源:code-standards.md):價格事件驅動的計算(估值/ROI/dashboard)→ 先寫 Redis、批次回寫 DB、API 只讀 Redis。`holdings`/`transactions`/`assets`/`users` 低頻 → 直寫 DB。Facade 呼叫以每請求跨模組往返計,預設 ≤ 3;超過的條件見 code-standards.md §Facade Call Rules(不在此另寫第二套條件)。
 
 **正例**:portfolio 估值查 `cache:portfolio:{userId}:{assetId}`。
 **反例**:price tick 進來就 UPDATE DB 的估值表,或 API 為了「即時」直接對 DB 算總市值。
