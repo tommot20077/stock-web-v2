@@ -33,8 +33,14 @@ import java.util.List;
  * @param totalEquity           總資產 = {@code totalMarketValue + cash}（基準幣）
  * @param cashBalances          各幣別的原幣現金餘額，依 {@code CurrencyCode} 宣告順序（USD、TWD、EUR、JPY），
  *                              只含有過入出金或交易的幣別；沒有任何紀錄時為空 list（不是 null）
+ * @param allocation            類別配置（D-18）：{@code asset_type} 分塊加上正現金 {@code CASH}，基準幣計值，
+ *                              依金額降冪（同值依類別字母升冪）；沒有持倉的類別不出現，現金 &lt;= 0 時不列 {@code CASH}；
+ *                              分母 = 可折算持倉市值 + 正現金，分母為 0 時為空 list（不是 null）
+ * @param sectorAllocation      產業配置（D-19）：以 {@code assets.sector} 原值分組，依金額降冪（同值依產業字母升冪），
+ *                              {@code sector = null}（未分類）一律排最後；分母 = 可折算持倉市值（不含現金），
+ *                              分母為 0 時為空 list（不是 null）
  * @author Yuan
- * @version 3.0
+ * @version 4.0
  */
 public record PortfolioSummaryDto(
     BigDecimal totalMarketValue,
@@ -52,6 +58,8 @@ public record PortfolioSummaryDto(
     int dayPnlExcludedCount,
     BigDecimal cash,
     BigDecimal totalEquity,
-    List<CashBalanceDto> cashBalances
+    List<CashBalanceDto> cashBalances,
+    List<AllocationSliceDto> allocation,
+    List<SectorAllocationDto> sectorAllocation
 ) {
 }

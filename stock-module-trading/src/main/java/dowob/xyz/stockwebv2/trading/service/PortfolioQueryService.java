@@ -12,6 +12,7 @@ import dowob.xyz.stockwebv2.infrastructure.user.UserPreferenceFacade;
 import dowob.xyz.stockwebv2.trading.api.CashBalanceDto;
 import dowob.xyz.stockwebv2.trading.api.HoldingDto;
 import dowob.xyz.stockwebv2.trading.api.PortfolioSummaryDto;
+import dowob.xyz.stockwebv2.trading.domain.AllocationCalculator;
 import dowob.xyz.stockwebv2.trading.domain.CashBalanceCalculator;
 import dowob.xyz.stockwebv2.trading.domain.CashFlow;
 import dowob.xyz.stockwebv2.trading.domain.DayFill;
@@ -72,11 +73,13 @@ import java.util.TreeSet;
  * 那會讓命中路徑多兩道 SQL，抵銷快取的意義；失效時機由 {@code PortfolioCashAllocationIT} 的
  * {@code depositRaisesCashImmediatelyAfterCommit} 證明。</p>
  *
- * <p>快取未命中時每個 Facade 至多一次批次呼叫（共 4 次，D-23），見 {@link #summary} 內的呼叫點註解；
+ * <p>PORT-12 起 summary 帶資產配置與產業分組（D-18 ~ D-21）：以上面已折算成基準幣的持倉市值與未實現損益、
+ * 以及基準幣現金，交給純函式 {@link AllocationCalculator} 分組，匯率只在後端折算一次。配置計算不呼叫任何 Facade，
+ * 快取未命中時每個 Facade 至多一次批次呼叫（共 4 次，D-23）的預算不變，見 {@link #summary} 內的呼叫點註解；
  * 現金的兩道聚合 SQL 是本模組自己的表，不算 Facade。</p>
  *
  * @author Yuan
- * @version 4.0
+ * @version 5.0
  */
 @Service
 public class PortfolioQueryService {
@@ -323,6 +326,11 @@ public class PortfolioQueryService {
      * 列入 {@code unconvertedCurrencies}（D-04）。交易資產的幣別與持倉共用同一次 {@code findProfiles}。
      * 此方法不驗證餘額、不擋任何操作（D-01）。快取失效由寫入端負責，見類別說明。
      *
+     * <p>資產配置（D-18 ~ D-21）：「可折算且持有數量 &gt; 0」的持倉（換不到匯率或缺資產屬性者不進配置，與總額一致）
+     * 以基準幣市值依 {@code assetType} 分類並加上正現金成為 {@code allocation}；依 {@code sector} 原值分組成
+     * {@code sectorAllocation}（不含現金，null 產業排最後）。兩個分母的差異與排序規則見
+     * {@link AllocationCalculator}。
+     *
      * @param userId 使用者 id
      * @return 投資組合摘要 DTO
      */
@@ -359,6 +367,7 @@ public class PortfolioQueryService {
         int fxExcludedCount = 0;
         BigDecimal marketValue = BigDecimal.ZERO;
         BigDecimal costBasis = BigDecimal.ZERO;
+        List<AllocationCalculator.Input> allocationInputs = new ArrayList<>();
         for (int i = 0; i < positions.size(); i++) {
             HoldingDto holding = holdings.get(i);
             AssetProfile profile = profiles.get(positions.get(i).assetId());
@@ -376,6 +385,12 @@ public class PortfolioQueryService {
             }
             marketValue = marketValue.add(marketValueInBase.get());
             costBasis = costBasis.add(costBasisInBase.get());
+            // 配置輸入沿用上面已折算的值（D-21）：未實現損益 = 折算後市值 − 折算後成本，與 summary 總額同一算法。
+            allocationInputs.add(new AllocationCalculator.Input(
+                holding.assetType(),
+                holding.sector(),
+                marketValueInBase.get(),
+                marketValueInBase.get().subtract(costBasisInBase.get())));
         }
         // realized PnL 需涵蓋已平倉部位（total_quantity = 0，不在 listHoldings 內），且必須逐資產依各自幣別折算，
         // 不能像舊版以 SQL 跨幣別 sum。已實現損益為 0 的資產不需要匯率，不計入 unconverted。
@@ -401,6 +416,8 @@ public class PortfolioQueryService {
         BigDecimal totalPnl = realizedPnl.add(unrealizedPnl);
         DayTotals dayTotals = dayTotals(base, rates, positions, holdings, closedIds, valuation.day(), profiles, unconverted);
         CashSummary cashSummary = cashSummary(base, rates, ledgerNet, tradeCashFlows, profiles, unconverted);
+        // 純函式：只吃已折算的持倉值與基準幣現金，不另呼叫任何 Facade（D-23 的呼叫預算不變）。
+        AllocationCalculator.Result allocation = AllocationCalculator.calculate(allocationInputs, cashSummary.cash());
         PortfolioSummaryDto dto = new PortfolioSummaryDto(
             marketValue,
             costBasis,
@@ -417,7 +434,9 @@ public class PortfolioQueryService {
             dayTotals.excludedCount(),
             cashSummary.cash(),
             marketValue.add(cashSummary.cash()),
-            cashSummary.balances()
+            cashSummary.balances(),
+            allocation.allocation(),
+            allocation.sectors()
         );
         portfolioCache.writeSummary(userId, base, dto);
         return dto;

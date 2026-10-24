@@ -263,7 +263,7 @@ class PortfolioQueryServiceTest {
         when(userPreferenceFacade.findBaseCurrency(7L)).thenReturn(CurrencyCode.TWD);
         PortfolioSummaryDto cached = new PortfolioSummaryDto(
             BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-            0, "TWD", 0, List.of(), null, null, 0, BigDecimal.ZERO, BigDecimal.ONE, List.of());
+            0, "TWD", 0, List.of(), null, null, 0, BigDecimal.ZERO, BigDecimal.ONE, List.of(), List.of(), List.of());
         when(portfolioCache.readSummary(7L, CurrencyCode.TWD)).thenReturn(Optional.of(cached));
 
         PortfolioSummaryDto dto = service.summary(7L);
@@ -370,7 +370,7 @@ class PortfolioQueryServiceTest {
     void summaryCacheHitDoesNotTouchCashSources() {
         PortfolioSummaryDto cached = new PortfolioSummaryDto(
             BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-            0, "TWD", 0, List.of(), null, null, 0, BigDecimal.TEN, BigDecimal.valueOf(11), List.of());
+            0, "TWD", 0, List.of(), null, null, 0, BigDecimal.TEN, BigDecimal.valueOf(11), List.of(), List.of(), List.of());
         when(portfolioCache.readSummary(7L, CurrencyCode.TWD)).thenReturn(Optional.of(cached));
 
         service.summary(7L);
