@@ -19,6 +19,11 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
@@ -640,6 +645,106 @@ class CashEntryApiIT extends ContainerIT {
 
         assertThat(secondId).isEqualTo(firstId);
         assertThat(rowCount(email)).isEqualTo(2);
+    }
+
+    // ── 併發（T-04.1-21）──────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("8 條併發、不同 key 沖銷同一筆：恰好 1 個 200、其餘 409 CASH_ENTRY_ALREADY_REVERSED、零 5xx、reversal_of_id 計數 1")
+    void concurrentReversalsOfSameEntryCreateExactlyOne() throws Exception {
+        String accessToken = register(
+            "cash-conc-rev-" + UUID.randomUUID() + "@example.com",
+            "cashconc" + UUID.randomUUID().toString().substring(0, 8));
+        String originalId = entryIdOf(postEntry(accessToken, UUID.randomUUID().toString(), """
+            {"type":"DEPOSIT","currency":"TWD","amount":5000,"occurredAt":"2026-10-01T09:00:00+08:00"}
+            """).andExpect(status().isOk()));
+        String body = reversalBody("WITHDRAWAL", "TWD", "5000", originalId);
+
+        int threads = 8;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch go = new CountDownLatch(1);
+        List<Future<String>> responses = new ArrayList<>();
+        try {
+            for (int i = 0; i < threads; i++) {
+                // 每條 thread 一把不同的 key：同 key 會被冪等機制合併，測到的就不是「雙沖銷」競態了。
+                String perThreadKey = "conc-rev-" + i + "-" + UUID.randomUUID();
+                responses.add(pool.submit(() -> {
+                    ready.countDown();
+                    go.await();
+                    var response = postEntry(accessToken, perThreadKey, body).andReturn().getResponse();
+                    return response.getStatus() + " " + response.getContentAsString();
+                }));
+            }
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            go.countDown();
+
+            List<String> raw = new ArrayList<>();
+            for (Future<String> response : responses) {
+                raw.add(response.get(30, TimeUnit.SECONDS));
+            }
+            // 斷言不變量而非時序：哪一條 thread 贏是不確定的，「恰好一個成功、其餘可理解的 409、沒有 5xx」才是契約。
+            assertThat(raw).noneMatch(r -> r.startsWith("5"));
+            assertThat(raw).filteredOn(r -> r.startsWith("200 ")).hasSize(1);
+            List<String> conflicts = raw.stream().filter(r -> r.startsWith("409 ")).toList();
+            assertThat(conflicts).hasSize(threads - 1);
+            for (String conflict : conflicts) {
+                assertThat(objectMapper.readTree(conflict.substring(4)).get("error").get("code").asText())
+                    .isEqualTo("CASH_ENTRY_ALREADY_REVERSED");
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        Integer reversals = jdbcClient.sql("""
+                SELECT count(*) FROM cash_ledger_entries
+                WHERE reversal_of_id = (SELECT id FROM cash_ledger_entries WHERE uuid = :uuid)
+                """)
+            .param("uuid", UUID.fromString(originalId))
+            .query(Integer.class)
+            .single();
+        assertThat(reversals).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("8 條併發、同一把 key 同 payload 入金：8 個 200、id 全同、帳本 1 列")
+    void concurrentSameKeyDepositsCreateExactlyOne() throws Exception {
+        String email = "cash-conc-idem-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashconc" + UUID.randomUUID().toString().substring(0, 8));
+        String key = "conc-same-key-" + UUID.randomUUID();
+        String body = """
+            {"type":"DEPOSIT","currency":"TWD","amount":777,"occurredAt":"2026-10-01T09:00:00+08:00"}
+            """;
+
+        int threads = 8;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch go = new CountDownLatch(1);
+        List<Future<String>> responses = new ArrayList<>();
+        try {
+            for (int i = 0; i < threads; i++) {
+                responses.add(pool.submit(() -> {
+                    ready.countDown();
+                    go.await();
+                    var response = postEntry(accessToken, key, body).andReturn().getResponse();
+                    return response.getStatus() + " " + response.getContentAsString();
+                }));
+            }
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            go.countDown();
+
+            List<String> ids = new ArrayList<>();
+            for (Future<String> response : responses) {
+                String raw = response.get(30, TimeUnit.SECONDS);
+                assertThat(raw).startsWith("200 ");
+                ids.add(objectMapper.readTree(raw.substring(4)).get("data").get("id").asText());
+            }
+            assertThat(ids).containsOnly(ids.getFirst());
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(rowCount(email)).isEqualTo(1);
     }
 
     private ResultActions getEntries(String accessToken, String page, String size) throws Exception {
