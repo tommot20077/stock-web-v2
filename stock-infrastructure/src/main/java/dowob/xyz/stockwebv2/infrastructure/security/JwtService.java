@@ -190,7 +190,9 @@ public class JwtService {
                 "STOCK_JWT_PRIVATE_KEY is still in the legacy PEM format; it must now be an EC JWK (JSON). "
                     + "Convert it without exposing the key to any third party: "
                     + "openssl pkey -in private.pem -pubout -out public.pem"
-                    + " && java -cp <app.jar> " + JwkKeyConverter.class.getName() + " private.pem public.pem");
+                    + " && java -cp <app.jar> -Dloader.main=" + JwkKeyConverter.class.getName()
+                    + " org.springframework.boot.loader.launch.PropertiesLauncher private.pem public.pem"
+                    + " (or generate a new key: java scripts/GenerateJwtJwk.java <kid>)");
         }
         JWK jwk;
         try {

@@ -103,15 +103,17 @@ Access Token is short-lived (15-30 minutes), paired with a long-lived Refresh To
 ### 6. Key Management
 
 *   JWT uses **ECDSA ES256** (never RSA).
-*   The private key is stored as a **PKCS8 PEM** string in a K8s Secret, injected via the `JWT_PRIVATE_KEY` environment variable.
-*   When `JWT_PRIVATE_KEY` is not set (local / dev), `JwtService` generates a fresh key pair on startup (tokens invalidated on restart).
-*   **The public key is derived from the private key** — no need to store it separately.
+*   The private key is a **P-256 EC JWK** (single-line JSON including the private `d` component and a fixed `kid`), stored in a K8s Secret and injected via the `STOCK_JWT_PRIVATE_KEY` environment variable. **Not PEM** — a PEM value is rejected at startup with conversion instructions.
+*   Generate a new key with `java scripts/GenerateJwtJwk.java <kid>` (JDK only); convert a legacy PEM with `JwkKeyConverter` (see its javadoc). Never use online tools to generate or convert the signing key.
+*   When `STOCK_JWT_PRIVATE_KEY` is blank, only `dev` / `test` / `e2e` / `e2e-browser` profiles start, with a fresh ephemeral key pair (tokens invalidated on restart); every other profile refuses to start.
+*   The public key is part of the JWK (`x` / `y`) — no separate public key setting and no derivation at startup.
 *   **K3s Secret encryption**: K3s must have `--secrets-encryption` flag enabled to ensure at-rest encryption of Secrets in etcd.
 
 #### Key Rotation Strategy
 
-- **MVP phase**: Single key — increment token version on rotation to force re-login.
-- **Production phase**: Dual key coexistence (`JWT_PRIVATE_KEY` + `JWT_PREVIOUS_KEY`), add `kid` field in JWT header. New tokens signed with new key, old tokens verified with old key until expiry. No JWKS needed (monolith does not require it).
+- **MVP phase (current)**: Single key. Replacing `STOCK_JWT_PRIVATE_KEY` invalidates **access tokens only**. Refresh tokens are opaque Redis entries (`user:refresh:{token}`), not signed by the JWT key, so existing sessions survive: the client's next 401 triggers one refresh and receives an access token signed with the new key. This is the intended behaviour for routine rotation (no forced re-login).
+- **When every session must end** (suspected session theft, not just key replacement): rotating the key is not enough. Also revoke refresh tokens — per user via token-version increment / `RefreshTokenService.revokeAllForUser`, or globally by deleting `user:refresh:*` in the Redis database configured by `STOCK_REDIS_DATABASE` (e.g. `redis-cli -n <db> --scan --pattern 'user:refresh:*' | xargs -r redis-cli -n <db> del`).
+- **Production phase (not implemented)**: Dual key coexistence (`STOCK_JWT_PRIVATE_KEY` + a previous key), selected by the `kid` already present in the JWT header. New tokens signed with new key, old tokens verified with old key until expiry. No JWKS needed (monolith does not require it).
 
 ### 7. AccessDeniedException Must Be Re-thrown
 

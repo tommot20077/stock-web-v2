@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: Phase 04.1 CONTEXT ready (04.2 split out 2026-09-28); next up /gsd-plan-phase 04.1
 stopped_at: Phase 04.1 context gathered (04.2 split out)
-last_updated: "2026-09-27T16:37:42.762Z"
-last_activity: 2026-09-28 -- Phase 04.1 discuss 完成並拆出 04.2;04.1 / 04.2 CONTEXT 已寫入
+last_updated: "2026-10-23T10:40:00.000Z"
+last_activity: 2026-10-23 -- 狀態檔回填(todos / ROADMAP / REQUIREMENTS 對齊實況);JWT JWK 產生器與 demo 金鑰
 progress:
   total_phases: 7
   completed_phases: 4
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can safely sign in, inspect portfolio state, and record trades through one coherent frontend/backend flow.
-**Current focus:** Phase 04 — manual-trade-creation-idempotency-post-trade-refetch
+**Current focus:** Phase 04.1 — backend-data-gap-backfill(CONTEXT 已備,待 plan)
 
 ## Current Position
 
 Phase: 04 (manual-trade-creation-idempotency-post-trade-refetch) — **COMPLETE**
 Plan: 13 of 13 完成；`04-13` 兩個 task 皆結案（Task 2 於 2026-09-04 由 Yuan 走完 17 步後回覆「都 ok」）。
-Next: **Phase 04.1（Backend Data Gap Backfill）尚無 CONTEXT，需先 discuss。** Phase 5 同樣無 CONTEXT。
-Last activity: 2026-09-04 -- Docker 恢復後補跑 106 IT 與 Playwright 18/18 全綠；人工檢查點通過
+Next: **`/gsd-plan-phase 04.1`**——04.1 與 04.2 的 CONTEXT 已於 2026-09-28 寫入;Phase 5 尚無 CONTEXT(排在 04.2 之後)。
+Last activity: 2026-10-23 -- 狀態檔回填;9/2 審查的 P0 與 P1 程式項已於 2026-09-04 ~ 09-28 修完合併(後端 PR #27–#48、前端 PR #11–#15)
 
 > ✅ **Phase 4 已完成（2026-09-04）。** 13 個 plan 全數執行完畢，`04-13` 的 blocking human-verify
 > checkpoint 由 Yuan 親自走完甲／乙／丙三段共 17 步後通過（未提出任何不符項）。
@@ -69,12 +69,12 @@ Last activity: 2026-09-04 -- Docker 恢復後補跑 106 IT 與 Playwright 18/18 
 | `npm run build` | exit 0（含 `vue-tsc --noEmit`） |
 | `TradingApiIT` 連跑 3 次 | 各 29/29 全綠；`concurrentSameKeyCreatesExactlyOneTrade` 累計 8 次零偶發 |
 
-Progress(milestone v1.0):[█████████████░░░░░░░] 4/6 phases (67%)
-Progress(plan):28/28 plans executed(Phase 1-4 全部執行完畢;04.1 與 5 尚未 plan)
+Progress(milestone v1.0):[███████████░░░░░░░░░] 4/7 phases (57%)
+Progress(plan):28/28 plans executed(Phase 1-4 全部執行完畢;04.1 / 04.2 / 5 尚未 plan)
 
-> 67% 是 milestone 真實進度(6 個 phase 完成 4 個;Phase 04.1 於 2026-07-26 插入)。
+> 57% 是 milestone 真實進度(7 個 phase 完成 4 個;Phase 04.1 於 2026-07-26 插入、04.2 於 2026-09-28 拆出)。
 > Phase 4 收尾時已跑過真實跨 repo 瀏覽器流程(Playwright 18/18 + 人工 17 步),但 **VER-01/02/03 的正式驗收仍屬 Phase 5**
-> —— 那一步要的是完整 smoke flow 與契約硬化,不是單次走查(judgment §8)。Phase 04.1 與 Phase 5 皆無 CONTEXT。Phase 5 仍無 CONTEXT。
+> —— 那一步要的是完整 smoke flow 與契約硬化,不是單次走查(judgment §8)。04.1 / 04.2 已有 CONTEXT;Phase 5 仍無 CONTEXT。
 
 ## Performance Metrics
 
@@ -165,7 +165,12 @@ Recent decisions affecting current work:
 
 *(註:原有一條「Phase 2 planning should consume browser-auth-contract.md and avoid frontend token storage」已於 2026-07-19 移除 —— Phase 2 已完成,該提醒已過時。)*
 
-- 5 pending — `/gsd-capture --list` to review
+- 10 pending — `/gsd-capture --list` to review(2026-10-23 盤點;Spotless/JaCoCo、JWT 換鑰、header RWD 三條已完成、移到 `completed/`)
+  - 併入 04.1:`backend-available-cash`、`backend-daily-pnl`、`backend-asset-classification`
+  - 排在 04.2:`backend-dividend-trade-type`、`frontend-watchlist-mock-store`
+  - Deferred / backlog:`fx-pnl-and-rate-history`、`account-level-return`、`asset-master-management`、`kline-adjusted-prices`、`it-shared-containers`
+
+以下兩段是 2026-07 的原始記錄,保留供追溯:
 
 **第 5 條(2026-07-26,Phase 3 收尾發現):**
 
@@ -202,11 +207,10 @@ Last session: 2026-09-27T16:37:42.750Z
 Stopped at: Phase 04.1 context gathered (04.2 split out)
 前端契約凍結(見 04-05-SUMMARY 末節)。
 Resume file: .planning/phases/04.1-backend-data-gap-backfill/04.1-CONTEXT.md
-Next action: 執行 04-10(symbol typeahead 七態 / debounce / AbortController)。
+Next action: `/gsd-plan-phase 04.1`。
 
-**前端 repo 的狀態**(`../../vue/stock-v2`,分支 `feature/phase-04-manual-trade-creation`):
-04-06 ~ 04-09 的 14 個 commit **只在本機**,upstream 仍指向 `origin/develop`,
-該 feature 分支從未推送、也還沒有 PR。
+~~**前端 repo 的狀態**:04-06 ~ 04-09 的 commit 只在本機、分支未推送。~~
+(2026-10-23 更正:已過時。Phase 4 前端經 PR #9 合併進 `develop @ a00fb29`,前端 repo 為 `tommot20077/stock-web-v2-front-end`。)
 
 **接手前必讀的四個地雷:**
 

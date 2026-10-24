@@ -1,9 +1,10 @@
 ---
 created: 2026-07-26
-updated: 2026-08-16
-title: JwtService 移除手寫 EC 點運算(程式碼已完成,剩環境遷移)
+updated: 2026-10-23
+title: JwtService 移除手寫 EC 點運算(已完成,含環境遷移)
 area: infrastructure
-status: code-done-pending-rollout
+status: done
+completed: 2026-10-23
 files:
   - stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/security/JwtService.java
   - stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/security/JwkKeyConverter.java
@@ -57,15 +58,26 @@ PEM 實跑過端到端。
 設定格式變了,每個環境的 `STOCK_JWT_PRIVATE_KEY` 都要從 PEM 換成 JWK。
 啟動時若偵測到值仍是 PEM,錯誤訊息會直接給出轉換指令,不會靜默失敗。
 
-- [ ] 盤點 dev / demo / 正式環境目前的 `STOCK_JWT_PRIVATE_KEY` 值
-- [ ] 逐一轉換:
-      ```
-      openssl pkey -in private.pem -pubout -out public.pem
-      java -cp <app.jar> dowob.xyz.stockwebv2.infrastructure.security.JwkKeyConverter private.pem public.pem
-      ```
-      **不要用線上轉換器**——那等同把生產環境的簽章私鑰交給第三方。
-- [ ] `.env.example:12` 的說明要更新(該檔在本 session 的權限設定下無法讀寫,未改到)
-- [ ] 考慮在轉換時順手加上固定的 `kid`(例如 `"kid":"stock-signing-2026"`),
-      為日後對外發布 JWKS 預留
+**2026-10-23 更新**:Yuan 裁定**換新金鑰**(不沿用舊 PEM;換鑰只讓 access token 失效,refresh token 存在 Redis、不經 JWT 金鑰簽章,session 會經一次 refresh 自動接續——2026-10-24 依 PR #49 Codex review 更正,原文誤寫為「使用者需重新登入」),
+demo 由 Claude 產生,正式環境由 Yuan 在本機產生(私鑰不經雲端 session)。
+
+- [x] 新增 `scripts/GenerateJwtJwk.java`(只依賴 JDK,含固定 `kid`)——200 把金鑰驗證 x/y 由 d 推得且簽驗成功,
+      並以實際 `JwtService` 在 demo profile 下簽發 / 解析通過
+- [x] 修正原本給的轉換指令:`java -cp <app.jar> JwkKeyConverter` 對 fat jar 實跑會 `ClassNotFoundException`;
+      `JwtService` 錯誤訊息與 `JwkKeyConverter` javadoc 已改為 `-Dloader.main=… PropertiesLauncher`(實跑通過)
+- [x] `.env.example` 的說明已更新
+- [x] demo 金鑰已產生(`kid: stock-signing-demo-2026`),交給 Yuan 貼進 demo 環境;**未進 repo**
+- [x] Yuan:把 demo 金鑰設進 demo 環境的 `STOCK_JWT_PRIVATE_KEY`,重啟後確認可登入
+- [x] Yuan:正式環境在本機執行 `java scripts/GenerateJwtJwk.java stock-signing-prod-2026`,
+      輸出直接導向 secret store(不要進 shell history / log),重啟後確認可登入
+- [x] 兩者都完成(Yuan 2026-10-23 回報),本 todo 移到 `completed/`
+
+若日後要**沿用**某把舊 PEM 金鑰(不讓既有 token 失效),用:
+```
+openssl pkey -in private.pem -pubout -out public.pem
+java -cp <app.jar> -Dloader.main=dowob.xyz.stockwebv2.infrastructure.security.JwkKeyConverter \
+    org.springframework.boot.loader.launch.PropertiesLauncher private.pem public.pem
+```
+輸出不含 `kid`,貼進設定前手動補上固定值。**不要用線上轉換器。**
 
 不受影響:dev/test/e2e 的 ephemeral key 路徑(`generateKey()`)本來就產完整 keypair。

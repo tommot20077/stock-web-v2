@@ -2,6 +2,7 @@
 created: 2026-07-26
 title: 導入 Spotless(格式)與 JaCoCo(覆蓋率)+ CI lint stage
 area: build
+completed: 2026-09-04
 files:
   - pom.xml
   - .github/workflows/ci.yml
@@ -99,3 +100,10 @@ devDependencies：`@eslint/js`、`eslint`、`eslint-config-prettier`、`eslint-p
 | 移除四個零實作抽象（`EventPublisher` / `EventSubscriber` / `DomainEvent` / `SearchService`） | **develop 仍在**；屬架構審查 M-1，要不要刪需先裁決事件抽象的去留 |
 | 前端刪 `src/store.ts` | 仍是死碼（全 repo 零 import），可獨立清掉 |
 | 前端刪 `src/stores/mockPreview.ts` | **已過時**：現在被 `api-adapter-wiring.test.ts` 與 `task7.test.ts` 使用，不可刪 |
+
+## 結案(2026-10-23 狀態回填)
+
+已於 2026-09-04 完成,本檔當時漏移到 `completed/`:
+
+- 後端:PR #31(`1edf19d build(quality): 導入 Spotless 與 JaCoCo，CI 加上 lint job`)——Spotless 只鎖 import 與空白衛生,JaCoCo 只出報告不設門檻(見 `pom.xml` 註解)。
+- 前端:PR #13(`3423890 build(lint): 導入 ESLint 與 Prettier，CI 加上 lint 步驟`)。

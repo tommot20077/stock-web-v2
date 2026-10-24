@@ -80,13 +80,17 @@ class JwtServiceTest {
         /*
          * 舊格式是 PEM。直接丟一個「無法解析」的通用錯誤，維運只會看到一團 JSON 例外，
          * 不知道要做什麼；錯誤訊息必須指出新格式與轉換工具。
+         *
+         * 給出的指令必須真的跑得起來：app.jar 是 Spring Boot fat jar，類別在 BOOT-INF/classes，
+         * `java -cp app.jar <類別>` 會 ClassNotFoundException，要經 PropertiesLauncher 的 loader.main。
          */
         JwtProperties properties = new JwtProperties(privateKeyPem("secp256r1"), Duration.ofMinutes(30), Duration.ofDays(14));
 
         assertThatThrownBy(() -> new JwtService(properties, environment("prod")))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("JWK")
-            .hasMessageContaining("JwkKeyConverter");
+            .hasMessageContaining("-Dloader.main=" + JwkKeyConverter.class.getName())
+            .hasMessageContaining("org.springframework.boot.loader.launch.PropertiesLauncher");
     }
 
     @Test

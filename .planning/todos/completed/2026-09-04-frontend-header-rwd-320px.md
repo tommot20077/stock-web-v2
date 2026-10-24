@@ -2,6 +2,7 @@
 created: 2026-09-04
 title: 前端 app shell header 在 320px 撐破版面,整頁水平滾動
 area: frontend-rwd
+completed: 2026-10-23
 repo: ../../vue/stock-v2
 files:
   - vue-app/src/components/Header.vue
@@ -55,3 +56,11 @@ Yuan 於 2026-09-04 走查時已知悉並接受此判定,Phase 4 不因此卡關
 - 375px / 768px / 1280px 下 header 版面不退化。
 - 登出、通知鈴、身分顯示在窄螢幕仍可操作(不是靠隱藏解決可用性)。
 - 前端閘門:`npm test && npm run build`,涉 API mode 加 `VITE_DATA_MODE=api npm test`。
+
+## 結案(2026-10-23)
+
+前端分支 `claude/epic-curie-lj8alo`:`bf057b4`(RED)、`ce8214f`(修正)。
+
+- 根因:`.nav { flex-shrink: 0 }`,10 個導覽項加工具區固有寬約 1070px —— 不只 320px,768px 也會整頁水平捲動。
+- 做法:nav 最後才縮並在列內捲動;1279px 以下改兩列(第二列為導覽);窄螢幕搜尋鈕只留 icon、480px 以下隱藏品牌字與寫死的頭像;session chip 在換行模式以 basis 0 參與換行。
+- 驗證:新增 `e2e/tests/layout.spec.ts`(`@smoke`,以 `page.route` 模擬已登入,不需真後端)320 / 375 / 768 / 1280 四寬度通過;另以 300–1440px 每 10px 掃描已登入 / 未登入 / 斷線三態,皆無整頁溢出、第一列不換行、chip 內容不溢出。登出與通知鈴在各寬度皆在視窗內可點(Verification 第 3 條)。

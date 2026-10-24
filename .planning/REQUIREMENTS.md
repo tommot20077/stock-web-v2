@@ -32,7 +32,7 @@
 - [x] **FAPI-05**: Shared API client 遇到 401 時最多嘗試一次 refresh/replay，避免無限 refresh loop。
 - [x] **FAPI-06**: Vue auth store 不保存 access token 或 refresh token，只保存必要的 user/session UI state。
 - [x] **FAPI-07**: API mode 錯誤或後端不可用時顯示錯誤/重試狀態，不靜默退回 mock data。
-- [ ] **FAPI-08**: Mock/API runtime mode 保留，但 integration/prod 類型環境不得因 invalid mode 靜默 fallback 到 mock。
+- [x] **FAPI-08**: Mock/API runtime mode 保留，但 integration/prod 類型環境不得因 invalid mode 靜默 fallback 到 mock。
 
 ### Portfolio Read
 
@@ -116,7 +116,7 @@ Roadmap creation will map each v1 requirement to exactly one phase.
 | FAPI-05 | Phase 2 | Complete |
 | FAPI-06 | Phase 2 | Complete |
 | FAPI-07 | Phase 2 | Complete |
-| FAPI-08 | Phase 2 | Pending |
+| FAPI-08 | Phase 2 | Complete |
 | PORT-01 | Phase 3 | Complete |
 | PORT-02 | Phase 3 | Complete |
 | PORT-03 | Phase 3 | Complete |
@@ -136,9 +136,12 @@ Roadmap creation will map each v1 requirement to exactly one phase.
 
 2026-09-27 狀態回填(依測試證據,非依 phase 完成宣稱):
 - AUTH-01/02/05/06/07、SEC-01~05:`BrowserAuthFlowIT`、`AuthFlowIT`、`CorsIT`、`RefreshTokenRotationIT`、`LogoutInvalidatesAccessTokenIT`、`MethodSecurityDenialIT`(stock-start)。
-- TRAD-01~06:後端 `TradingApiIT`、`TransactionsIdempotencyIT`;前端 `OrderTicket.test.ts`(Test 22 送出中 disabled、Test 25-32 冪等 key、Test 39-40 錯誤碼 / traceId、Test 47 超賣);瀏覽器 `e2e/tests/trade.spec.ts` T1-T3。Phase 4 本身仍待 04-13 Task 2(Yuan 親自瀏覽器確認)。
+- TRAD-01~06:後端 `TradingApiIT`、`TransactionsIdempotencyIT`;前端 `OrderTicket.test.ts`(Test 22 送出中 disabled、Test 25-32 冪等 key、Test 39-40 錯誤碼 / traceId、Test 47 超賣);瀏覽器 `e2e/tests/trade.spec.ts` T1-T3。Phase 4 的 04-13 Task 2 已於 2026-09-04 由 Yuan 親自走完 17 步通過。
 - VER-04:`ai-docs/browser-auth-contract.md` + `ai-docs/trading-portfolio-contract.md`。
-- 未勾:FAPI-08(未重新核對)、VER-01~03(Phase 5 範圍)。
+- 未勾:VER-01~03(Phase 5 範圍)。
+
+2026-10-23 狀態回填:
+- FAPI-08:前端 `runtimeDataMode.test.ts`(明確但無效的 `VITE_DATA_MODE` 丟 `RuntimeDataModeError`)、`App.vue` 錯誤畫面不發 fetch(02-05 決策);9/2 功能審查亦判 ✓。
 
 **Coverage:**
 - v1 requirements: 35 total
