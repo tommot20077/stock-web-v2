@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.start;
 
+import dowob.xyz.stockwebv2.common.model.CurrencyCode;
+import dowob.xyz.stockwebv2.infrastructure.user.UserPreferenceFacade;
 import dowob.xyz.stockwebv2.start.support.ContainerIT;
 
 import jakarta.servlet.http.Cookie;
@@ -52,6 +54,9 @@ class UserPreferencesIT extends ContainerIT {
 
     @Autowired
     ObjectMapper objectMapper;
+
+    @Autowired
+    UserPreferenceFacade userPreferenceFacade;
 
     @Test
     @DisplayName("新使用者的 /me 回傳預設基準幣 TWD")
@@ -178,6 +183,29 @@ class UserPreferencesIT extends ContainerIT {
                 .content("{\"baseCurrency\":"))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")));
+    }
+
+    @Test
+    @DisplayName("Facade 立即讀到 PATCH 寫入的基準幣，查無使用者回 TWD")
+    void facadeReadsBaseCurrencyWrittenByPatch() throws Exception {
+        String token = registerAndLogin("pref-facade@example.com", "preffacade");
+        String meBody = mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        Long userId = objectMapper.readTree(meBody).get("data").get("id").asLong();
+
+        assertThat(userPreferenceFacade.findBaseCurrency(userId)).isEqualTo(CurrencyCode.TWD);
+
+        mockMvc.perform(patch("/api/v1/me/preferences")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"baseCurrency\":\"USD\"}"))
+            .andExpect(status().isOk());
+
+        assertThat(userPreferenceFacade.findBaseCurrency(userId)).isEqualTo(CurrencyCode.USD);
+        assertThat(userPreferenceFacade.findBaseCurrency(Long.MAX_VALUE)).isEqualTo(CurrencyCode.TWD);
     }
 
     private String registerAndLogin(String email, String username) throws Exception {
