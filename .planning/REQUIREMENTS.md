@@ -168,8 +168,8 @@ Roadmap creation will map each v1 requirement to exactly one phase.
 - FAPI-08:前端 `runtimeDataMode.test.ts`(明確但無效的 `VITE_DATA_MODE` 丟 `RuntimeDataModeError`)、`App.vue` 錯誤畫面不發 fetch(02-05 決策);9/2 功能審查亦判 ✓。
 
 **Coverage:**
-- v1 requirements: 44 total
-- Mapped to phases: 44
+- v1 requirements: 45 total
+- Mapped to phases: 45
 - Unmapped: 0
 
 ---

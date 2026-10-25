@@ -141,8 +141,8 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | `roi` | number | unrealizedPnl / costBasis |
 | `priceTime` | string | `marketPrice` 的時間戳 |
 | `lastUpdated` | string | 持倉最後更新時間 |
-| `currency` | string | 標的計價幣別（`USD` / `TWD` / `EUR` / `JPY`），即上列原幣金額的幣別 |
-| `assetType` | string | 資產類型（`STOCK` / `CRYPTO` / `FX` / `BOND`） |
+| `currency` | string \| null | 標的計價幣別（`USD` / `TWD` / `EUR` / `JPY`），即上列原幣金額的幣別；資產屬性缺失（理論上不會發生）時為 `null`，該持倉不計入基準幣總額並計入 `fxExcludedCount` |
+| `assetType` | string \| null | 資產類型（`STOCK` / `CRYPTO` / `FX` / `BOND`）；資產屬性缺失時為 `null` |
 | `sector` | string \| null | 產業分類；`null` 代表未分類，由前端顯示「未分類」（後端不回在地化字串） |
 | `baseCurrency` | string | 使用者基準幣；`marketValueInBase` 的幣別 |
 | `marketValueInBase` | number \| null | `marketValue` 折算為 `baseCurrency` 的值；**換不到匯率時為 `null`** |
@@ -312,7 +312,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 ### 稽核
 
-一般入出金記為 `cash_entry_create`，沖銷記為 `cash_entry_reverse`；成功的 target 為 `cash_entry:<id>`、result 為 `success`，失敗的 target 為 `cash_entry`、result 為 `failure:<code>`。
+一般入出金記為 `cash_entry_create`，沖銷記為 `cash_entry_reverse`；成功的 target 為 `cash_entry:<id>`、result 為 `success`，失敗的 target 為 `cash_entry`、result 為 `failure:<code>`。失敗稽核只涵蓋進入 controller 後拋出的業務錯誤（例如冪等鍵衝突、沖銷規則）；Bean Validation 400 與缺少 `Idempotency-Key` header 在進入 controller 方法前就被擋下，不會有稽核紀錄。
 
 ## GET /api/v1/portfolio/cash-entries — 入出金紀錄
 

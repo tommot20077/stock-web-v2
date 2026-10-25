@@ -64,7 +64,7 @@
 
 **規則**(來源:code-standards.md):價格事件驅動的計算(估值/ROI/dashboard)→ 先寫 Redis、批次回寫 DB、API 只讀 Redis。`holdings`/`transactions`/`assets`/`users` 低頻 → 直寫 DB。Facade 呼叫以每請求跨模組往返計,預設 ≤ 3;超過的條件見 code-standards.md §Facade Call Rules(不在此另寫第二套條件)。
 
-**正例**:portfolio 估值查 `cache:portfolio:{userId}:{assetId}`。
+**正例**:portfolio 估值查 `portfolio:valuation:v2:{userId}:{assetId}`(鍵表見 redis-convention.md)。
 **反例**:price tick 進來就 UPDATE DB 的估值表,或 API 為了「即時」直接對 DB 算總市值。
 
 ## 8. 何時算「真完成」
