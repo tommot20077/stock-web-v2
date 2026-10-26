@@ -43,16 +43,16 @@
 - [x] **PORT-05**: Portfolio read views 提供 loading、empty、error、retry 狀態，並保留 request/trace id 以利除錯。
 - [x] **PORT-08**: `GET /api/v1/trades` 提供篩選（交易類型、日期區間）與排序（`executedAt` / 金額 `quantity × price` / `quantity`）參數，使前端在 server-side 分頁下的篩選與排序語意正確。
       *(2026-07-19 Phase 3 discuss 新增。理由：分頁導入後 client-side 篩選/排序只作用於當前頁，是正確性缺陷而非體驗問題。金額為計算值，後端需以 `quantity * price` 計算式排序並評估運算式索引。)*
-- [ ] **PORT-09**: 使用者有後端儲存的基準幣（`users.base_currency`，預設 TWD），`/api/v1/me` 回傳 `baseCurrency`，可經 `PATCH /api/v1/me/preferences` 修改（cookie 路徑須 CSRF）；Overview 快速切換與 Settings 欄位都寫回後端並觸發重讀。（D-02、D-03）
-- [ ] **PORT-10**: summary 與 holdings 以基準幣折算：summary 金額（含 realized PnL）以 `baseCurrency` 表示，匯率直接 → 反向 → 經 USD 三角換算，換不到的部位不計入並回報 `fxExcludedCount` / `unconvertedCurrencies`；`HoldingDto` 帶原幣 `currency` 與 `marketValueInBase`；前端金額一律以 ISO 代碼後綴顯示、Positions 權重以基準幣市值計算。（D-04、D-05、D-21、D-22、D-23、D-30）
-- [ ] **PORT-11**: 今日價格損益：`HoldingDto` 單檔與 summary 總額，依各檔市場最近交易日（`TradingDay` / `findDailyQuotes`）、D-12 算法、D-16 分母；今日首次買入照算；計算所需價格缺失時回 `null` 並回報 `dayPnlExcludedCount`；只含價格損益、不含匯差與手續費。（D-12 ~ D-17、D-26）
-- [ ] **PORT-12**: 資產配置（`asset_type` + 正現金，基準幣）與產業分組（`assets.sector`，null = 未分類）由後端計算（summary `allocation` / `sectorAllocation`）；`HoldingDto` 帶 `assetType` / `sector`；資產屬性一律經 `AssetFacade`，trading 不得 SQL JOIN `assets` 取新屬性；Overview donut 與 Positions 產業分布在 API mode 顯示真實值。（D-18 ~ D-21）
+- [x] **PORT-09**: 使用者有後端儲存的基準幣（`users.base_currency`，預設 TWD），`/api/v1/me` 回傳 `baseCurrency`，可經 `PATCH /api/v1/me/preferences` 修改（cookie 路徑須 CSRF）；Overview 快速切換與 Settings 欄位都寫回後端並觸發重讀。（D-02、D-03）
+- [x] **PORT-10**: summary 與 holdings 以基準幣折算：summary 金額（含 realized PnL）以 `baseCurrency` 表示，匯率直接 → 反向 → 經 USD 三角換算，換不到的部位不計入並回報 `fxExcludedCount` / `unconvertedCurrencies`；`HoldingDto` 帶原幣 `currency` 與 `marketValueInBase`；前端金額一律以 ISO 代碼後綴顯示、Positions 權重以基準幣市值計算。（D-04、D-05、D-21、D-22、D-23、D-30）
+- [x] **PORT-11**: 今日價格損益：`HoldingDto` 單檔與 summary 總額，依各檔市場最近交易日（`TradingDay` / `findDailyQuotes`）、D-12 算法、D-16 分母；今日首次買入照算；計算所需價格缺失時回 `null` 並回報 `dayPnlExcludedCount`；只含價格損益、不含匯差與手續費。（D-12 ~ D-17、D-26）
+- [x] **PORT-12**: 資產配置（`asset_type` + 正現金，基準幣）與產業分組（`assets.sector`，null = 未分類）由後端計算（summary `allocation` / `sectorAllocation`）；`HoldingDto` 帶 `assetType` / `sector`；資產屬性一律經 `AssetFacade`，trading 不得 SQL JOIN `assets` 取新屬性；Overview donut 與 Positions 產業分布在 API mode 顯示真實值。（D-18 ~ D-21）
 
 ### Cash Ledger
 
-- [ ] **CASH-01**: 使用者可依幣別記入金 / 出金（`POST /api/v1/portfolio/cash-entries`），分錄 append-only（DB trigger 保護）、`Idempotency-Key` 必填且冪等（同 key 不同 payload → 409 `CASH_IDEMPOTENCY_KEY_REUSED`）；入出金對話框沿用 Phase 4 key 生命週期與成功後重讀；現金帳是記帳不是券商帳戶。（D-01、D-06、D-09、D-11、D-30）
-- [ ] **CASH-02**: 可用現金依幣別即時推導（入出金 ± 全部交易現金流，依標的幣別），不存餘額欄位、允許為負；summary 回 `cash`（基準幣）、`cashBalances`、`totalEquity`；Overview 可用現金卡顯示並在任一幣別為負時提示。（D-07、D-08、D-10、D-22）
-- [ ] **CASH-03**: 入出金紀錄唯讀分頁列表（`GET /api/v1/portfolio/cash-entries`）與一鍵沖銷：沖銷分錄以 `reversal_of_id` 指回原分錄，DB 層擋下重複沖銷、沖銷沖銷分錄、金額 / 幣別 / 方向不一致；獨立「現金」頁顯示列表與「已沖銷」狀態。（D-24、D-25、D-29）
+- [x] **CASH-01**: 使用者可依幣別記入金 / 出金（`POST /api/v1/portfolio/cash-entries`），分錄 append-only（DB trigger 保護）、`Idempotency-Key` 必填且冪等（同 key 不同 payload → 409 `CASH_IDEMPOTENCY_KEY_REUSED`）；入出金對話框沿用 Phase 4 key 生命週期與成功後重讀；現金帳是記帳不是券商帳戶。（D-01、D-06、D-09、D-11、D-30）
+- [x] **CASH-02**: 可用現金依幣別即時推導（入出金 ± 全部交易現金流，依標的幣別），不存餘額欄位、允許為負；summary 回 `cash`（基準幣）、`cashBalances`、`totalEquity`；Overview 可用現金卡顯示並在任一幣別為負時提示。（D-07、D-08、D-10、D-22）
+- [x] **CASH-03**: 入出金紀錄唯讀分頁列表（`GET /api/v1/portfolio/cash-entries`）與一鍵沖銷：沖銷分錄以 `reversal_of_id` 指回原分錄，DB 層擋下重複沖銷、沖銷沖銷分錄、金額 / 幣別 / 方向不一致；獨立「現金」頁顯示列表與「已沖銷」狀態。（D-24、D-25、D-29）
 
 ### Trading
 
@@ -62,11 +62,11 @@
 - [x] **TRAD-04**: Frontend trade submission 提供 duplicate-submit guard，但不取代 server-side idempotency。
 - [x] **TRAD-05**: Trade creation 成功後，Vue API mode 會重新讀取 portfolio summary、holdings/positions、trade history。
 - [x] **TRAD-06**: Trade validation、oversell、permission、CSRF、network 錯誤會以使用者可理解的方式顯示，並保留 backend error code/request id。
-- [ ] **TRAD-10**: `TradeDto` 帶標的交易幣別 `currency`（經 `AssetFacade`，不 SQL JOIN `assets`）；Trades 頁、Overview 近期交易、OrderTicket review / result 以 ISO 代碼顯示金額，Trades CSV 加 `currency` 欄。（D-28、D-30）
+- [x] **TRAD-10**: `TradeDto` 帶標的交易幣別 `currency`（經 `AssetFacade`，不 SQL JOIN `assets`）；Trades 頁、Overview 近期交易、OrderTicket review / result 以 ISO 代碼顯示金額，Trades CSV 加 `currency` 欄。（D-28、D-30）
 
 ### Error Handling
 
-- [ ] **ERR-01**: 格式錯誤的 request body（`HttpMessageNotReadableException`）回 400 `VALIDATION_FAILED`（靜態訊息、不回射輸入），不再落入 catch-all 500。（D-27）
+- [x] **ERR-01**: 格式錯誤的 request body（`HttpMessageNotReadableException`）回 400 `VALIDATION_FAILED`（靜態訊息、不回射輸入），不再落入 catch-all 500。（D-27）
 
 ### Verification
 
@@ -148,15 +148,15 @@ Roadmap creation will map each v1 requirement to exactly one phase.
 | VER-02 | Phase 5 | Pending |
 | VER-03 | Phase 5 | Pending |
 | VER-04 | Phase 1 | Complete |
-| PORT-09 | Phase 04.1 | Pending |
-| PORT-10 | Phase 04.1 | Pending |
-| PORT-11 | Phase 04.1 | Pending |
-| PORT-12 | Phase 04.1 | Pending |
-| CASH-01 | Phase 04.1 | Pending |
-| CASH-02 | Phase 04.1 | Pending |
-| CASH-03 | Phase 04.1 | Pending |
-| TRAD-10 | Phase 04.1 | Pending |
-| ERR-01 | Phase 04.1 | Pending |
+| PORT-09 | Phase 04.1 | Complete |
+| PORT-10 | Phase 04.1 | Complete |
+| PORT-11 | Phase 04.1 | Complete |
+| PORT-12 | Phase 04.1 | Complete |
+| CASH-01 | Phase 04.1 | Complete |
+| CASH-02 | Phase 04.1 | Complete |
+| CASH-03 | Phase 04.1 | Complete |
+| TRAD-10 | Phase 04.1 | Complete |
+| ERR-01 | Phase 04.1 | Complete |
 
 2026-09-27 狀態回填(依測試證據,非依 phase 完成宣稱):
 - AUTH-01/02/05/06/07、SEC-01~05:`BrowserAuthFlowIT`、`AuthFlowIT`、`CorsIT`、`RefreshTokenRotationIT`、`LogoutInvalidatesAccessTokenIT`、`MethodSecurityDenialIT`(stock-start)。
