@@ -184,7 +184,34 @@ Plans:
 **Depends on**: Phase 04.1(現金帳與今日損益是股利入帳與拆股前收調整的基礎)
 **Requirements**: TBD(`/gsd-plan-phase 04.2` 時定)
 **Insertion note**(2026-09-28):04.1 discuss 時範圍擴大(現金帳、基準幣、股利三種事件、多清單 watchlist),Yuan 決定拆成 04.1 / 04.2;決策見 `.planning/phases/04.2-dividends-share-adjustments-watchlist/04.2-CONTEXT.md`。
-**Plans**: TBD
+**Plans**: 26 plans(8 waves;後端 13 + 前端 12 + 收尾閘門 1)。04.2-02 含 `checkpoint:decision`(資料模型 / roi / POST /trades 守門),股利、股數調整、watchlist 後端 stream 皆在其後;本環境無 Docker,`*IT` / `*E2E` / Browser E2E 以 CI 為證。
+Plans:
+- [ ] `04.2-01-PLAN.md` — WATCH-05:WS tick 訂閱上限 100 / kline 10、WELCOME 新欄位、security.md WS 章節改寫(D-22、D-25)(wave 1,backend)
+- [ ] `04.2-02-PLAN.md` — 決策閘門(資料模型 / roi / POST /trades 守門)+ 十條需求註冊 + 錯誤碼與契約凍結(wave 1,backend,checkpoint)
+- [ ] `04.2-06-PLAN.md` — ADJ-01 計算核心:applyShareAdjustment、splitDelta、TradingDay.startOf(wave 1,backend)
+- [ ] `04.2-14-PLAN.md` — WATCH-04 前端 WS client:quoteStream 狀態機 / 節流 / mock 假推播、useLiveQuotes、WS 守門(wave 1,frontend)
+- [ ] `04.2-03-PLAN.md` — DIV-01 tracer:V16 cash_dividends + POST /portfolio/dividends insert-first + append-only IT(wave 2,backend)
+- [ ] `04.2-07-PLAN.md` — ADJ-01 tracer:V17 share_adjustments + 配股 / 拆股(除權日持股)+ append-only IT(wave 2,backend)
+- [ ] `04.2-11-PLAN.md` — WATCH-01:V18 watchlists、預設清單、清單 CRUD 與 20 上限、AssetQuoteMapper 抽出(wave 2,backend)
+- [ ] `04.2-15-PLAN.md` — 前端:fmtSignedQuantity + Phase 04.2 全部 i18n 鍵 + 選擇器前綴(wave 2,frontend)
+- [ ] `04.2-16-PLAN.md` — 前端:holdingEventApi 三件組、listActivities、DTO 型別、重讀 cause(wave 2,frontend)
+- [ ] `04.2-04-PLAN.md` — DIV-01:一鍵沖銷、冪等 409、欄位驗證、稽核(wave 3,backend)
+- [ ] `04.2-05-PLAN.md` — DIV-02:summary 股利現金 / dividendIncome / totalPnl、快取 v3(wave 3,backend)
+- [ ] `04.2-08-PLAN.md` — ADJ-01:沖銷最晚一筆、冪等與併發、稽核、POST /trades 守門(wave 3,backend)
+- [ ] `04.2-10-PLAN.md` — PORT-13:GET /portfolio/activities UNION、篩選 / 排序 NULLS LAST(wave 3,backend)
+- [ ] `04.2-12-PLAN.md` — WATCH-02:項目加入 / 移除 / 整份重排、100 上限、asset WebMvc 基礎(wave 3,backend)
+- [ ] `04.2-17-PLAN.md` — 前端:watchlistApi 三件組 + mock 改名 / 刪除與上限(wave 3,frontend)
+- [ ] `04.2-18-PLAN.md` — 前端:「股利與股數調整」對話框三模式、錯誤分派、key 生命週期(wave 3,frontend)
+- [ ] `04.2-20-PLAN.md` — 前端:Trades 改讀活動列表、六頁籤、混合列型、沖銷標記、CSV(wave 3,frontend)
+- [ ] `04.2-09-PLAN.md` — ADJ-02:今日損益扣除當日股數調整、行情未反映 → null(wave 4,backend)
+- [ ] `04.2-19-PLAN.md` — 前端:對話框標的 typeahead(D-28)與沖銷模式(wave 4,frontend)
+- [ ] `04.2-22-PLAN.md` — 前端:WatchlistPicker、Markets / Chart 星號接後端、示範資料例外行(wave 4,frontend)
+- [ ] `04.2-13-PLAN.md` — 後端 REST *E2E(股利 / 股數調整 / 活動 / watchlist)+ 測試清理納入新表(wave 5,backend)
+- [ ] `04.2-23-PLAN.md` — 前端:Watchlist 頁重建(tabs、CRUD、排序持久化)+ mock store 守門(wave 5,frontend)
+- [ ] `04.2-21-PLAN.md` — 前端:Positions / Trades / 現金頁入口與重讀、股利收入附加列(wave 6,frontend)
+- [ ] `04.2-24-PLAN.md` — 前端:LiveQuoteStatus、Watchlist / Overview 即時價、新聞卡標示、KPI 股利收入(wave 6,frontend)
+- [ ] `04.2-25-PLAN.md` — 前端:Playwright 真後端旅程 ×3 + 版面量測 L11 ~ L16(wave 7,frontend)
+- [ ] `04.2-26-PLAN.md` — 收尾閘門:judgment §8 跨 repo 驗證 + CI 證據 + 需求 / 決策稽核 + Yuan 走查(wave 8)
 **UI hint**: yes(Positions「股利與股數調整」對話框、Trades 頁籤、Chart / Markets 星號選清單、Watchlist 頁)
 
 ### Phase 5: Cross-Repo Browser Flow Verification & Contract Hardening
@@ -215,5 +242,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 4.1 -> 4.2 -> 5
 | 3. Portfolio Read API Mode | 5/5 | Completed | 2026-07-26 |
 | 4. Manual Trade Creation, Idempotency & Post-Trade Refetch | 13/13 | Completed | 2026-09-04 |
 | 04.1 Backend Data Gap Backfill (INSERTED) | 32/32 | Completed | 2026-10-31 |
-| 04.2 Dividends, Share Adjustments & Watchlist (INSERTED) | 0/TBD | Context gathered | - |
+| 04.2 Dividends, Share Adjustments & Watchlist (INSERTED) | 0/26 | Planned | - |
 | 5. Cross-Repo Browser Flow Verification & Contract Hardening | 0/TBD | Not started | - |
