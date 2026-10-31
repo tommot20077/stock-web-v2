@@ -15,6 +15,7 @@ import dowob.xyz.stockwebv2.trading.repository.CashLedgerRepository;
 
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -35,7 +36,7 @@ import java.util.UUID;
  * （CASH-02、D-22）；冪等命中與被拒的請求沒有寫入，不失效。</p>
  *
  * @author Yuan
- * @version 2.0
+ * @version 2.1
  */
 @Service
 public class CashLedgerService {
@@ -276,16 +277,17 @@ public class CashLedgerService {
     /**
      * 取回登入者自己的一頁現金分錄，發生時間新到舊、同時間以 id 新到舊（D-24）。
      *
-     * <p>標記為唯讀交易：repository 內 count 與 list 是兩道獨立述句，若不共用同一個交易快照，
-     * 併發寫入落在兩者之間時 {@code totalElements} 會與 {@code items} 漂移（理由同
-     * {@code TradingService#listTrades}）。</p>
+     * <p>標記為<strong>可重複讀</strong>的唯讀交易：repository 內 count 與 list 是兩道獨立述句，
+     * PostgreSQL 預設的 READ COMMITTED 下兩者各取自己的快照，併發寫入落在兩者之間時
+     * {@code totalElements} 會與 {@code items} 漂移；{@code readOnly = true} 本身不改變隔離層級，
+     * 所以必須明確指定 {@code REPEATABLE_READ}（PR #50 Codex review）。</p>
      *
      * @param userId 分錄擁有者 id，一律由 controller 自已驗證的身分取得；其他使用者的分錄永遠不會出現
      * @param page   頁碼，超出範圍會被夾限至 0..10000
      * @param size   每頁筆數，超出範圍會被夾限至 1..100
      * @return 該頁分錄 DTO（含 {@code reversed} 與指回原分錄的資訊）與該使用者的分錄總數
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageResponse<CashEntryDto> listEntries(Long userId, int page, int size) {
         int safePage = Math.min(Math.max(0, page), MAX_PAGE);
         int safeSize = Math.max(1, Math.min(MAX_PAGE_SIZE, size));

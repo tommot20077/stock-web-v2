@@ -16,7 +16,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -703,5 +706,19 @@ class CashLedgerServiceTest {
             .satisfies(thrown -> assertBusiness(thrown, ErrorCode.DUPLICATE_RESOURCE));
 
         verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("分頁列表必須在可重複讀的唯讀交易內：count 與 list 兩道述句才共用同一個快照")
+    void listEntriesRunsInARepeatableReadReadOnlyTransaction() throws NoSuchMethodException {
+        Method method = CashLedgerService.class.getMethod("listEntries", Long.class, int.class, int.class);
+
+        Transactional transactional = method.getAnnotation(Transactional.class);
+
+        assertThat(transactional).as("listEntries 需有 @Transactional").isNotNull();
+        assertThat(transactional.readOnly()).isTrue();
+        assertThat(transactional.isolation())
+            .as("PostgreSQL 預設 READ COMMITTED：count 與 list 之間若有併發寫入，totalElements 會與 items 漂移")
+            .isEqualTo(Isolation.REPEATABLE_READ);
     }
 }
