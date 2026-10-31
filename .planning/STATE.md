@@ -1,20 +1,20 @@
 ---
 gsd_state_version: "1.0"
 milestone: v1.0
-current_phase: "04.1"
-current_phase_name: Backend Data Gap Backfill
-status: Phase 04.1 executing (0/25 plans done)
-stopped_at: Phase 04.1 execution started
-last_updated: "2026-10-24T10:26:32.618Z"
-last_activity: 2026-10-24
-last_activity_desc: Phase 04.1 execution started
-state_head: 1fedec92d78d45c2df10b377357d905f8551fc56
+current_phase: "04.2"
+current_phase_name: Dividends, Share Adjustments & Watchlist
+status: Phase 04.1 complete (2026-10-31);next Phase 04.2
+stopped_at: Phase 04.1 complete, ready to plan Phase 04.2
+last_updated: "2026-10-31T03:32:27.373Z"
+last_activity: 2026-10-31
+last_activity_desc: Phase 04.1 complete, transitioned to Phase 04.2
+state_head: aeddc806ecea2ccf79d488f81d76d01af45ff203
 progress:
   total_phases: 7
-  completed_phases: 4
-  total_plans: 53
-  completed_plans: 28
-  percent: 57
+  completed_phases: 5
+  total_plans: 60
+  completed_plans: 60
+  percent: 71
 milestone_name: milestone
 ---
 
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-05-30)
 
 ## Current Position
 
-Phase: 04.1 (Backend Data Gap Backfill) — EXECUTING
-Plan: 0 of 25 done
-Next: 執行中(兩條 lane:後端 / 前端);完成後 `/gsd-verify-work 04.1`——plans 位於 `.planning/phases/04.1-backend-data-gap-backfill/04.1-01..25-PLAN.md`;Phase 5 尚無 CONTEXT(排在 04.2 之後)。
-Last activity: 2026-10-24 — Phase 04.1 execution started
+Phase: 04.2 — Dividends, Share Adjustments & Watchlist
+Plan: Not started
+Next: **Phase 04.2**(Dividends, Share Adjustments & Watchlist)—— CONTEXT 已備,下一步 `/gsd-plan-phase 04.2`;Phase 04.1 已於 2026-10-31 完成並核准(32 份 plan = 25 原定 + 7 份 gap-closure,PR 後端 #50 / 前端 #18 待合併至 develop)。
+Last activity: 2026-10-31 — Phase 04.1 complete, transitioned to Phase 04.2
 
 > ✅ **Phase 4 已完成（2026-09-04）。** 13 個 plan 全數執行完畢，`04-13` 的 blocking human-verify
 > checkpoint 由 Yuan 親自走完甲／乙／丙三段共 17 步後通過（未提出任何不符項）。
@@ -84,7 +84,7 @@ Progress(plan):28/28 plans executed(Phase 1-4 全部執行完畢;04.1 / 04.2 / 5
 
 **Velocity:**
 
-- Total plans completed: 15
+- Total plans completed: 50
 - Average duration: 23min
 - Total execution time: ~3.1 hours
 
@@ -95,6 +95,7 @@ Progress(plan):28/28 plans executed(Phase 1-4 全部執行完畢;04.1 / 04.2 / 5
 | 02 | 5 | 111min | 22min |
 | 03 | 5 | 197min | 39min |
 | 04 | 8 | 未回填 | 未回填 |
+| 04.1 | 32 | - | - |
 
 > ⚠️ Phase 04 的耗時未逐 plan 回填(多個 plan 跨 session／跨 worktree 執行,無可信起訖時間)。
 > 上方「Total plans completed: 15」同樣未更新,實際為 23。這些數字僅供趨勢參考,不可當事實引用;
@@ -208,10 +209,10 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-10-24T07:40:57.624Z
-Stopped at: Phase 04.1 UI-SPEC approved
+Stopped at: Phase 04.1 complete, ready to plan Phase 04.2
 前端契約凍結(見 04-05-SUMMARY 末節)。
-Resume file: .planning/phases/04.1-backend-data-gap-backfill/04.1-UI-SPEC.md
-Next action: `/gsd-plan-phase 04.1`。
+Resume file: .planning/phases/04.2-dividends-share-adjustments-watchlist/04.2-CONTEXT.md
+Next action: `/gsd-plan-phase 04.2`;04.1 的 PR #50 / #18 待 Yuan 合併。
 
 ~~**前端 repo 的狀態**:04-06 ~ 04-09 的 commit 只在本機、分支未推送。~~
 (2026-10-23 更正:已過時。Phase 4 前端經 PR #9 合併進 `develop @ a00fb29`,前端 repo 為 `tommot20077/stock-web-v2-front-end`。)

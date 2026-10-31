@@ -8,6 +8,8 @@ files:
   - ../../vue/stock-v2/vue-app/src/pages/Overview.vue:139-142
   - ../../vue/stock-v2/vue-app/src/pages/Analytics.vue:58,161,198
   - ../../vue/stock-v2/vue-app/src/pages/Positions.vue:118-140
+updated: 2026-10-31
+partially_resolved_by: Phase 04.1 — Overview 資產配置 donut 與 Positions 產業分布已由後端 `allocation` / `sectorAllocation` 提供(PORT-12);**剩 Analytics 頁的產業分布**(UI-SPEC U-21 明定不在 04.1)
 ---
 
 ## Problem
