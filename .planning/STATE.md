@@ -3,12 +3,12 @@ gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: "04.2"
 current_phase_name: Dividends, Share Adjustments & Watchlist
-status: Phase 04.1 complete (2026-10-31);next Phase 04.2
-stopped_at: Phase 04.1 complete, ready to plan Phase 04.2
-last_updated: "2026-10-31T03:32:27.373Z"
+status: Phase 04.2 research + UI-SPEC done (2026-10-31);ready to plan
+stopped_at: Phase 04.2 UI-SPEC approved
+last_updated: "2026-10-31T17:07:26.573Z"
 last_activity: 2026-10-31
-last_activity_desc: Phase 04.1 complete, transitioned to Phase 04.2
-state_head: aeddc806ecea2ccf79d488f81d76d01af45ff203
+last_activity_desc: Phase 04.2 research (incl. WS addendum) and UI-SPEC approved
+state_head: befc02f6100117f8df7c3e244b9652e31f92a590
 progress:
   total_phases: 7
   completed_phases: 5
@@ -208,11 +208,11 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-24T07:40:57.624Z
-Stopped at: Phase 04.1 complete, ready to plan Phase 04.2
+Last session: 2026-10-31T17:07:25.370Z
+Stopped at: Phase 04.2 UI-SPEC approved
 前端契約凍結(見 04-05-SUMMARY 末節)。
-Resume file: .planning/phases/04.2-dividends-share-adjustments-watchlist/04.2-CONTEXT.md
-Next action: `/gsd-plan-phase 04.2`;04.1 的 PR #50 / #18 待 Yuan 合併。
+Resume file: .planning/phases/04.2-dividends-share-adjustments-watchlist/04.2-UI-SPEC.md
+Next action: `/gsd-plan-phase 04.2`(RESEARCH、VALIDATION、UI-SPEC 已就緒;PR #50 / #18 已於 2026-10-31 合併)。
 
 ~~**前端 repo 的狀態**:04-06 ~ 04-09 的 commit 只在本機、分支未推送。~~
 (2026-10-23 更正:已過時。Phase 4 前端經 PR #9 合併進 `develop @ a00fb29`,前端 repo 為 `tommot20077/stock-web-v2-front-end`。)
