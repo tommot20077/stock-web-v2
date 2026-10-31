@@ -53,6 +53,7 @@ Prefer the following utility classes for null/empty checks to improve readabilit
     *   `BusinessException` → status from **`ErrorCode.httpStatus()`** (e.g. `VALIDATION_FAILED` 400, `ASSET_NOT_FOUND` 404, `TRADE_CONFLICT` 409); `error.fields` carries `BusinessException.fields()`
     *   `FieldValidationException` (subclass) → 400 `VALIDATION_FAILED` with `fields`
     *   `MethodArgumentNotValidException` / `MissingRequestHeaderException` / `MethodArgumentTypeMismatchException` → **HTTP 400**
+    *   `HttpMessageNotReadableException` (malformed request body: truncated JSON, wrong field type; D-27) → **HTTP 400** `VALIDATION_FAILED`, static message `Malformed request body`, no `fields`, never echoes the framework/Jackson message; not logged at ERROR
     *   `RateLimitExceededException` → 429 + `Retry-After`
     *   Anything implementing Spring's `ErrorResponse` → its own status, mapped to an `ErrorCode`
     *   Catch-all `Exception` → **HTTP 500** `INTERNAL_ERROR`, fixed message; details only in the log with `traceId`
@@ -63,7 +64,16 @@ Prefer the following utility classes for null/empty checks to improve readabilit
 
 ## Facade Call Rules
 
-Application layer (Controller / Application Service) Facade calls are limited to **≤ 3 per request**. When exceeding this limit:
+計數單位是「每請求的**跨模組往返**（cross-module round trip）」：Application layer（Controller / Application Service）對 Facade 的呼叫，預設 **≤ 3 次**。
+
+**超過 3 次時，下列三個條件必須同時成立**：
+1. **皆為批次方法**：每一次往返都處理整批 id，不得有 N+1。
+2. **結果有快取**：結果寫入 Redis 快取，且快取命中路徑的往返數 ≤ 3。
+3. **程式碼註解說明理由**：在呼叫點旁以註解逐一列出每次呼叫，以及為何不能合併。
+
+裁決出處：2026-10-24 Yuan 裁決（Phase 04.1 D-23）：portfolio summary / holdings 快取未命中時 4 次批次呼叫（基準幣、匯率、資產屬性、行情）可接受，不為湊數字把無關 Facade 合併。
+
+When a path cannot meet the three conditions above, fall back to:
 - Core metrics (total market value, P&L, allocation ratios) → Redis pre-computation
 - Batch queries → Facade provides batch methods (e.g., `MarketDataFacade.findLatestPrices(Collection<Long>)`, `findDailyQuotes(Map<Long, TradingDay>)`) to avoid N+1
 - Complex aggregations → Spring Batch pre-computation written to Redis
@@ -100,12 +110,12 @@ As implemented (2026-09-27), derived portfolio data is **computed on read and ca
 
 1. **Read Redis first** — cache hit returns immediately (batch `MGET` for many assets)
 2. **Miss → compute** from `holdings` + `MarketDataFacade` prices, then write the cache with a short TTL
-3. **Invalidate after commit** — trade writes evict the user's portfolio keys in `afterCommit`, never before (otherwise a concurrent read re-caches pre-trade data)
+3. **Invalidate after commit** — trade writes evict the user's portfolio keys, and cash-entry writes (including reversals) evict the user's summary keys, both in `afterCommit`, never before (otherwise a concurrent read re-caches pre-write data)
 
 | Data | Redis Key Pattern | TTL | Invalidation |
 |------|------------------|-----|--------------|
-| Holding valuation | `portfolio:valuation:{userId}:{assetId}` | 60 s | after trade commit |
-| Portfolio summary | `portfolio:summary:{userId}` | 60 s | after trade commit |
+| Holding valuation | `portfolio:valuation:v2:{userId}:{assetId}` | 60 s | after trade commit |
+| Portfolio summary | `portfolio:summary:v2:{userId}:{baseCurrency}` | 60 s | after trade commit; after cash-entry commit (all four `baseCurrency` keys, holding keys untouched) |
 | Latest price (market-data) | `market:latest:{assetId}` | 5 min | overwritten per tick |
 
 Risk indicators and a `portfolio_valuations` table are not implemented. If price-driven revaluation is ever needed, revisit this section rather than adding a parallel mechanism.

@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.user.service;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.DuplicateResourceException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.common.model.CurrencyCode;
 import dowob.xyz.stockwebv2.common.model.Role;
 import dowob.xyz.stockwebv2.common.model.UserStatus;
 import dowob.xyz.stockwebv2.user.api.RegisterRequest;
@@ -37,6 +38,18 @@ class AuthServiceTest {
         assertThat(user.status()).isEqualTo(UserStatus.ACTIVE);
         assertThat(user.tokenVersion()).isEqualTo(1);
         assertThat(user.passwordHash()).isNotEqualTo("Password1");
+    }
+
+    @Test
+    @DisplayName("新註冊使用者的基準幣預設為 TWD（D-02）")
+    void registeredUserDefaultsToTwdBaseCurrency() {
+        InMemoryUserRepository repository = new InMemoryUserRepository();
+        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10), mock(RefreshTokenService.class), mock(LoginAttemptService.class));
+
+        User user = service.register(new RegisterRequest("yuan@example.com", "yuan", "Password1"));
+
+        assertThat(user.baseCurrency()).isEqualTo(CurrencyCode.TWD);
+        assertThat(user.toMeResponse().baseCurrency()).isEqualTo(CurrencyCode.TWD);
     }
 
     @Test
@@ -153,6 +166,7 @@ class AuthServiceTest {
             user.role(),
             status,
             user.tokenVersion(),
+            user.baseCurrency(),
             user.createdAt(),
             user.updatedAt()
         );
@@ -191,6 +205,32 @@ class AuthServiceTest {
         }
 
         @Override
+        public Optional<User> updateBaseCurrency(Long id, CurrencyCode baseCurrency) {
+            return Optional.ofNullable(byId.get(id)).map(current -> {
+                User updated = new User(
+                    current.id(),
+                    current.uuid(),
+                    current.email(),
+                    current.username(),
+                    current.passwordHash(),
+                    current.role(),
+                    current.status(),
+                    current.tokenVersion(),
+                    baseCurrency,
+                    current.createdAt(),
+                    current.updatedAt()
+                );
+                byId.put(id, updated);
+                return updated;
+            });
+        }
+
+        @Override
+        public Optional<CurrencyCode> findBaseCurrency(Long id) {
+            return Optional.ofNullable(byId.get(id)).map(User::baseCurrency);
+        }
+
+        @Override
         public int incrementTokenVersion(Long id) {
             User current = byId.get(id);
             User updated = new User(
@@ -202,6 +242,7 @@ class AuthServiceTest {
                 current.role(),
                 current.status(),
                 current.tokenVersion() + 1,
+                current.baseCurrency(),
                 current.createdAt(),
                 current.updatedAt()
             );

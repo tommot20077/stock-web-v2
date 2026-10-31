@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -24,6 +25,12 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+/**
+ * 全域例外處理：把各類例外統一映射為 {@code ApiResponse} 失敗信封與對應 HTTP 狀態碼。
+ *
+ * @author Yuan
+ * @version 1.1
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
@@ -128,6 +135,32 @@ public class GlobalExceptionHandler {
         Map<String, String> fields = new LinkedHashMap<>();
         fields.put(exception.getName(), "invalid format");
         ApiError error = ApiError.of(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage(), fields);
+        return ResponseEntity.badRequest().body(ApiResponse.failure(error, ApiMetaFactory.current()));
+    }
+
+    /**
+     * 格式錯誤、無法讀取的 request body，例如 JSON 被截斷、欄位型別錯誤（數值欄位送字串）。
+     *
+     * <p>{@link HttpMessageNotReadableException} <strong>沒有</strong>實作 {@link ErrorResponse}，
+     * 在加入此 handler 之前會落到 catch-all，讓純粹的使用者輸入錯誤變成 HTTP 500，並在 log
+     * 留下 ERROR 級堆疊（D-27）。此修正影響所有 {@code @RequestBody} 端點；
+     * {@code POST /api/v1/trades} 送壞 JSON 由 500 變 400，屬行為修正。</p>
+     *
+     * <p>訊息固定為靜態字串、<strong>不帶 {@code fields}</strong>：Jackson 的例外訊息會夾帶解析到的
+     * 使用者輸入片段，因此絕不使用 {@code getMessage()} 或 {@code getMostSpecificCause()}
+     * （code-standards 錯誤訊息安全規則）；框架只知道「某處格式錯」而無穩定的欄位名可回報，
+     * 前端在 {@code fields} 為空時顯示整體性的「有欄位不符合規則」訊息。</p>
+     *
+     * <p>不以 ERROR 等級記錄：這是使用者輸入錯誤而非系統錯誤，避免大量壞請求灌爆錯誤日誌與告警；
+     * 診斷僅留 DEBUG 且只記 traceId，不記例外訊息。</p>
+     *
+     * @param exception request body 無法讀取例外
+     * @return 400 VALIDATION_FAILED，訊息為靜態字串且無 fields
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMessageNotReadable(HttpMessageNotReadableException exception) {
+        log.debug("Malformed request body rejected, traceId={}", TraceIdFilter.currentTraceId());
+        ApiError error = ApiError.of(ErrorCode.VALIDATION_FAILED, "Malformed request body");
         return ResponseEntity.badRequest().body(ApiResponse.failure(error, ApiMetaFactory.current()));
     }
 

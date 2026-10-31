@@ -199,6 +199,70 @@ class ErrorCodeTest {
                 .allMatch(status -> status == 409);
     }
 
+    // ── Phase 4.1：現金分錄冪等鍵重用的 409 error code（04.1-04 凍結契約字面）─────
+
+    @Test
+    @DisplayName("CASH_IDEMPOTENCY_KEY_REUSED 的 HTTP 狀態碼是 409")
+    void cashIdempotencyKeyReused_httpStatusIs409() {
+        assertThat(ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED.httpStatus()).isEqualTo(409);
+    }
+
+    @Test
+    @DisplayName("CASH_IDEMPOTENCY_KEY_REUSED 的預設訊息不為空且不含任何請求值佔位字串")
+    void cashIdempotencyKeyReused_defaultMessageDoesNotEchoRequestValues() {
+        assertThat(ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED.defaultMessage())
+                .isNotNull()
+                .isNotBlank()
+                .doesNotContain("%s")
+                .doesNotContain("{");
+    }
+
+    @Test
+    @DisplayName("CASH_IDEMPOTENCY_KEY_REUSED 與 TRADE_IDEMPOTENCY_KEY_REUSED 是相異常數且訊息不同（前端依 code 分派文案）")
+    void cashIdempotencyKeyReused_isDistinctFromTradeIdempotencyKeyReused() {
+        assertThat(ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED).isNotEqualTo(ErrorCode.TRADE_IDEMPOTENCY_KEY_REUSED);
+        assertThat(ErrorCode.CASH_IDEMPOTENCY_KEY_REUSED.defaultMessage())
+                .isNotEqualTo(ErrorCode.TRADE_IDEMPOTENCY_KEY_REUSED.defaultMessage());
+        assertThat(ErrorCode.TRADE_IDEMPOTENCY_KEY_REUSED.defaultMessage())
+                .as("既有 trade 字面不得被動到")
+                .isEqualTo("Idempotency key was reused with a different trade payload");
+    }
+
+    // ── Phase 4.1：現金分錄沖銷的錯誤碼（04.1-06 凍結契約字面，前端 i18n 依 code 分派）─────
+
+    @Test
+    @DisplayName("沖銷錯誤碼的 HTTP 狀態碼：NOT_FOUND 404、ALREADY_REVERSED 409、NOT_REVERSIBLE 409")
+    void cashEntryReversalCodes_httpStatuses() {
+        assertThat(ErrorCode.CASH_ENTRY_NOT_FOUND.httpStatus()).isEqualTo(404);
+        assertThat(ErrorCode.CASH_ENTRY_ALREADY_REVERSED.httpStatus()).isEqualTo(409);
+        assertThat(ErrorCode.CASH_ENTRY_NOT_REVERSIBLE.httpStatus()).isEqualTo(409);
+    }
+
+    @Test
+    @DisplayName("沖銷錯誤碼的預設訊息為凍結字面，且為靜態字串（不含佔位符、不回射輸入）")
+    void cashEntryReversalCodes_defaultMessagesAreFrozenAndStatic() {
+        assertThat(ErrorCode.CASH_ENTRY_NOT_FOUND.defaultMessage()).isEqualTo("Cash entry not found");
+        assertThat(ErrorCode.CASH_ENTRY_ALREADY_REVERSED.defaultMessage())
+                .isEqualTo("Cash entry has already been reversed");
+        assertThat(ErrorCode.CASH_ENTRY_NOT_REVERSIBLE.defaultMessage())
+                .isEqualTo("A reversal entry cannot be reversed");
+        for (ErrorCode code : new ErrorCode[] {ErrorCode.CASH_ENTRY_NOT_FOUND,
+                ErrorCode.CASH_ENTRY_ALREADY_REVERSED, ErrorCode.CASH_ENTRY_NOT_REVERSIBLE}) {
+            assertThat(code.defaultMessage()).doesNotContain("%s").doesNotContain("{");
+        }
+    }
+
+    @Test
+    @DisplayName("三個沖銷錯誤碼兩兩相異，訊息也兩兩不同")
+    void cashEntryReversalCodes_areMutuallyDistinct() {
+        assertThat(ErrorCode.CASH_ENTRY_NOT_FOUND.defaultMessage())
+                .isNotEqualTo(ErrorCode.CASH_ENTRY_ALREADY_REVERSED.defaultMessage())
+                .isNotEqualTo(ErrorCode.CASH_ENTRY_NOT_REVERSIBLE.defaultMessage());
+        assertThat(ErrorCode.CASH_ENTRY_ALREADY_REVERSED.defaultMessage())
+                .isNotEqualTo(ErrorCode.CASH_ENTRY_NOT_REVERSIBLE.defaultMessage());
+        assertThat(ErrorCode.CASH_ENTRY_ALREADY_REVERSED).isNotEqualTo(ErrorCode.CASH_ENTRY_NOT_REVERSIBLE);
+    }
+
     @Test
     void existingConstants_httpStatusesUnchanged() {
         assertThat(ErrorCode.VALIDATION_FAILED.httpStatus()).isEqualTo(400);

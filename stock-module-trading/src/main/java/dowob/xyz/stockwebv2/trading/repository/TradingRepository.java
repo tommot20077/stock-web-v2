@@ -1,12 +1,16 @@
 package dowob.xyz.stockwebv2.trading.repository;
 
 import dowob.xyz.stockwebv2.common.api.PageResponse;
+import dowob.xyz.stockwebv2.trading.domain.DayFill;
 import dowob.xyz.stockwebv2.trading.domain.Holding;
 import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
+import dowob.xyz.stockwebv2.trading.domain.HoldingSnapshot;
 import dowob.xyz.stockwebv2.trading.domain.TradeTransaction;
 
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public interface TradingRepository {
@@ -61,9 +65,45 @@ public interface TradingRepository {
     List<HoldingPosition> listHoldings(Long userId);
 
     /**
-     * 加總該使用者所有持倉（含已平倉 {@code total_quantity = 0}）的已實現損益。
-     * 供 portfolio summary 使用，避免平倉部位的 realized PnL 因 {@link #listHoldings} 過濾而遺失。
+     * 列出該使用者<strong>所有</strong>持倉列（含已平倉 {@code total_quantity = 0}），不 join {@code assets}。
+     *
+     * <p>供 portfolio summary 逐資產折算已實現損益：已實現損益依各資產自己的幣別折算，
+     * 不能再以 SQL 跨幣別 {@code sum}。與 {@link #listHoldings} 不同，本方法不過濾已平倉部位，
+     * 平倉後的已實現損益才不會遺失。
+     *
+     * @param userId 使用者 id
+     * @return 該使用者所有持倉快照
      */
-    BigDecimal sumRealizedPnl(Long userId);
+    List<HoldingSnapshot> listHoldingSnapshots(Long userId);
 
+    /**
+     * 列出該使用者在 {@code since} 之後（含）的所有成交，供計算今日價格損益。
+     *
+     * <p>where 一律綁 {@code user_id}，不 join {@code assets}（D-21 / H-1）；以既有的
+     * {@code idx_transactions_user_executed} 走索引。呼叫端以相關資產交易日起點的最小值作 {@code since}，
+     * 再逐資產以各自的交易日起點過濾。
+     *
+     * @param userId 使用者 id
+     * @param since  起算時間（含）
+     * @return 成交紀錄，順序不保證
+     */
+    List<DayFill> listFillsSince(Long userId, OffsetDateTime since);
+
+    /**
+     * 依標的彙總該使用者的交易現金流（以標的自己的幣別計），供推導可用現金（CASH-02）。
+     *
+     * <p>賣出為流入 {@code quantity × price − fee}，買入為流出 {@code −(quantity × price + fee)}；
+     * 結果為各標的的淨額，正 = 淨流入、負 = 淨流出。幣別不在此處決定：本方法不 join {@code assets}，
+     * 呼叫端以 {@code AssetFacade#findProfiles} 取得標的幣別（D-07）。
+     *
+     * <p><strong>04.2 擴充 {@code transactions.type} 時必改</strong>：SQL 的 {@code CASE} 刻意明寫 BUY 與 SELL 兩支、
+     * 沒有 {@code else}，未知的交易類型結果為 NULL，{@code sum} 會略過它，不會被誤當買入而扣錢（Pitfall 9）。
+     * 新增類型（例如股利、拆股）時必須在此補上對應的現金流分支，否則其現金流會被靜默忽略。
+     *
+     * <p>不分頁、不限時間：功能上線前的既有交易也計入（D-08），所以只買不入金的帳戶現金為負。
+     *
+     * @param userId 使用者 id，where 一律綁定
+     * @return 標的 id → 淨現金流；沒有任何交易的標的不出現
+     */
+    Map<Long, BigDecimal> tradeCashFlowByAsset(Long userId);
 }

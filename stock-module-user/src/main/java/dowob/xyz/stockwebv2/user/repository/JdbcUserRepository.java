@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.user.repository;
 
 import dowob.xyz.stockwebv2.common.error.DuplicateResourceException;
+import dowob.xyz.stockwebv2.common.model.CurrencyCode;
 import dowob.xyz.stockwebv2.common.model.Role;
 import dowob.xyz.stockwebv2.common.model.UserStatus;
 import dowob.xyz.stockwebv2.user.domain.User;
@@ -20,7 +21,7 @@ import java.util.UUID;
 @Primary
 public class JdbcUserRepository implements UserRepository {
     private static final String USER_COLUMNS = """
-        id, uuid, email, username, password_hash, role, status, token_version, created_at, updated_at
+        id, uuid, email, username, password_hash, role, status, token_version, base_currency, created_at, updated_at
         """;
 
     private final JdbcClient jdbcClient;
@@ -69,9 +70,9 @@ public class JdbcUserRepository implements UserRepository {
 
         try {
             return jdbcClient.sql("""
-                    insert into users (uuid, email, username, password_hash, role, status, token_version, created_at, updated_at)
-                    values (:uuid, :email, :username, :passwordHash, :role, :status, :tokenVersion, :createdAt, :updatedAt)
-                    returning id, uuid, email, username, password_hash, role, status, token_version, created_at, updated_at
+                    insert into users (uuid, email, username, password_hash, role, status, token_version, base_currency, created_at, updated_at)
+                    values (:uuid, :email, :username, :passwordHash, :role, :status, :tokenVersion, :baseCurrency, :createdAt, :updatedAt)
+                    returning id, uuid, email, username, password_hash, role, status, token_version, base_currency, created_at, updated_at
                     """)
                 .param("uuid", user.uuid())
                 .param("email", user.email())
@@ -80,6 +81,7 @@ public class JdbcUserRepository implements UserRepository {
                 .param("role", user.role().name())
                 .param("status", user.status().name())
                 .param("tokenVersion", user.tokenVersion())
+                .param("baseCurrency", user.baseCurrency().name())
                 .param("createdAt", user.createdAt())
                 .param("updatedAt", user.updatedAt())
                 .query(this::map)
@@ -100,6 +102,28 @@ public class JdbcUserRepository implements UserRepository {
             .param("id", id)
             .query(Integer.class)
             .single();
+    }
+
+    @Override
+    public Optional<User> updateBaseCurrency(Long id, CurrencyCode baseCurrency) {
+        return jdbcClient.sql("""
+                update users
+                set base_currency = :baseCurrency, updated_at = now()
+                where id = :id
+                returning\s""" + USER_COLUMNS)
+            .param("baseCurrency", baseCurrency.name())
+            .param("id", id)
+            .query(this::map)
+            .optional();
+    }
+
+    @Override
+    public Optional<CurrencyCode> findBaseCurrency(Long id) {
+        return jdbcClient.sql("select base_currency from users where id = :id")
+            .param("id", id)
+            .query(String.class)
+            .optional()
+            .map(CurrencyCode::valueOf);
     }
 
     private RuntimeException duplicateResourceException(DataIntegrityViolationException exception) {
@@ -133,6 +157,7 @@ public class JdbcUserRepository implements UserRepository {
             Role.valueOf(rs.getString("role")),
             UserStatus.valueOf(rs.getString("status")),
             rs.getInt("token_version"),
+            CurrencyCode.valueOf(rs.getString("base_currency")),
             rs.getObject("created_at", OffsetDateTime.class),
             rs.getObject("updated_at", OffsetDateTime.class)
         );

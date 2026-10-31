@@ -18,6 +18,7 @@ import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.model.AssetType;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
+import dowob.xyz.stockwebv2.infrastructure.asset.AssetProfile;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -363,6 +365,12 @@ class BacktestServiceTest {
                 return Optional.of(summaryOf(symbol, false));
             }
             return Optional.empty();
+        }
+
+        @Override
+        public Map<Long, AssetProfile> findProfiles(Collection<Long> assetIds) {
+            // backtest 不使用幣別 / 產業資料，fake 未建模這些欄位，故回空 map
+            return Map.of();
         }
 
         private static AssetSummary summaryOf(String symbol, boolean active) {

@@ -5,6 +5,8 @@ area: trading
 files:
   - stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/api/PortfolioSummaryDto.java
   - ../../vue/stock-v2/vue-app/src/pages/Overview.vue:135
+resolved: 2026-10-31
+resolved_by: Phase 04.1(PR 後端 #50 / 前端 #18;證據見 04.1-25-SUMMARY.md)
 ---
 
 ## Problem

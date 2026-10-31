@@ -3,8 +3,10 @@ package dowob.xyz.stockwebv2.trading.repository;
 import dowob.xyz.stockwebv2.common.api.PageResponse;
 import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.trading.domain.DayFill;
 import dowob.xyz.stockwebv2.trading.domain.Holding;
 import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
+import dowob.xyz.stockwebv2.trading.domain.HoldingSnapshot;
 import dowob.xyz.stockwebv2.trading.domain.TradeTransaction;
 import dowob.xyz.stockwebv2.trading.domain.TradeType;
 
@@ -14,6 +16,7 @@ import org.springframework.stereotype.Repository;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -300,15 +303,68 @@ public class JdbcTradingRepository implements TradingRepository {
     }
 
     @Override
-    public BigDecimal sumRealizedPnl(Long userId) {
+    public List<HoldingSnapshot> listHoldingSnapshots(Long userId) {
         return jdbcClient.sql("""
-                select coalesce(sum(realized_pnl), 0)
+                select asset_id, total_quantity, avg_cost, realized_pnl, last_updated
                 from holdings
                 where user_id = :userId
                 """)
             .param("userId", userId)
-            .query(BigDecimal.class)
-            .single();
+            .query((rs, rowNum) -> new HoldingSnapshot(
+                rs.getLong("asset_id"),
+                rs.getBigDecimal("total_quantity"),
+                rs.getBigDecimal("avg_cost"),
+                rs.getBigDecimal("realized_pnl"),
+                rs.getObject("last_updated", OffsetDateTime.class)))
+            .list();
+    }
+
+    @Override
+    public List<DayFill> listFillsSince(Long userId, OffsetDateTime since) {
+        return jdbcClient.sql("""
+                select asset_id, type, quantity, price, executed_at
+                from transactions
+                where user_id = :userId and executed_at >= :since
+                """)
+            .param("userId", userId)
+            .param("since", since)
+            .query((rs, rowNum) -> new DayFill(
+                rs.getLong("asset_id"),
+                TradeType.valueOf(rs.getString("type")),
+                rs.getBigDecimal("quantity"),
+                rs.getBigDecimal("price"),
+                rs.getObject("executed_at", OffsetDateTime.class)))
+            .list();
+    }
+
+    /**
+     * 依標的彙總交易現金流；語意與 04.2 擴充時的必改點見 {@link TradingRepository#tradeCashFlowByAsset}。
+     *
+     * <p>{@code where} 綁 {@code user_id}（威脅 T-04.1-31），不 join {@code assets}。{@code CASE} 只列賣出與買入兩支，
+     * 刻意不寫兜底分支：未知類型的結果是 NULL，{@code sum} 略過它。
+     *
+     * @param userId 使用者 id
+     * @return 標的 id → 淨現金流（原樣取自 {@code NUMERIC(24, 8)} 的運算結果）
+     */
+    @Override
+    public Map<Long, BigDecimal> tradeCashFlowByAsset(Long userId) {
+        Map<Long, BigDecimal> flows = new LinkedHashMap<>();
+        jdbcClient.sql("""
+                select asset_id,
+                       sum(case when type = 'SELL' then quantity * price - fee
+                                when type = 'BUY' then -(quantity * price + fee) end) as net
+                from transactions
+                where user_id = :userId
+                group by asset_id
+                """)
+            .param("userId", userId)
+            .query(rs -> {
+                BigDecimal net = rs.getBigDecimal("net");
+                if (net != null) {
+                    flows.put(rs.getLong("asset_id"), net);
+                }
+            });
+        return flows;
     }
 
     private TradeTransaction mapTransaction(ResultSet rs, int rowNum) throws SQLException {

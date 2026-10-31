@@ -8,6 +8,8 @@ import dowob.xyz.stockwebv2.common.error.FieldValidationException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.mock.http.MockHttpInputMessage;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.time.Instant;
@@ -19,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@link GlobalExceptionHandler} 的例外映射單元測試。
  *
  * @author Yuan
- * @version 1.0
+ * @version 1.1
  */
 @DisplayName("全域例外映射")
 class GlobalExceptionHandlerTest {
@@ -57,6 +59,41 @@ class GlobalExceptionHandlerTest {
 
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().toString()).doesNotContain("script");
+    }
+
+    @Test
+    @DisplayName("格式錯誤的 request body 回 400 VALIDATION_FAILED，而非落到 catch-all 變成 500")
+    void malformedRequestBodyIsBadRequestNotInternalError() {
+        /*
+         * HttpMessageNotReadableException 並未實作 ErrorResponse（RESEARCH Pitfall 6），
+         * 在加入專屬 handler 之前，POST /api/v1/trades 送壞 JSON 會落到 catch-all，
+         * 回 HTTP 500 並在 log 留下 ERROR 級堆疊（D-27）。
+         */
+        HttpMessageNotReadableException exception = new HttpMessageNotReadableException(
+            "JSON parse error: <script>alert(1)</script>", null, new MockHttpInputMessage(new byte[0]));
+
+        ResponseEntity<ApiResponse<Void>> response = handler.handleMessageNotReadable(exception);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(400);
+        ApiResponse<Void> body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.success()).isFalse();
+        assertThat(body.error().code()).isEqualTo(ErrorCode.VALIDATION_FAILED.name());
+        assertThat(body.error().fields()).isNullOrEmpty();
+    }
+
+    @Test
+    @DisplayName("格式錯誤 body 的錯誤回應不回射框架訊息或使用者輸入")
+    void malformedRequestBodyDoesNotEchoFrameworkMessage() {
+        HttpMessageNotReadableException exception = new HttpMessageNotReadableException(
+            "JSON parse error: <script>alert(1)</script>", null, new MockHttpInputMessage(new byte[0]));
+
+        ResponseEntity<ApiResponse<Void>> response = handler.handleMessageNotReadable(exception);
+
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().toString())
+            .doesNotContain("script")
+            .doesNotContain("JSON parse error");
     }
 
     @Test

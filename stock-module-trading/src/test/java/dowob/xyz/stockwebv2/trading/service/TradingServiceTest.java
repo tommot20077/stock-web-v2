@@ -5,15 +5,13 @@ import dowob.xyz.stockwebv2.common.error.BusinessException;
 import dowob.xyz.stockwebv2.common.error.ErrorCode;
 import dowob.xyz.stockwebv2.common.error.FieldValidationException;
 import dowob.xyz.stockwebv2.common.model.AssetType;
+import dowob.xyz.stockwebv2.common.model.CurrencyCode;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
+import dowob.xyz.stockwebv2.infrastructure.asset.AssetProfile;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
-import dowob.xyz.stockwebv2.infrastructure.marketdata.LatestMarketPrice;
-import dowob.xyz.stockwebv2.infrastructure.marketdata.MarketDataFacade;
 import dowob.xyz.stockwebv2.trading.api.CreateTradeRequest;
-import dowob.xyz.stockwebv2.trading.api.HoldingDto;
 import dowob.xyz.stockwebv2.trading.api.TradeDto;
 import dowob.xyz.stockwebv2.trading.domain.Holding;
-import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
 import dowob.xyz.stockwebv2.trading.domain.SortDirection;
 import dowob.xyz.stockwebv2.trading.domain.TradeSortKey;
 import dowob.xyz.stockwebv2.trading.domain.TradeTransaction;
@@ -27,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -36,15 +35,13 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyCollection;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -77,7 +74,6 @@ class TradingServiceTest {
     private static final OffsetDateTime SENT_EXECUTED_AT = OffsetDateTime.parse("2026-01-10T08:00:00+08:00");
 
     private TradingRepository repository;
-    private MarketDataFacade marketDataFacade;
     private AssetFacade assetFacade;
     private PortfolioCache portfolioCache;
     private TradingService service;
@@ -85,118 +81,11 @@ class TradingServiceTest {
     @BeforeEach
     void setup() {
         repository = mock(TradingRepository.class);
-        marketDataFacade = mock(MarketDataFacade.class);
         assetFacade = mock(AssetFacade.class);
         portfolioCache = mock(PortfolioCache.class);
-        service = new TradingService(repository, assetFacade, marketDataFacade, portfolioCache, new TradingMapper());
+        service = new TradingService(repository, assetFacade, portfolioCache, new TradingMapper());
         when(repository.listTransactions(any(TradeQuery.class)))
             .thenReturn(PageResponse.of(List.<TradeTransaction>of(), 0, 20, 0L));
-    }
-
-    @Test
-    @DisplayName("持倉估值用 market-data 的即時價，不是自己查 asset_latest_prices")
-    void holdingValuationUsesLiveMarketPrice() {
-        /*
-         * 原本 trading 以自己的 SQL 查 asset_latest_prices —— 那張表只有 V2 seed 寫過一次，
-         * 全 repo 沒有任何程式更新它，於是市值永遠停在種子價。真正的即時價在 market-data 手上
-         * （Redis market:latest:{assetId} → market_prices），只能經 MarketDataFacade 取得。
-         */
-        HoldingPosition position = position(new BigDecimal("10"), new BigDecimal("100"));
-        when(repository.listHoldings(7L)).thenReturn(List.of(position));
-        when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of());
-        when(marketDataFacade.findLatestPrices(anyCollection())).thenReturn(Map.of(42L,
-            new LatestMarketPrice(new BigDecimal("150"), OffsetDateTime.parse("2026-09-04T10:00:00+08:00"))));
-
-        List<HoldingDto> holdings = service.listHoldings(7L);
-
-        assertThat(holdings).hasSize(1);
-        HoldingDto dto = holdings.getFirst();
-        assertThat(dto.marketPrice()).isEqualByComparingTo("150");
-        assertThat(dto.marketValue()).isEqualByComparingTo("1500");
-        assertThat(dto.unrealizedPnl()).isEqualByComparingTo("500");
-        assertThat(dto.priceTime()).isEqualTo(OffsetDateTime.parse("2026-09-04T10:00:00+08:00"));
-    }
-
-    @Test
-    @DisplayName("市場沒有這檔的價格時退回平均成本，市值等於成本、未實現損益為零")
-    void holdingValuationFallsBackToAverageCostWhenNoMarketPrice() {
-        /*
-         * 「查不到行情」與「行情剛好等於某個數字」必須可區分，所以 facade 回 empty 而不是塞預設價；
-         * 退場策略由這裡決定：以平均成本估值 → 未實現損益 0，不會假裝賺賠。
-         */
-        HoldingPosition position = position(new BigDecimal("10"), new BigDecimal("100"));
-        when(repository.listHoldings(7L)).thenReturn(List.of(position));
-        when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of());
-        when(marketDataFacade.findLatestPrices(anyCollection())).thenReturn(Map.of());
-
-        HoldingDto dto = service.listHoldings(7L).getFirst();
-
-        assertThat(dto.marketPrice()).isEqualByComparingTo("100");
-        assertThat(dto.marketValue()).isEqualByComparingTo("1000");
-        assertThat(dto.unrealizedPnl()).isEqualByComparingTo("0");
-    }
-
-    @Test
-    @DisplayName("多筆持倉只做一次批次快取讀取與一次批次取價，快取命中者不重算（N+1 → 常數次往返）")
-    void holdingValuationBatchesCacheReadsAndPriceLookups() {
-        /*
-         * 原本每筆持倉各自一次快取 GET，未命中再各自一次取價與一次快取 SET：N 筆持倉約 3N 次往返，
-         * 成交後三個頁面同時 refetch 還會再放大（性能審查 MED-5）。
-         */
-        HoldingPosition aapl = position(1L, 41L, "AAPL", new BigDecimal("10"), new BigDecimal("100"));
-        HoldingPosition msft = position(2L, 42L, "MSFT", new BigDecimal("5"), new BigDecimal("200"));
-        HoldingPosition nvda = position(3L, 43L, "NVDA", new BigDecimal("2"), new BigDecimal("300"));
-        when(repository.listHoldings(7L)).thenReturn(List.of(aapl, msft, nvda));
-
-        HoldingDto cachedMsft = new HoldingDto("22222222-2222-2222-2222-222222222222", "MSFT", "MSFT",
-            new BigDecimal("5"), new BigDecimal("200"), new BigDecimal("1000"), new BigDecimal("210"),
-            new BigDecimal("1050"), BigDecimal.ZERO, new BigDecimal("50"), new BigDecimal("0.05"),
-            OffsetDateTime.parse("2026-09-04T10:00:00+08:00"), OffsetDateTime.parse("2026-09-01T00:00:00+08:00"));
-        when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of(42L, cachedMsft));
-        when(marketDataFacade.findLatestPrices(anyCollection())).thenReturn(Map.of(
-            41L, new LatestMarketPrice(new BigDecimal("150"), OffsetDateTime.parse("2026-09-04T10:00:00+08:00")),
-            43L, new LatestMarketPrice(new BigDecimal("310"), OffsetDateTime.parse("2026-09-04T10:00:00+08:00"))));
-
-        List<HoldingDto> holdings = service.listHoldings(7L);
-
-        assertThat(holdings).extracting(HoldingDto::symbol).containsExactly("AAPL", "MSFT", "NVDA");
-        assertThat(holdings.get(1)).isSameAs(cachedMsft);
-        assertThat(holdings.get(0).marketPrice()).isEqualByComparingTo("150");
-        assertThat(holdings.get(2).marketPrice()).isEqualByComparingTo("310");
-
-        verify(portfolioCache, times(1)).readHoldings(eq(7L), anyCollection());
-        ArgumentCaptor<Collection<Long>> priced = ArgumentCaptor.captor();
-        verify(marketDataFacade, times(1)).findLatestPrices(priced.capture());
-        assertThat(priced.getValue()).as("只為快取未命中的持倉取價").containsExactlyInAnyOrder(41L, 43L);
-        verify(marketDataFacade, never()).findLatestPrice(anyLong());
-    }
-
-    /**
-     * 建立一筆測試用持倉（AAPL、assetId 42）。
-     *
-     * @param quantity 持有數量
-     * @param avgCost  平均成本
-     * @return 持倉位置
-     */
-    private HoldingPosition position(BigDecimal quantity, BigDecimal avgCost) {
-        return position(1L, 42L, "AAPL", quantity, avgCost);
-    }
-
-    /**
-     * 建立一筆測試用持倉。
-     *
-     * @param holdingId 持倉 id
-     * @param assetId   標的 id
-     * @param symbol    標的代號
-     * @param quantity  持有數量
-     * @param avgCost   平均成本
-     * @return 持倉位置
-     */
-    private HoldingPosition position(Long holdingId, Long assetId, String symbol, BigDecimal quantity, BigDecimal avgCost) {
-        return new HoldingPosition(
-            holdingId, 7L, assetId, UUID.nameUUIDFromBytes(symbol.getBytes(java.nio.charset.StandardCharsets.UTF_8)),
-            symbol, symbol, quantity, avgCost, BigDecimal.ZERO, 0,
-            OffsetDateTime.parse("2026-09-01T00:00:00+08:00"));
     }
 
     @Test
@@ -613,6 +502,138 @@ class TradingServiceTest {
 
         verify(repository, never()).updateHolding(any());
         verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("建立交易：回應帶標的交易幣別，且幣別經 findProfiles 批次取得而非自行查詢（TRAD-10 / D-28）")
+    void createTradeCarriesAssetCurrency() {
+        stubTradeableAsset();
+        stubProfile(55L, "AAPL", CurrencyCode.USD);
+        when(repository.findByIdempotencyKey(7L, "key-1")).thenReturn(Optional.empty());
+        when(repository.findHoldingForUpdate(7L, 55L)).thenReturn(Optional.empty());
+        when(repository.insertHoldingIfAbsent(any(Holding.class)))
+            .thenAnswer(invocation -> Optional.of(invocation.getArgument(0)));
+        when(repository.insertTransactionIfAbsent(any(TradeTransaction.class)))
+            .thenAnswer(invocation -> Optional.of(invocation.getArgument(0)));
+
+        TradeDto dto = service.createTrade(7L, buyRequest(SENT_QUANTITY, null), "key-1");
+
+        assertThat(dto.currency()).isEqualTo("USD");
+        verify(assetFacade).findProfiles(List.of(55L));
+    }
+
+    @Test
+    @DisplayName("冪等鍵命中既有交易：重送的回應同樣帶幣別（D-28）")
+    void idempotentHitCarriesAssetCurrency() {
+        stubTradeableAsset();
+        stubProfile(55L, "AAPL", CurrencyCode.USD);
+        when(repository.findByIdempotencyKey(7L, "key-1")).thenReturn(Optional.of(storedTransaction(STORED_QUANTITY)));
+
+        TradeDto dto = service.createTrade(7L, buyRequest(SENT_QUANTITY, null), "key-1");
+
+        assertThat(dto.currency()).isEqualTo("USD");
+        verify(repository, never()).insertTransactionIfAbsent(any());
+    }
+
+    @Test
+    @DisplayName("findProfiles 查無該資產：currency 為 null 且不拋例外")
+    void missingProfileYieldsNullCurrencyWithoutThrowing() {
+        stubTradeableAsset();
+        when(repository.findByIdempotencyKey(7L, "key-1")).thenReturn(Optional.of(storedTransaction(STORED_QUANTITY)));
+        when(assetFacade.findProfiles(any())).thenReturn(Map.of());
+
+        TradeDto dto = service.createTrade(7L, buyRequest(SENT_QUANTITY, null), "key-1");
+
+        assertThat(dto.currency()).isNull();
+    }
+
+    @Test
+    @DisplayName("被拒絕的請求（未知標的、冪等鍵 payload 不符）不呼叫 findProfiles")
+    void rejectedRequestsDoNotResolveProfiles() {
+        CreateTradeRequest unknown = new CreateTradeRequest(
+            "NOPE", "BUY", BigDecimal.ONE, BigDecimal.TEN, null, null, null);
+        assertThatThrownBy(() -> service.createTrade(7L, unknown, "key-1"))
+            .isInstanceOf(BusinessException.class);
+
+        CreateTradeRequest unsupportedType = new CreateTradeRequest(
+            "AAPL", "DIV", BigDecimal.ONE, BigDecimal.TEN, null, null, null);
+        assertThatThrownBy(() -> service.createTrade(7L, unsupportedType, "key-1"))
+            .isInstanceOf(BusinessException.class);
+
+        assertThatThrownBy(() -> service.createTrade(7L, buyRequest(SENT_QUANTITY, null), " "))
+            .isInstanceOf(BusinessException.class);
+
+        verify(assetFacade, never()).findProfiles(any());
+    }
+
+    @Test
+    @DisplayName("列表：一頁 3 筆屬於 2 個資產 → findProfiles 恰好一次、參數為 2 個 distinct id，各列幣別依其資產（D-28）")
+    void listTradesResolvesCurrenciesWithOneBatchedCall() {
+        when(repository.listTransactions(any(TradeQuery.class))).thenReturn(PageResponse.of(
+            List.of(listedTrade(1L, 55L, "AAPL"), listedTrade(2L, 66L, "2330.TW"), listedTrade(3L, 55L, "AAPL")),
+            0, 20, 3L));
+        when(assetFacade.findProfiles(any())).thenReturn(Map.of(
+            55L, new AssetProfile(55L, "AAPL", AssetType.STOCK, "US", CurrencyCode.USD, "Tech"),
+            66L, new AssetProfile(66L, "2330.TW", AssetType.STOCK, "TW", CurrencyCode.TWD, "Semiconductors")));
+
+        PageResponse<TradeDto> result = service.listTrades(7L, null, null, null, null, null, null, 0, 20);
+
+        assertThat(result.items()).extracting(TradeDto::symbol, TradeDto::currency)
+            .containsExactly(
+                tuple("AAPL", "USD"),
+                tuple("2330.TW", "TWD"),
+                tuple("AAPL", "USD"));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<Long>> captor = ArgumentCaptor.forClass(Collection.class);
+        verify(assetFacade, org.mockito.Mockito.times(1)).findProfiles(captor.capture());
+        assertThat(captor.getValue()).containsExactlyInAnyOrder(55L, 66L);
+    }
+
+    @Test
+    @DisplayName("列表：空頁不呼叫 findProfiles")
+    void emptyPageDoesNotResolveProfiles() {
+        service.listTrades(7L, null, null, null, null, null, null, 0, 20);
+
+        verify(assetFacade, never()).findProfiles(any());
+    }
+
+    @Test
+    @DisplayName("列表：帶 symbol 篩選時 Facade 呼叫總數為 2（findBySymbol + findProfiles）")
+    void symbolFilteredListUsesTwoFacadeCallsInTotal() {
+        stubTradeableAsset();
+        stubProfile(55L, "AAPL", CurrencyCode.USD);
+        when(repository.listTransactions(any(TradeQuery.class))).thenReturn(PageResponse.of(
+            List.of(listedTrade(1L, 55L, "AAPL")), 0, 20, 1L));
+
+        PageResponse<TradeDto> result = service.listTrades(7L, "AAPL", null, null, null, null, null, 0, 20);
+
+        assertThat(result.items()).extracting(TradeDto::currency).containsExactly("USD");
+        verify(assetFacade).findBySymbol("AAPL");
+        verify(assetFacade).findProfiles(any());
+        verifyNoMoreInteractions(assetFacade);
+    }
+
+    private TradeTransaction listedTrade(long id, long assetId, String symbol) {
+        return new TradeTransaction(
+            id,
+            UUID.nameUUIDFromBytes(("trade-" + id).getBytes(StandardCharsets.UTF_8)),
+            7L,
+            assetId,
+            symbol,
+            TradeType.BUY,
+            STORED_QUANTITY,
+            new BigDecimal("123.45000000"),
+            BigDecimal.ZERO,
+            null,
+            OffsetDateTime.parse("2026-01-10T00:00:00Z"),
+            OffsetDateTime.parse("2026-01-10T00:00:01Z"),
+            null
+        );
+    }
+
+    private void stubProfile(Long id, String symbol, CurrencyCode currency) {
+        when(assetFacade.findProfiles(any())).thenReturn(Map.of(
+            id, new AssetProfile(id, symbol, AssetType.STOCK, "US", currency, null)));
     }
 
     private void stubTradeableAsset() {

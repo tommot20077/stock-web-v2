@@ -19,9 +19,9 @@ public class DatabaseCleaner {
     }
 
     /**
-     * 清除測試產生的使用者相關資料(transactions、holdings、backtest_runs、users)並清空 Redis。
+     * 清除測試產生的使用者相關資料(transactions、cash_ledger_entries、holdings、backtest_runs、users)並清空 Redis。
      *
-     * <p>transactions 為 append-only 帳本(V8 trigger 禁止 DELETE),故整批刪除在單一交易內以
+     * <p>transactions 與 cash_ledger_entries 為 append-only 帳本(V8 / V15 trigger 禁止 DELETE),故整批刪除在單一交易內以
      * {@code SET LOCAL session_replication_role = 'replica'} 暫時停用 user triggers 後執行;
      * Testcontainers 的資料庫使用者為 superuser,交易結束後設定自動還原,不影響 production schema。
      */
@@ -30,6 +30,7 @@ public class DatabaseCleaner {
             BEGIN;
             SET LOCAL session_replication_role = 'replica';
             DELETE FROM transactions;
+            DELETE FROM cash_ledger_entries;
             DELETE FROM holdings;
             DELETE FROM backtest_runs;
             DELETE FROM users;

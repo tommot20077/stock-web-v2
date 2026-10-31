@@ -67,7 +67,7 @@ The codebase has a dirty worktree with prior implementation changes. Planning co
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Cash is a manual ledger, not a broker account (2026-09-28, Phase 04.1 D-01) | Trades remain recorded executed transactions (judgment §1); cash is derived from deposits/withdrawals plus trades, may go negative, never blocks a trade | - Pending |
+| Cash is a manual ledger, not a broker account (2026-09-28, Phase 04.1 D-01) | Trades remain recorded executed transactions (judgment §1); cash is derived from deposits/withdrawals plus trades, may go negative, never blocks a trade | ✓ Good — Phase 04.1(2026-10-26):append-only 分錄 + 一鍵沖銷、餘額由分錄推導可為負、交易不受現金阻擋;證據 CashLedgerAppendOnlyIT / CashEntryApiIT / PortfolioCashAllocationIT / CashLedgerE2E / PortfolioBaseCurrencyE2E / cash-journey C3(CI 全綠) |
 | Use a safe vertical slice for the next milestone | Auth, CSRF, API client behavior, and portfolio/trading integration are tightly coupled and should be proven end-to-end before expanding scope | - Pending |
 | Use httpOnly cookies plus `/auth/refresh` for browser sessions | Reduces refresh-token exposure to JavaScript and supports session restore across browser refresh | - Pending |
 | Use double-submit CSRF token for unsafe cookie-authenticated browser requests | Required because credentialed browser requests otherwise make unsafe endpoints vulnerable to cross-site submission | - Pending |

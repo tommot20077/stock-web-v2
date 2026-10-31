@@ -1,0 +1,261 @@
+package dowob.xyz.stockwebv2.trading.repository;
+
+import dowob.xyz.stockwebv2.common.api.PageResponse;
+import dowob.xyz.stockwebv2.common.model.CurrencyCode;
+import dowob.xyz.stockwebv2.trading.domain.CashEntryType;
+import dowob.xyz.stockwebv2.trading.domain.CashEntryView;
+import dowob.xyz.stockwebv2.trading.domain.CashLedgerEntry;
+
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Repository;
+
+import java.math.BigDecimal;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.time.OffsetDateTime;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+
+/**
+ * 現金分錄帳本的 JDBC 實作。
+ *
+ * <p>所有值一律走 JDBC 具名參數；本表不 join {@code assets}（現金分錄與標的無關，
+ * 跨模組資料只能經 Facade 取得）。</p>
+ *
+ * @author Yuan
+ * @version 1.0
+ */
+@Repository
+public class JdbcCashLedgerRepository implements CashLedgerRepository {
+    private static final String COLUMNS = """
+        id, uuid, user_id, type, currency, amount, note, occurred_at, created_at,
+        idempotency_key, reversal_of_id
+        """;
+
+    private final JdbcClient jdbcClient;
+
+    public JdbcCashLedgerRepository(JdbcClient jdbcClient) {
+        this.jdbcClient = jdbcClient;
+    }
+
+    /**
+     * 帶冪等鍵的分錄寫入，也是本模組<strong>唯一</strong>的分錄寫入路徑。
+     *
+     * <p>與 {@code JdbcTradingRepository#insertTransactionIfAbsent} 同一個 insert-first 模式：
+     * 衝突時 do nothing 不丟例外、{@code returning} 回零列，因此結尾必須是 {@code optional} 取值，
+     * <strong>不可</strong>改成要求恰好一列的取值方式（那會拋 {@code EmptyResultDataAccessException}，
+     * 把「冪等命中」這個正常結果誤報成系統錯誤）。也不可改成「先 insert、撞唯一約束例外再重讀」：
+     * PostgreSQL 在例外後該交易已中止，重讀必定失敗。</p>
+     *
+     * <p><strong>衝突子句刻意不指定目標</strong>（只寫 {@code on conflict} 後接 {@code do nothing}）：本表有兩個會讓正常請求撞上的
+     * 唯一約束 —— {@code uk_cash_ledger_entries_user_idempotency}（冪等重送／同 key 併發）與
+     * {@code uk_cash_ledger_entries_reversal_of}（兩個不同 key 的請求併發沖銷同一筆）。指定其中一個為目標，
+     * 另一個撞上時仍會拋唯一約束例外，在 PostgreSQL 把交易中止後變成 500。不指定目標則兩者都被吸收成
+     * 「回零列」，由呼叫端以冪等鍵重讀區分：命中 → 冪等；落空 → 被另一筆沖銷搶先。
+     * 代價是無法在這一句內分辨原因，換來整條路徑不依賴例外。
+     * 其他約束（uuid 唯一、CHECK、外鍵）不受影響，違反時仍照常拋例外；沖銷驗證 trigger
+     * （{@code validate_cash_ledger_reversal}）在 insert 前執行，亦不受影響，是應用層檢查之外的最後防線。</p>
+     *
+     * @param entry 待寫入的分錄
+     * @return 實際建立的分錄；任一唯一約束衝突時回傳空 Optional
+     */
+    @Override
+    public Optional<CashLedgerEntry> insertIfAbsent(CashLedgerEntry entry) {
+        return jdbcClient.sql("""
+                insert into cash_ledger_entries (
+                    uuid, user_id, type, currency, amount, note, occurred_at, idempotency_key, reversal_of_id
+                )
+                values (
+                    coalesce(:uuid, uuid_generate_v4()), :userId, :type, :currency,
+                    :amount, :note, :occurredAt, :idempotencyKey, :reversalOfId
+                )
+                on conflict do nothing
+                returning """ + " " + COLUMNS)
+            .param("uuid", entry.uuid())
+            .param("userId", entry.userId())
+            .param("type", entry.type().name())
+            .param("currency", entry.currency().name())
+            .param("amount", entry.amount())
+            .param("note", entry.note())
+            .param("occurredAt", entry.occurredAt())
+            .param("idempotencyKey", entry.idempotencyKey())
+            .param("reversalOfId", entry.reversalOfId())
+            .query(JdbcCashLedgerRepository::mapEntry)
+            .optional();
+    }
+
+    /**
+     * 以冪等鍵查出該使用者既有的分錄。
+     *
+     * <p>{@code where} 同時綁 {@code user_id} 與 {@code idempotency_key}：冪等鍵只在單一使用者範圍內唯一，
+     * 少了 {@code user_id} 會讓 A 的 key 命中 B 的分錄（威脅 T-04.1-11）。刻意不加 {@code for update}：
+     * 要查的列可能還不存在，列鎖對不存在的列不生效；併發由唯一約束擋。</p>
+     *
+     * @param userId         分錄擁有者 id
+     * @param idempotencyKey 冪等鍵
+     * @return 既有分錄；查無此 key 時回傳空 Optional
+     */
+    @Override
+    public Optional<CashLedgerEntry> findByIdempotencyKey(Long userId, String idempotencyKey) {
+        return jdbcClient.sql("select " + COLUMNS + """
+                from cash_ledger_entries
+                where user_id = :userId and idempotency_key = :idempotencyKey
+                """)
+            .param("userId", userId)
+            .param("idempotencyKey", idempotencyKey)
+            .query(JdbcCashLedgerRepository::mapEntry)
+            .optional();
+    }
+
+    /**
+     * 以對外 UUID 查出該使用者自己的分錄。
+     *
+     * <p>{@code where} 同時綁 {@code user_id}：他人的分錄查不到，呼叫端回 404 而不洩漏存在性
+     * （威脅 T-04.1-20）。</p>
+     *
+     * @param userId 分錄擁有者 id
+     * @param uuid   分錄的對外 UUID
+     * @return 該使用者的分錄；查無（含屬於他人）時回傳空 Optional
+     */
+    @Override
+    public Optional<CashLedgerEntry> findByUuid(Long userId, UUID uuid) {
+        return jdbcClient.sql("select " + COLUMNS + """
+                from cash_ledger_entries
+                where user_id = :userId and uuid = :uuid
+                """)
+            .param("userId", userId)
+            .param("uuid", uuid)
+            .query(JdbcCashLedgerRepository::mapEntry)
+            .optional();
+    }
+
+    /**
+     * 判斷某筆分錄是否已有沖銷分錄指向它（走 {@code uk_cash_ledger_entries_reversal_of} 的索引）。
+     *
+     * @param originalId 原分錄的內部主鍵
+     * @return 已被沖銷時為 true
+     */
+    @Override
+    public boolean existsReversalOf(Long originalId) {
+        return jdbcClient.sql("select exists (select 1 from cash_ledger_entries where reversal_of_id = :originalId)")
+            .param("originalId", originalId)
+            .query(Boolean.class)
+            .single();
+    }
+
+    /**
+     * 取回該使用者的一頁分錄（含「是否已被沖銷」與「指回原分錄」資訊）。
+     *
+     * <p>以 self-join 取得原分錄的 UUID 與發生時間，join 條件同時綁 {@code o.user_id = e.user_id}，
+     * 即使資料被異常寫入也不會把他人分錄的資訊帶出來；{@code reversed} 由 {@code exists} 子查詢算出，
+     * 走 {@code uk_cash_ledger_entries_reversal_of} 的唯一索引。list 與 count 的 {@code where}
+     * 皆綁 {@code user_id}（威脅 T-04.1-22）。排序與 {@code idx_cash_ledger_entries_user_occurred}
+     * 逐欄一致。這是同模組自己的表的 self-join，不涉及 {@code assets}。</p>
+     *
+     * <p>count 與 list 須在同一個唯讀交易內執行以共用快照，呼叫端
+     * {@code CashLedgerService#listEntries} 已標記為 {@code @Transactional(readOnly = true)}。</p>
+     *
+     * @param userId 分錄擁有者 id
+     * @param page   頁碼，從 0 起
+     * @param size   每頁筆數
+     * @return 該頁分錄視圖與該使用者的分錄總數
+     */
+    @Override
+    public PageResponse<CashEntryView> listEntries(Long userId, int page, int size) {
+        long offset = (long) page * size;
+        long total = jdbcClient.sql("select count(*) from cash_ledger_entries where user_id = :userId")
+            .param("userId", userId)
+            .query(Long.class)
+            .single();
+        List<CashEntryView> items = jdbcClient.sql("""
+                select e.id, e.uuid, e.user_id, e.type, e.currency, e.amount, e.note, e.occurred_at,
+                       e.created_at, e.idempotency_key, e.reversal_of_id,
+                       o.uuid as reversal_of_uuid, o.occurred_at as reversal_of_occurred_at,
+                       exists (select 1 from cash_ledger_entries r where r.reversal_of_id = e.id) as reversed
+                from cash_ledger_entries e
+                left join cash_ledger_entries o on o.id = e.reversal_of_id and o.user_id = e.user_id
+                where e.user_id = :userId
+                order by e.occurred_at desc, e.id desc
+                limit :limit offset :offset
+                """)
+            .param("userId", userId)
+            .param("limit", size)
+            .param("offset", offset)
+            .query(this::mapView)
+            .list();
+        return PageResponse.of(items, page, size, total);
+    }
+
+    /**
+     * 依幣別彙總入出金淨額。
+     *
+     * <p>{@code CASE} 只列入金與出金兩支、沒有兜底分支，與交易現金流同一個原則：未知類型不會被誤算。
+     * 沖銷分錄是反向分錄，自然抵銷。{@code where} 綁 {@code user_id}；本表不 join {@code assets}。
+     *
+     * @param userId 分錄擁有者 id
+     * @return 幣別 → 淨額（依 {@link CurrencyCode} 宣告順序）
+     */
+    @Override
+    public Map<CurrencyCode, BigDecimal> netByCurrency(Long userId) {
+        Map<CurrencyCode, BigDecimal> nets = new EnumMap<>(CurrencyCode.class);
+        jdbcClient.sql("""
+                select currency,
+                       sum(case when type = 'DEPOSIT' then amount
+                                when type = 'WITHDRAWAL' then -amount end) as net
+                from cash_ledger_entries
+                where user_id = :userId
+                group by currency
+                """)
+            .param("userId", userId)
+            .query(rs -> {
+                BigDecimal net = rs.getBigDecimal("net");
+                if (net != null) {
+                    nets.put(CurrencyCode.valueOf(rs.getString("currency")), net);
+                }
+            });
+        return nets;
+    }
+
+    private CashEntryView mapView(ResultSet rs, int rowNum) throws SQLException {
+        return new CashEntryView(
+            mapEntry(rs, rowNum),
+            rs.getObject("reversal_of_uuid", UUID.class),
+            rs.getObject("reversal_of_occurred_at", OffsetDateTime.class),
+            rs.getBoolean("reversed")
+        );
+    }
+
+    /**
+     * 把結果集的當前列對應成 {@link CashLedgerEntry}。
+     *
+     * <p>package-private 且 static：它不依賴任何實例狀態，單元測試可以不經資料庫、直接餵一個
+     * 行為與 JDBC 一致的結果集來驗證欄位對應。</p>
+     *
+     * @param rs     已定位在目標列的結果集
+     * @param rowNum 列序號（RowMapper 介面要求，未使用）
+     * @return 對應的分錄
+     * @throws SQLException 讀取欄位失敗時
+     */
+    static CashLedgerEntry mapEntry(ResultSet rs, int rowNum) throws SQLException {
+        return new CashLedgerEntry(
+            rs.getLong("id"),
+            rs.getObject("uuid", UUID.class),
+            rs.getLong("user_id"),
+            CashEntryType.valueOf(rs.getString("type")),
+            CurrencyCode.valueOf(rs.getString("currency")),
+            rs.getBigDecimal("amount"),
+            rs.getString("note"),
+            rs.getObject("occurred_at", OffsetDateTime.class),
+            rs.getObject("created_at", OffsetDateTime.class),
+            rs.getString("idempotency_key"),
+            // 可為 NULL 的 BIGINT 一律用 getObject(欄位, Long.class)：它對 SQL NULL 回 null。
+            // 不可用 getLong + wasNull：getLong 對 NULL 回 0，而 wasNull 只反映「最近一次讀取」的欄位，
+            // 在建構子引數裡呼叫時最近讀的早已是別的欄位，會永遠回 false，於是一般分錄的
+            // reversalOfId 變成 0L（非 null），冪等重送被判成不同筆、所有沖銷被判成「原分錄本身是沖銷」。
+            rs.getObject("reversal_of_id", Long.class)
+        );
+    }
+}

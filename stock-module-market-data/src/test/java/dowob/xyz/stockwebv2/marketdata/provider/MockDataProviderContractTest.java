@@ -2,9 +2,12 @@ package dowob.xyz.stockwebv2.marketdata.provider;
 
 import dowob.xyz.stockwebv2.common.model.AssetType;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
+import dowob.xyz.stockwebv2.infrastructure.asset.AssetProfile;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -65,6 +68,12 @@ class MockDataProviderContractTest extends DataProviderContractTest {
         @Override
         public Optional<AssetSummary> findBySymbol(String s) {
             return all.stream().filter(a -> a.symbol().equals(s)).findFirst();
+        }
+
+        @Override
+        public Map<Long, AssetProfile> findProfiles(Collection<Long> assetIds) {
+            // 本測試不使用資產屬性查詢
+            return Map.of();
         }
     }
 }
