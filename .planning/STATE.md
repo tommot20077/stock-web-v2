@@ -5,10 +5,10 @@ current_phase: "04.2"
 current_phase_name: Dividends, Share Adjustments & Watchlist (INSERTED)
 status: Phase 04.2 research + UI-SPEC done (2026-10-31);ready to plan
 stopped_at: Phase 04.2 UI-SPEC approved
-last_updated: "2026-10-31T18:18:47.981Z"
-last_activity: 2026-10-31
-last_activity_desc: Phase 04.2 research (incl. WS addendum) and UI-SPEC approved
-state_head: 3d21206494b990c8c35dde6beae6c6cad68e1621
+last_updated: "2026-11-01T15:31:54.221Z"
+last_activity: 2026-11-01
+last_activity_desc: Phase 04.2 execution started
+state_head: cf06c00b3fcb233787253b2b7e731ae5df42d2b0
 progress:
   total_phases: 7
   completed_phases: 5
@@ -24,14 +24,14 @@ milestone_name: milestone
 See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can safely sign in, inspect portfolio state, and record trades through one coherent frontend/backend flow.
-**Current focus:** Phase 04.1 — Backend Data Gap Backfill
+**Current focus:** Phase 04.2 — Dividends, Share Adjustments & Watchlist (INSERTED)
 
 ## Current Position
 
-Phase: 04.2 (Dividends, Share Adjustments & Watchlist (INSERTED)) — READY TO EXECUTE
-Plan: Not started
+Phase: 04.2 (Dividends, Share Adjustments & Watchlist (INSERTED)) — EXECUTING
+Plan: 1 of 26
 Next: **Phase 04.2**(Dividends, Share Adjustments & Watchlist)—— CONTEXT 已備,下一步 `/gsd-plan-phase 04.2`;Phase 04.1 已於 2026-10-31 完成並核准(32 份 plan = 25 原定 + 7 份 gap-closure,PR 後端 #50 / 前端 #18 待合併至 develop)。
-Last activity: 2026-10-31 — Phase 04.1 complete, transitioned to Phase 04.2
+Last activity: 2026-11-01 — Phase 04.2 execution started
 
 > ✅ **Phase 4 已完成（2026-09-04）。** 13 個 plan 全數執行完畢，`04-13` 的 blocking human-verify
 > checkpoint 由 Yuan 親自走完甲／乙／丙三段共 17 步後通過（未提出任何不符項）。
