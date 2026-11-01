@@ -80,6 +80,21 @@ public record TradingDay(ZoneId zone, Duration startOffset) {
     public Instant dayStart(Instant time) {
         Objects.requireNonNull(time, "time must not be null");
         LocalDate tradingDate = time.atZone(zone).toLocalDateTime().minus(startOffset).toLocalDate();
+        return startOf(tradingDate);
+    }
+
+    /**
+     * 指定交易日的起點。
+     *
+     * <p>用於股數調整(拆股 / 配股)把除權日換算成生效瞬間:以標的市場的時區與換日點計算,
+     * 而不是前端本地午夜,避免美股等跨時區市場切錯交易日。與 {@link #dayStart(Instant)} 共用同一公式,
+     * 所以對任一交易日 d,{@code dayStart(startOf(d)) == startOf(d)}。
+     *
+     * @param tradingDate 交易日(外匯的交易日 d 從紐約 d 17:00 起算),不可為 null
+     * @return 該交易日開始的瞬間
+     */
+    public Instant startOf(LocalDate tradingDate) {
+        Objects.requireNonNull(tradingDate, "tradingDate must not be null");
         return tradingDate.atStartOfDay().plus(startOffset).atZone(zone).toInstant();
     }
 }
