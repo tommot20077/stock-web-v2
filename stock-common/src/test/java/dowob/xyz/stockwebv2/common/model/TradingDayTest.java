@@ -5,9 +5,12 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * {@link TradingDay} 單元測試:各市場「一個交易日」從何時開始。
@@ -91,5 +94,76 @@ class TradingDayTest {
         assertThat(TradingDay.of(AssetType.STOCK, "XX").zone()).isEqualTo(ZoneId.of("UTC"));
         assertThat(TradingDay.of(AssetType.STOCK, null).zone()).isEqualTo(ZoneId.of("UTC"));
         assertThat(TradingDay.of(null, null).zone()).isEqualTo(ZoneId.of("UTC"));
+    }
+
+    @Test
+    @DisplayName("startOf:美股交易日起點為紐約當日午夜(10/30 為夏令 → 04:00Z)")
+    void startOf_usStock_isNewYorkMidnight() {
+        TradingDay day = TradingDay.of(AssetType.STOCK, "US");
+
+        assertThat(day.startOf(LocalDate.parse("2026-10-30"))).isEqualTo(Instant.parse("2026-10-30T04:00:00Z"));
+        // 2026-01-05 冬令 UTC-5
+        assertThat(day.startOf(LocalDate.parse("2026-01-05"))).isEqualTo(Instant.parse("2026-01-05T05:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("startOf:台股交易日起點為台北當日午夜")
+    void startOf_twStock_isTaipeiMidnight() {
+        TradingDay day = TradingDay.of(AssetType.STOCK, "TW");
+
+        assertThat(day.startOf(LocalDate.parse("2026-10-30"))).isEqualTo(Instant.parse("2026-10-29T16:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("startOf:外匯交易日 d 從紐約 d 17:00 起算(與 dayStart 對 tradingDate 的定義一致)")
+    void startOf_fx_isNewYorkFivePmOfTradingDate() {
+        TradingDay day = TradingDay.of(AssetType.FX, "FX");
+
+        assertThat(day.startOf(LocalDate.parse("2026-10-30"))).isEqualTo(Instant.parse("2026-10-30T21:00:00Z"));
+        // 1/4 交易日起點 = 紐約 1/4 17:00 冬令 = 22:00Z,與 fx_rollsOverAtNewYorkFivePm 的 dayStart 結果相同
+        assertThat(day.startOf(LocalDate.parse("2026-01-04"))).isEqualTo(Instant.parse("2026-01-04T22:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("startOf:加密貨幣交易日起點為 UTC 00:00")
+    void startOf_crypto_isUtcMidnight() {
+        TradingDay day = TradingDay.of(AssetType.CRYPTO, "CRYPTO");
+
+        assertThat(day.startOf(LocalDate.parse("2026-10-30"))).isEqualTo(Instant.parse("2026-10-30T00:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("startOf 與 dayStart 同一公式:startOf(d) 本身與其後一小時都屬於交易日 d")
+    void startOf_isConsistentWithDayStart() {
+        List<TradingDay> days = List.of(
+            TradingDay.of(AssetType.STOCK, "US"),
+            TradingDay.of(AssetType.STOCK, "TW"),
+            TradingDay.of(AssetType.FX, "FX"),
+            TradingDay.of(AssetType.CRYPTO, "CRYPTO")
+        );
+        // 含夏令結束當天 2026-11-01 與冬令日期
+        List<LocalDate> dates = List.of(
+            LocalDate.parse("2026-10-30"),
+            LocalDate.parse("2026-11-01"),
+            LocalDate.parse("2026-01-05"),
+            LocalDate.parse("2026-07-01")
+        );
+        for (TradingDay day : days) {
+            for (LocalDate date : dates) {
+                Instant start = day.startOf(date);
+                assertThat(day.dayStart(start)).as("%s %s", day, date).isEqualTo(start);
+                assertThat(day.dayStart(start.plusSeconds(3600))).as("%s %s +1h", day, date).isEqualTo(start);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("startOf(null) 丟 NullPointerException")
+    void startOf_rejectsNull() {
+        TradingDay day = TradingDay.of(AssetType.STOCK, "US");
+
+        assertThatThrownBy(() -> day.startOf(null))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessage("tradingDate must not be null");
     }
 }
