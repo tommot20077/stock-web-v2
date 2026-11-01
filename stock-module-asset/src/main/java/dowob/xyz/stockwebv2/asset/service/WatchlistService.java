@@ -4,6 +4,9 @@ import dowob.xyz.stockwebv2.asset.api.WatchlistDto;
 import dowob.xyz.stockwebv2.asset.domain.Asset;
 import dowob.xyz.stockwebv2.asset.domain.Watchlist;
 import dowob.xyz.stockwebv2.asset.repository.WatchlistRepository;
+import dowob.xyz.stockwebv2.common.error.BusinessException;
+import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.common.error.FieldValidationException;
 import dowob.xyz.stockwebv2.common.model.TradingDay;
 import dowob.xyz.stockwebv2.infrastructure.marketdata.DailyQuote;
 import dowob.xyz.stockwebv2.infrastructure.marketdata.MarketDataFacade;
@@ -14,12 +17,16 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
- * 觀察清單（WATCH-01；D-14、D-17、D-19）。契約見 {@code ai-docs/watchlist-contract.md}。
+ * 觀察清單（WATCH-01；D-14、D-15、D-17、D-19）。契約見 {@code ai-docs/watchlist-contract.md}。
  *
  * <p>回傳的每檔項目都經 {@link AssetQuoteMapper}——與 {@code GET /api/v1/assets} 同一段程式計算漲跌與量縮寫；
  * 每次回應只呼叫一次 {@link MarketDataFacade#findDailyQuotes}（以 distinct 資產批次）。</p>
+ *
+ * <p>擁有權：所有以 UUID 定位的操作都經 repository 綁 {@code user_id} 查詢，不存在與屬於他人一律
+ * {@code WATCHLIST_NOT_FOUND}（不洩漏存在性）。錯誤訊息與 {@code fields} 原因皆為靜態字串，不回射清單名稱。</p>
  *
  * @author Yuan
  * @version 1.0
@@ -29,6 +36,12 @@ public class WatchlistService {
 
     /** 預設清單名稱（D-17）。 */
     public static final String DEFAULT_NAME = Watchlist.DEFAULT_NAME;
+
+    /** 每位使用者的清單上限（D-17）。 */
+    public static final int MAX_WATCHLISTS = 20;
+
+    /** 清單名稱 trim 後的長度上限（以 code point 計，與 PostgreSQL VARCHAR(30) 的字元計數一致）。 */
+    static final int MAX_NAME_LENGTH = 30;
 
     private final WatchlistRepository watchlistRepository;
     private final MarketDataFacade marketDataFacade;
@@ -52,6 +65,91 @@ public class WatchlistService {
     public List<WatchlistDto> list(Long userId) {
         watchlistRepository.ensureDefault(userId);
         return toDtos(watchlistRepository.listByUser(userId));
+    }
+
+    /**
+     * 建立具名清單。先確保預設清單存在（保證至少有一列可鎖），再鎖住該使用者全部清單列、鎖後重新計數：
+     * 並發建立因此序列化，20 個上限是硬的。
+     *
+     * @param userId 擁有者
+     * @param name   清單名稱，trim 後 1–30 字
+     * @return 新建的清單（項目為空）
+     * @throws BusinessException 名稱非法（400 {@code fields.name}）、已達 20 個（400 {@code fields.watchlists}）、
+     *                           同使用者重名（409 {@code DUPLICATE_RESOURCE}，{@code fields.name}）
+     */
+    @Transactional
+    public WatchlistDto create(Long userId, String name) {
+        String normalized = normalizeName(name);
+        watchlistRepository.ensureDefault(userId);
+        watchlistRepository.lockAllForUser(userId);
+        // 必須是鎖之後的另一個查詢：READ COMMITTED 下 lockAllForUser 的快照在等鎖前取得，看不到剛 commit 的新列。
+        if (watchlistRepository.countByUser(userId) >= MAX_WATCHLISTS) {
+            throw new FieldValidationException("Watchlist limit reached", Map.of("watchlists", "at most 20 watchlists"));
+        }
+        Watchlist created = watchlistRepository.insertIfNameFree(userId, normalized)
+            .orElseThrow(WatchlistService::duplicateName);
+        return toDtos(List.of(created)).get(0);
+    }
+
+    /**
+     * 改名。
+     *
+     * @param userId 擁有者
+     * @param uuid   清單 UUID
+     * @param name   新名稱，trim 後 1–30 字
+     * @return 改名後的清單（含項目與報價）
+     * @throws BusinessException 名稱非法（400 {@code fields.name}）、清單不存在或屬於他人（404
+     *                           {@code WATCHLIST_NOT_FOUND}）、與另一份清單重名（409 {@code DUPLICATE_RESOURCE}）
+     */
+    @Transactional
+    public WatchlistDto rename(Long userId, UUID uuid, String name) {
+        String normalized = normalizeName(name);
+        Watchlist existing = watchlistRepository.findByUuidForUpdate(userId, uuid)
+            .orElseThrow(WatchlistService::notFound);
+        if (!watchlistRepository.rename(existing.id(), userId, normalized)) {
+            throw duplicateName();
+        }
+        Watchlist renamed = new Watchlist(existing.id(), existing.uuid(), existing.userId(), normalized, existing.createdAt());
+        return toDtos(List.of(renamed)).get(0);
+    }
+
+    /**
+     * 刪除清單；項目由 {@code ON DELETE CASCADE} 一併刪除。刪光後下一次 {@link #list} 會重建「我的自選」。
+     *
+     * @param userId 擁有者
+     * @param uuid   清單 UUID
+     * @throws BusinessException 清單不存在或屬於他人（404 {@code WATCHLIST_NOT_FOUND}）
+     */
+    @Transactional
+    public void delete(Long userId, UUID uuid) {
+        Watchlist existing = watchlistRepository.findByUuidForUpdate(userId, uuid)
+            .orElseThrow(WatchlistService::notFound);
+        watchlistRepository.delete(existing.id(), userId);
+    }
+
+    /**
+     * 名稱正規化：去除前後空白（{@link String#strip()}，含全形空白），trim 後須為 1–30 個 code point。
+     *
+     * @param name 使用者輸入
+     * @return 正規化後的名稱
+     * @throws FieldValidationException 名稱為空或超長時（{@code fields.name}）
+     */
+    static String normalizeName(String name) {
+        String stripped = name == null ? "" : name.strip();
+        int length = stripped.codePointCount(0, stripped.length());
+        if (length == 0 || length > MAX_NAME_LENGTH) {
+            throw new FieldValidationException("Watchlist name is invalid", Map.of("name", "must be 1 to 30 characters"));
+        }
+        return stripped;
+    }
+
+    private static BusinessException duplicateName() {
+        return new BusinessException(ErrorCode.DUPLICATE_RESOURCE, ErrorCode.DUPLICATE_RESOURCE.defaultMessage(),
+            Map.of("name", "already exists"));
+    }
+
+    private static BusinessException notFound() {
+        return new BusinessException(ErrorCode.WATCHLIST_NOT_FOUND, ErrorCode.WATCHLIST_NOT_FOUND.defaultMessage());
     }
 
     private List<WatchlistDto> toDtos(List<Watchlist> watchlists) {

@@ -5,6 +5,7 @@ import dowob.xyz.stockwebv2.asset.domain.Watchlist;
 import dowob.xyz.stockwebv2.common.model.AssetType;
 import dowob.xyz.stockwebv2.common.model.CurrencyCode;
 
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -76,6 +77,92 @@ public class JdbcWatchlistRepository implements WatchlistRepository {
             .param("userId", userId)
             .query(this::mapWatchlist)
             .optional();
+    }
+
+    @Override
+    public Optional<Watchlist> findByUuidForUpdate(Long userId, UUID uuid) {
+        return jdbcClient.sql("select " + WATCHLIST_COLUMNS + """
+                 from watchlists w
+                where w.uuid = :uuid and w.user_id = :userId
+                for update
+                """)
+            .param("uuid", uuid)
+            .param("userId", userId)
+            .query(this::mapWatchlist)
+            .optional();
+    }
+
+    @Override
+    public List<Long> lockAllForUser(Long userId) {
+        return jdbcClient.sql("""
+                select id from watchlists
+                where user_id = :userId
+                order by id
+                for update
+                """)
+            .param("userId", userId)
+            .query(Long.class)
+            .list();
+    }
+
+    @Override
+    public int countByUser(Long userId) {
+        return jdbcClient.sql("select count(*) from watchlists where user_id = :userId")
+            .param("userId", userId)
+            .query(Integer.class)
+            .single();
+    }
+
+    @Override
+    public Optional<Watchlist> insertIfNameFree(Long userId, String name) {
+        return jdbcClient.sql("""
+                insert into watchlists (user_id, name)
+                values (:userId, :name)
+                on conflict (user_id, name) do nothing
+                returning id, uuid, user_id, name, created_at
+                """)
+            .param("userId", userId)
+            .param("name", name)
+            .query(this::mapWatchlist)
+            .optional();
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>先以 {@code NOT EXISTS} 排除已 commit 的同名清單（不觸發例外）；兩個並發改名搶同一名稱、都通過
+     * NOT EXISTS 時，後者的 UPDATE 會在唯一約束上等前者 commit 後失敗——這個殘餘競態以
+     * {@link DuplicateKeyException} 轉成 false。此時交易已處於失敗狀態，但呼叫端隨即丟出業務例外並回滾，
+     * 不會在同一交易內再執行任何 SQL。</p>
+     */
+    @Override
+    public boolean rename(Long id, Long userId, String name) {
+        try {
+            return jdbcClient.sql("""
+                    update watchlists
+                    set name = :name, updated_at = now()
+                    where id = :id
+                      and user_id = :userId
+                      and not exists (
+                          select 1 from watchlists other
+                          where other.user_id = :userId and other.name = :name and other.id <> :id
+                      )
+                    """)
+                .param("name", name)
+                .param("id", id)
+                .param("userId", userId)
+                .update() == 1;
+        } catch (DuplicateKeyException exception) {
+            return false;
+        }
+    }
+
+    @Override
+    public void delete(Long id, Long userId) {
+        jdbcClient.sql("delete from watchlists where id = :id and user_id = :userId")
+            .param("id", id)
+            .param("userId", userId)
+            .update();
     }
 
     /**

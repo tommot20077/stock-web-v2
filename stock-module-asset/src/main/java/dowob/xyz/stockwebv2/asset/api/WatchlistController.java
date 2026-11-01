@@ -5,19 +5,29 @@ import dowob.xyz.stockwebv2.common.api.ApiResponse;
 import dowob.xyz.stockwebv2.infrastructure.web.ApiMetaFactory;
 import dowob.xyz.stockwebv2.infrastructure.web.AuthenticatedUserResolver;
 
+import jakarta.validation.Valid;
+
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 觀察清單的 HTTP 端點（WATCH-01）。契約見 {@code ai-docs/watchlist-contract.md}。
  *
  * <p>路徑一律以清單 UUID 定位、不放 symbol（FX 代號含「/」）。本 controller 只取出已驗證身分的 userId
- * 轉交 {@link WatchlistService}；擁有權檢查在 service / repository 層（查詢一律綁 user_id）。</p>
+ * 轉交 {@link WatchlistService}；擁有權檢查在 service / repository 層（查詢一律綁 user_id）。
+ * 非 UUID 格式的 {@code {id}} 由 {@code GlobalExceptionHandler} 的型別錯誤處理回 400 {@code VALIDATION_FAILED}。
+ * unsafe method（POST / PATCH / DELETE）在 cookie 路徑由 {@code BrowserCsrfFilter} 強制 CSRF header。</p>
  *
  * @author Yuan
  * @version 1.0
@@ -43,5 +53,57 @@ public class WatchlistController {
     public ApiResponse<List<WatchlistDto>> list(Authentication authentication) {
         return ApiResponse.success(
             watchlistService.list(AuthenticatedUserResolver.resolve(authentication)), ApiMetaFactory.current());
+    }
+
+    /**
+     * 建立具名清單。
+     *
+     * @param request        名稱，trim 後 1–30 字
+     * @param authentication 已驗證的身分，name 即 userId
+     * @return 新建的清單
+     */
+    @PostMapping
+    @PreAuthorize("hasAuthority('WATCHLIST_MANAGE')")
+    public ApiResponse<WatchlistDto> create(
+        @Valid @RequestBody WatchlistNameRequest request,
+        Authentication authentication
+    ) {
+        return ApiResponse.success(
+            watchlistService.create(AuthenticatedUserResolver.resolve(authentication), request.name()),
+            ApiMetaFactory.current());
+    }
+
+    /**
+     * 改名。
+     *
+     * @param id             清單 UUID
+     * @param request        新名稱，trim 後 1–30 字
+     * @param authentication 已驗證的身分，name 即 userId
+     * @return 改名後的清單（含項目與報價）
+     */
+    @PatchMapping("/{id}")
+    @PreAuthorize("hasAuthority('WATCHLIST_MANAGE')")
+    public ApiResponse<WatchlistDto> rename(
+        @PathVariable UUID id,
+        @Valid @RequestBody WatchlistNameRequest request,
+        Authentication authentication
+    ) {
+        return ApiResponse.success(
+            watchlistService.rename(AuthenticatedUserResolver.resolve(authentication), id, request.name()),
+            ApiMetaFactory.current());
+    }
+
+    /**
+     * 刪除清單（項目一併刪除）。
+     *
+     * @param id             清單 UUID
+     * @param authentication 已驗證的身分，name 即 userId
+     * @return 無 data 的成功信封
+     */
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAuthority('WATCHLIST_MANAGE')")
+    public ApiResponse<Void> delete(@PathVariable UUID id, Authentication authentication) {
+        watchlistService.delete(AuthenticatedUserResolver.resolve(authentication), id);
+        return ApiResponse.success(null, ApiMetaFactory.current());
     }
 }
