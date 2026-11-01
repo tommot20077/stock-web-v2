@@ -182,7 +182,16 @@ Plans:
 
 **Goal**: 補齊「股利與股數調整」(現金股利、配股、拆股 / 合股)與 Watchlist(多個具名清單)的後端資料與前端 API mode,讓 Trades 的股利頁籤、Chart / Markets / Watchlist 頁不再依賴 mock。
 **Depends on**: Phase 04.1(現金帳與今日損益是股利入帳與拆股前收調整的基礎)
-**Requirements**: TBD(`/gsd-plan-phase 04.2` 時定)
+**Requirements**: DIV-01, DIV-02, ADJ-01, ADJ-02, PORT-13, WATCH-01, WATCH-02, WATCH-03, WATCH-04, WATCH-05（2026-10-31 plan-phase 依 RESEARCH 提議註冊；字面由 04.2-02 寫入 REQUIREMENTS.md）
+**Success Criteria** (what must be TRUE)（每條都是「後端有資料 → API mode 顯示真實值」）:
+
+  1. 記現金股利後可用現金與 summary 股利收入即時反映,Trades「股利」頁籤列出且可沖銷(DIV-01、DIV-02)。
+  2. 配股 1000 股 @100 配 50 股後持倉 1050 股、均價 95.23809524,拆股 / 合股依除權日持股換算,當日今日損益不出現假性暴跌(ADJ-01、ADJ-02)。
+  3. Trades 頁籤全部為後端篩選、CSV 同源(PORT-13)。
+  4. 多清單 watchlist 建立 / 改名 / 刪除 / 排序持久化,Markets / Chart 星號選清單,三頁不再 import mock store(WATCH-01 ~ 03)。
+  5. Watchlist 頁與 Overview 觀察清單卡顯示即時價、斷線退回「更新於 HH:mm」,tick 每連線 100(WATCH-04、WATCH-05)。
+  6. 後端 unit + CI Integration / E2E、前端雙模式 + build + lint + Playwright、跨 repo 驗證(judgment §8)全綠,Yuan 完成走查。
+
 **Insertion note**(2026-09-28):04.1 discuss 時範圍擴大(現金帳、基準幣、股利三種事件、多清單 watchlist),Yuan 決定拆成 04.1 / 04.2;決策見 `.planning/phases/04.2-dividends-share-adjustments-watchlist/04.2-CONTEXT.md`。
 **Plans**: 26 plans(8 waves;後端 13 + 前端 12 + 收尾閘門 1)。04.2-02 含 `checkpoint:decision`(資料模型 / roi / POST /trades 守門),股利、股數調整、watchlist 後端 stream 皆在其後;本環境無 Docker,`*IT` / `*E2E` / Browser E2E 以 CI 為證。
 Plans:

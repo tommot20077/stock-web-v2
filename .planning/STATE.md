@@ -201,7 +201,7 @@ Items acknowledged and carried forward from previous milestone close:
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
 | Trading Evolution | Broker integration, pending orders, cancellations, partial fills, time-in-force | Deferred to v2 | Milestone initialization |
-| Portfolio Expansion | Alerts, notifications, analytics, settings, watchlists, ops dashboards API mode | Deferred to v2 | Milestone initialization |
+| Portfolio Expansion | Alerts, notifications, analytics, settings, ops dashboards API mode (watchlists 已移入 Phase 04.2) | Deferred to v2 | Milestone initialization |
 | Account Management | Password reset, email verification, multi-device session management | Deferred to v2 | Milestone initialization |
 | AI/Broker Security | AI-assisted trading policy enforcement and broker credential APIs | Deferred to v2 | Milestone initialization |
 
