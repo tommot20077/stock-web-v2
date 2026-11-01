@@ -121,7 +121,8 @@ class HoldingCalculatorTest {
         Holding result = calculator.applyShareAdjustment(existing, bd("-66.66666667"), now());
 
         assertThat(result.totalQuantity()).isEqualByComparingTo("33.33333333");
-        assertThat(result.avgCost()).isEqualByComparingTo("90.00000009");
+        /* 3000 ÷ 33.33333333 = 90.000000009…，scale 8 HALF_UP 為 90.00000001（RESEARCH Q2.1 表誤植為 90.00000009） */
+        assertThat(result.avgCost()).isEqualByComparingTo("90.00000001");
     }
 
     @Test
