@@ -24,6 +24,7 @@ import tools.jackson.databind.ObjectMapper;
  * <p>驗證範圍：
  * <ul>
  *   <li>{@code afterConnectionEstablished} → 送出含 "WELCOME" 的 TextMessage</li>
+ *   <li>WELCOME 帶 maxTickSubscriptions / maxKlineSubscriptions 與 deprecated maxSubscriptions</li>
  *   <li>{@code handleTextMessage} SUBSCRIBE → 呼叫 SubscriptionManager.subscribe 並送出 SUB_ACK</li>
  *   <li>{@code handleTextMessage} UNSUBSCRIBE → 呼叫 SubscriptionManager.unsubscribe</li>
  *   <li>{@code handleTextMessage} PONG → 呼叫 heartbeat.onPong</li>
@@ -34,7 +35,7 @@ import tools.jackson.databind.ObjectMapper;
  * </ul>
  *
  * @author Yuan
- * @version 1.0.0
+ * @version 1.1.0
  */
 class MarketWebSocketHandlerTest {
 
@@ -113,6 +114,25 @@ class MarketWebSocketHandlerTest {
         verify(session).sendMessage(captor.capture());
         assertThat(captor.getValue().getPayload()).contains("WELCOME");
         verify(heartbeat).register(org.mockito.ArgumentMatchers.any(WebSocketSession.class));
+    }
+
+    /** WELCOME 同時告知 tick / kline 兩個上限，並保留 deprecated 的 maxSubscriptions = 10 */
+    @Test
+    @DisplayName("WELCOME 帶 maxTickSubscriptions=100、maxKlineSubscriptions=10，maxSubscriptions 維持 10")
+    void welcomeMessage_announcesTickAndKlineLimits() throws Exception {
+        WebSocketSession session = mockSession("session-welcome");
+
+        handler.afterConnectionEstablished(session);
+
+        ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session).sendMessage(captor.capture());
+        var welcome = objectMapper.readTree(captor.getValue().getPayload());
+        assertThat(welcome.get("type").asString()).isEqualTo("WELCOME");
+        assertThat(welcome.get("maxTickSubscriptions")).isNotNull();
+        assertThat(welcome.get("maxTickSubscriptions").asInt()).isEqualTo(100);
+        assertThat(welcome.get("maxKlineSubscriptions")).isNotNull();
+        assertThat(welcome.get("maxKlineSubscriptions").asInt()).isEqualTo(10);
+        assertThat(welcome.get("maxSubscriptions").asInt()).isEqualTo(10);
     }
 
     /** 連線登錄的 session 必須為併發安全包裝，避免廣播/心跳/IO 三執行緒同時 sendMessage */
