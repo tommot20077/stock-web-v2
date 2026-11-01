@@ -94,12 +94,12 @@ class AssetQueryServiceTest {
     @Test
     @DisplayName("成交量縮寫:K / M / B / T 取一位小數;零或 null 不顯示")
     void volumeText_compactNotation() {
-        assertThat(AssetQueryService.volumeText(new BigDecimal("3000"))).isEqualTo("3.0K");
-        assertThat(AssetQueryService.volumeText(new BigDecimal("1250000"))).isEqualTo("1.3M");
-        assertThat(AssetQueryService.volumeText(new BigDecimal("28400000000"))).isEqualTo("28.4B");
-        assertThat(AssetQueryService.volumeText(new BigDecimal("1500000000000"))).isEqualTo("1.5T");
-        assertThat(AssetQueryService.volumeText(new BigDecimal("12.5"))).isEqualTo("12.5");
-        assertThat(AssetQueryService.volumeText(BigDecimal.ZERO)).isNull();
-        assertThat(AssetQueryService.volumeText(null)).isNull();
+        assertThat(AssetQuoteMapper.volumeText(new BigDecimal("3000"))).isEqualTo("3.0K");
+        assertThat(AssetQuoteMapper.volumeText(new BigDecimal("1250000"))).isEqualTo("1.3M");
+        assertThat(AssetQuoteMapper.volumeText(new BigDecimal("28400000000"))).isEqualTo("28.4B");
+        assertThat(AssetQuoteMapper.volumeText(new BigDecimal("1500000000000"))).isEqualTo("1.5T");
+        assertThat(AssetQuoteMapper.volumeText(new BigDecimal("12.5"))).isEqualTo("12.5");
+        assertThat(AssetQuoteMapper.volumeText(BigDecimal.ZERO)).isNull();
+        assertThat(AssetQuoteMapper.volumeText(null)).isNull();
     }
 }
