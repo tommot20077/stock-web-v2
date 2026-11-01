@@ -26,6 +26,10 @@ public enum ErrorCode {
     WS_RATE_LIMIT_EXCEEDED(429, "WebSocket rate limit exceeded"),
     PROVIDER_FETCH_FAILED(502, "Market data provider fetch failed"),
 
+    // Watchlist error codes (asset module)
+    WATCHLIST_NOT_FOUND(404, "Watchlist not found"),
+    WATCHLIST_ORDER_CONFLICT(409, "Watchlist items changed; reload and retry"),
+
     // Backtest module error codes
     BACKTEST_INVALID_INITIAL_CAPITAL(400, "Initial capital must be greater than 0"),
     BACKTEST_UNSUPPORTED_SYMBOL(400, "Unsupported symbol"),
@@ -49,6 +53,18 @@ public enum ErrorCode {
     CASH_ENTRY_NOT_FOUND(404, "Cash entry not found"),
     CASH_ENTRY_ALREADY_REVERSED(409, "Cash entry has already been reversed"),
     CASH_ENTRY_NOT_REVERSIBLE(409, "A reversal entry cannot be reversed"),
+
+    // Cash dividend error codes
+    DIVIDEND_IDEMPOTENCY_KEY_REUSED(409, "Idempotency key was reused with a different dividend payload"),
+    DIVIDEND_NOT_FOUND(404, "Dividend not found"),
+    DIVIDEND_ALREADY_REVERSED(409, "Dividend has already been reversed"),
+    DIVIDEND_NOT_REVERSIBLE(409, "A reversal dividend cannot be reversed"),
+
+    // Share adjustment error codes
+    SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED(409, "Idempotency key was reused with a different share adjustment payload"),
+    SHARE_ADJUSTMENT_NOT_FOUND(404, "Share adjustment not found"),
+    SHARE_ADJUSTMENT_ALREADY_REVERSED(409, "Share adjustment has already been reversed"),
+    SHARE_ADJUSTMENT_NOT_REVERSIBLE(409, "Only the latest share adjustment of an asset can be reversed"),
 
     INTERNAL_ERROR(500, "Internal server error");
 
