@@ -1,0 +1,87 @@
+package dowob.xyz.stockwebv2.trading.repository;
+
+import dowob.xyz.stockwebv2.trading.domain.ShareAdjustmentEntry;
+
+import java.math.BigDecimal;
+import java.time.OffsetDateTime;
+import java.util.Optional;
+import java.util.UUID;
+
+/**
+ * 股數調整帳本（{@code share_adjustments}）的資料存取介面（ADJ-01）。
+ *
+ * <p>帳本為 append-only：本介面只有寫入與查詢，沒有更新或刪除。所有查詢一律綁 {@code user_id}
+ * （以主鍵查的 {@link #isReversed} / {@link #uuidOf} 除外，其主鍵只來自已綁使用者範圍查出的列）。</p>
+ *
+ * @author Yuan
+ * @version 1.0
+ */
+public interface ShareAdjustmentRepository {
+
+    /**
+     * 帶冪等鍵的寫入（insert-first）。
+     *
+     * <p>回傳空 Optional 有兩種原因，呼叫端須以冪等鍵重讀來區分：同一使用者的同一把冪等鍵已存在
+     * （重讀命中 → 冪等），或另一把 key 的沖銷搶先沖銷了同一筆原列（重讀落空）。</p>
+     *
+     * @param entry 待寫入的紀錄
+     * @return 實際建立的紀錄；任一唯一約束衝突時回傳空 Optional
+     */
+    Optional<ShareAdjustmentEntry> insertIfAbsent(ShareAdjustmentEntry entry);
+
+    /**
+     * 以冪等鍵查出該使用者既有的紀錄。
+     *
+     * @param userId         紀錄擁有者 id
+     * @param idempotencyKey 冪等鍵
+     * @return 既有紀錄；查無此 key 時回傳空 Optional
+     */
+    Optional<ShareAdjustmentEntry> findByIdempotencyKey(Long userId, String idempotencyKey);
+
+    /**
+     * 以對外 UUID 查出該使用者自己的紀錄；他人的紀錄查不到。
+     *
+     * @param userId 紀錄擁有者 id
+     * @param uuid   紀錄的對外 UUID
+     * @return 該使用者的紀錄；查無（含屬於他人）時回傳空 Optional
+     */
+    Optional<ShareAdjustmentEntry> findByUuid(Long userId, UUID uuid);
+
+    /**
+     * 判斷某筆紀錄是否已有沖銷列指向它。
+     *
+     * @param adjustmentId 原紀錄的內部主鍵
+     * @return 已被沖銷時為 true
+     */
+    boolean isReversed(Long adjustmentId);
+
+    /**
+     * 取某筆紀錄的對外 UUID（DTO 的 {@code reversalOfId} 由內部主鍵轉成 UUID 時使用）。
+     *
+     * @param adjustmentId 紀錄的內部主鍵
+     * @return 對外 UUID；查無時回傳空 Optional
+     */
+    Optional<UUID> uuidOf(Long adjustmentId);
+
+    /**
+     * 某標的在指定瞬間<strong>之前</strong>的持股數（RESEARCH Q2.2 的 {@code Q_asOf}）。
+     *
+     * <p>= 交易帳本中 {@code executed_at < before} 的買入減賣出，加上 {@code effective_at < before} 的
+     * 既有股數調整（沖銷列反號）。持倉表只有「目前」值，事件日持股只能由帳本推得。</p>
+     *
+     * @param userId  擁有者
+     * @param assetId 標的主鍵
+     * @param before  切點（不含）；通常是除權日的交易日起點
+     * @return 切點前的持股數；從未持有時為 0
+     */
+    BigDecimal quantityAsOf(Long userId, Long assetId, OffsetDateTime before);
+
+    /**
+     * 該標的最晚一筆「非沖銷列且未被沖銷」的調整（依 {@code effective_at DESC, id DESC}）。
+     *
+     * @param userId  擁有者
+     * @param assetId 標的主鍵
+     * @return 最晚的有效調整；沒有時回傳空 Optional
+     */
+    Optional<ShareAdjustmentEntry> findLatestActive(Long userId, Long assetId);
+}
