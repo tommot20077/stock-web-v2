@@ -70,6 +70,17 @@ class SubscriptionManagerTest {
     }
 
     @Test
+    @DisplayName("同一批次內重複的 channel 只接受一次，不重複佔額")
+    void subscribe_duplicateWithinBatch_acceptedOnce() {
+        var r = mgr.subscribe("s1", List.of("kline.A.1m", "kline.A.1m"));
+
+        assertThat(r.accepted()).containsExactly("kline.A.1m");
+        assertThat(r.rejected()).isEmpty();
+        List<String> nine = IntStream.range(0, 9).mapToObj(i -> "kline.X" + i + ".1m").toList();
+        assertThat(mgr.subscribe("s1", nine).accepted()).hasSize(9);
+    }
+
+    @Test
     @DisplayName("同一 session 一次訂閱 11 個 tick channel 全部 accepted（tick 上限 100）")
     void subscribe_elevenTickChannels_allAccepted() {
         List<String> ticks = IntStream.rangeClosed(1, 11).mapToObj(i -> String.format("tick.S%02d", i)).toList();

@@ -27,7 +27,7 @@ import tools.jackson.databind.node.ObjectNode;
  *
  * <p>職責：
  * <ul>
- *   <li>連線建立：傳送 WELCOME 訊息並向 {@link WsHeartbeat} 註冊</li>
+ *   <li>連線建立：傳送 WELCOME 訊息（含 tick / kline 訂閱上限）並向 {@link WsHeartbeat} 註冊</li>
  *   <li>訊息處理：速率限制 → 解析 → 路由至 SUBSCRIBE / UNSUBSCRIBE / PONG 處理</li>
  *   <li>格式錯誤：累計至 10 次後以 4400 關閉連線</li>
  *   <li>速率超限：超過 10 msg/s 時以 4008 關閉連線</li>
@@ -45,15 +45,12 @@ import tools.jackson.databind.node.ObjectNode;
  * 能透過 {@link #findSession(String)} 查找實際 {@link WebSocketSession} 實例進行廣播。
  *
  * @author Yuan
- * @version 1.0.0
+ * @version 1.1.0
  */
 @Component
 public class MarketWebSocketHandler extends TextWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(MarketWebSocketHandler.class);
-
-    /** 連線後傳送的最大訂閱數量（WELCOME 訊息告知客戶端）。 */
-    private static final int MAX_SUBSCRIPTIONS = 10;
 
     /** 格式錯誤達此上限後關閉連線。 */
     private static final int MAX_FORMAT_ERRORS = 10;
@@ -391,6 +388,15 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
     /**
      * 傳送 WELCOME 訊息給客戶端。
      *
+     * <p>上限欄位一律讀 {@link SubscriptionManager} 的公開常數（單一事實來源）：
+     * <ul>
+     *   <li>{@code maxTickSubscriptions}：每連線 tick channel 上限</li>
+     *   <li>{@code maxKlineSubscriptions}：每連線 kline channel 上限</li>
+     *   <li>{@code maxSubscriptions}：<b>deprecated</b>，保留給舊客戶端自我節制；
+     *       值固定為較嚴的 kline 上限（10），不得改成兩者總和或移除，
+     *       否則舊客戶端會誤以為可訂閱更多 kline</li>
+     * </ul>
+     *
      * @param session 目標 session
      * @throws Exception 若傳送失敗
      */
@@ -398,7 +404,9 @@ public class MarketWebSocketHandler extends TextWebSocketHandler {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("type", "WELCOME");
         node.put("sessionId", session.getId());
-        node.put("maxSubscriptions", MAX_SUBSCRIPTIONS);
+        node.put("maxSubscriptions", SubscriptionManager.MAX_KLINE_CHANNELS_PER_SESSION);
+        node.put("maxTickSubscriptions", SubscriptionManager.MAX_TICK_CHANNELS_PER_SESSION);
+        node.put("maxKlineSubscriptions", SubscriptionManager.MAX_KLINE_CHANNELS_PER_SESSION);
         session.sendMessage(new TextMessage(objectMapper.writeValueAsString(node)));
     }
 
