@@ -22,10 +22,10 @@ milestone_name: milestone
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-30)
+See: .planning/PROJECT.md (updated 2026-11-04)
 
 **Core value:** Users can safely sign in, inspect portfolio state, and record trades through one coherent frontend/backend flow.
-**Current focus:** Phase 04.2 — Dividends, Share Adjustments & Watchlist (INSERTED)
+**Current focus:** Phase 5 — Cross-Repo Browser Flow Verification & Contract Hardening
 
 ## Current Position
 
@@ -73,8 +73,8 @@ Last activity: 2026-11-04 — Phase 04.2 complete, transitioned to Phase 5
 | `npm run build` | exit 0（含 `vue-tsc --noEmit`） |
 | `TradingApiIT` 連跑 3 次 | 各 29/29 全綠；`concurrentSameKeyCreatesExactlyOneTrade` 累計 8 次零偶發 |
 
-Progress(milestone v1.0):[███████████░░░░░░░░░] 4/7 phases (57%)
-Progress(plan):28/28 plans executed(Phase 1-4 全部執行完畢;04.1 / 04.2 / 5 尚未 plan)
+Progress(milestone v1.0):[░░░░░░░░░░░░░░░░░░░░] 79/79 plans(Phase 1-4、04.1、04.2 完成;下一步 Phase 5)
+Progress(plan):Phase 1-4、04.1(32)、04.2(26)全部執行完畢並驗證;Phase 5 尚未 plan
 
 > 57% 是 milestone 真實進度(7 個 phase 完成 4 個;Phase 04.1 於 2026-07-26 插入、04.2 於 2026-09-28 拆出)。
 > Phase 4 收尾時已跑過真實跨 repo 瀏覽器流程(Playwright 18/18 + 人工 17 步),但 **VER-01/02/03 的正式驗收仍屬 Phase 5**

@@ -22,9 +22,14 @@ Users can safely sign in, inspect portfolio state, and record trades through one
 - ✓ Vue 3 application shell with routes, portfolio UI, order ticket, mock portfolio state, and mock/API runtime mode conventions — existing
 - ✓ Portfolio overview, positions/holdings, trade history, and order ticket wired to backend APIs in API mode — Phase 3 (read) + Phase 4 (order ticket)
 - ✓ Post-trade refetch of portfolio summary, holdings/positions, and trade history so the UI reflects backend state — Phase 4
+- ✓ Cash dividends and share adjustments (stock dividend, split / reverse split) as append-only ledgers with one-click reversal, feeding available cash, summary `dividendIncome` / `totalPnl` / `roi` and split-day day-PnL — Phase 04.2
+- ✓ Unified Trades activity list (`GET /portfolio/activities`: trades + dividends + share adjustments) with backend-filtered tabs and same-source CSV — Phase 04.2
+- ✓ Multi-list watchlists backed by the API (create / rename / delete / reorder, Markets & Chart star picker) with live quotes over the market WebSocket — Phase 04.2
 
 ### Active
 
+- [ ] Default ex-date in the dividend / share-adjustment dialog should be "today" in the asset's market timezone, not the browser's (04.2-REVIEW WR-09, deferred; needs a UI-SPEC change).
+- [ ] Reversal and idempotent replay of dividends / share adjustments must keep working after an asset becomes inactive or untradeable, and the activity list must not offer an impossible reversal (04.2-REVIEW WR-01, deferred).
 - [ ] Define and implement a browser-safe auth contract using httpOnly refresh/access cookies, `/auth/refresh`, `/me`, logout, and consistent 401/403 behavior.
 - [ ] Add CSRF protection for cookie-authenticated unsafe browser requests using a double-submit token contract.
 - [ ] Keep bearer-token support available for non-browser/API clients where appropriate, without weakening browser cookie safety.
@@ -97,4 +102,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-30 after initialization*
+*Last updated: 2026-11-04 after Phase 04.2*
