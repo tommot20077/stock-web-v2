@@ -13,6 +13,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -782,6 +786,60 @@ class TradingApiIT extends ContainerIT {
                 .header("Authorization", "Bearer " + tokens.accessToken()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(10.00000000)));
+    }
+
+    @Test
+    @DisplayName("〔04.2〕買 100 → 拆股 4:1（除權日昨天）→ 補登三天前買 10：400 fields.executedAt、持倉仍 400、交易不增；成交時間今天 → 200")
+    void tradeBeforeLatestShareAdjustmentIsRejected() throws Exception {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String email = "trading-adj-guard-" + suffix + "@example.com";
+        AuthTokens tokens = register(email, "tradingguard" + suffix, "Password1");
+        String threeDaysAgo = Instant.now().minus(3, ChronoUnit.DAYS).truncatedTo(ChronoUnit.SECONDS).toString();
+        postTrade(tokens, UUID.randomUUID().toString(), """
+            {"symbol":"AAPL","type":"BUY","quantity":100,"price":400,"fee":0,"executedAt":"%s"}
+            """.formatted(threeDaysAgo))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/portfolio/share-adjustments")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + tokens.accessToken())
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .content("""
+                    {"symbol":"AAPL","type":"SPLIT","ratioNew":4,"ratioOld":1,"effectiveDate":"%s"}
+                    """.formatted(LocalDate.now(ZoneId.of("America/New_York")).minusDays(1))))
+            .andExpect(status().isOk());
+
+        postTrade(tokens, UUID.randomUUID().toString(), """
+            {"symbol":"AAPL","type":"BUY","quantity":10,"price":100,"fee":0,"executedAt":"%s"}
+            """.formatted(threeDaysAgo))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields.executedAt", notNullValue()));
+
+        mockMvc.perform(get("/api/v1/portfolio/holdings")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(400.00000000)));
+        assertThat(transactionRows(email)).isEqualTo(1);
+
+        postTrade(tokens, UUID.randomUUID().toString(), """
+            {"symbol":"AAPL","type":"BUY","quantity":10,"price":100,"fee":0}
+            """)
+            .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/portfolio/holdings")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(410.00000000)));
+        assertThat(transactionRows(email)).isEqualTo(2);
+    }
+
+    private int transactionRows(String email) {
+        return jdbcClient.sql("""
+                SELECT count(*) FROM transactions
+                WHERE user_id = (SELECT id FROM users WHERE email = :email)
+                """)
+            .param("email", email)
+            .query(Integer.class)
+            .single();
     }
 
     @Test

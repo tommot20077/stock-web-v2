@@ -18,6 +18,7 @@ import dowob.xyz.stockwebv2.trading.domain.TradePayloadMatcher;
 import dowob.xyz.stockwebv2.trading.domain.TradeSortKey;
 import dowob.xyz.stockwebv2.trading.domain.TradeTransaction;
 import dowob.xyz.stockwebv2.trading.domain.TradeType;
+import dowob.xyz.stockwebv2.trading.repository.ShareAdjustmentRepository;
 import dowob.xyz.stockwebv2.trading.repository.TradeQuery;
 import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
 
@@ -65,17 +66,24 @@ public class TradingService {
     private final TradingMapper mapper;
     private final HoldingCalculator calculator;
 
+    /**
+     * 〔04.2〕股數調整帳本；建立交易時用來找該標的最晚一筆未沖銷調整（executedAt 守門）。
+     */
+    private final ShareAdjustmentRepository shareAdjustmentRepository;
+
     public TradingService(
         TradingRepository repository,
         AssetFacade assetFacade,
         PortfolioCache portfolioCache,
-        TradingMapper mapper
+        TradingMapper mapper,
+        ShareAdjustmentRepository shareAdjustmentRepository
     ) {
         this.repository = repository;
         this.assetFacade = assetFacade;
         this.portfolioCache = portfolioCache;
         this.mapper = mapper;
         this.calculator = new HoldingCalculator();
+        this.shareAdjustmentRepository = shareAdjustmentRepository;
     }
 
     /**

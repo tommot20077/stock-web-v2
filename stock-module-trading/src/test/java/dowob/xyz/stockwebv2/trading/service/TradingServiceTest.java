@@ -12,10 +12,13 @@ import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 import dowob.xyz.stockwebv2.trading.api.CreateTradeRequest;
 import dowob.xyz.stockwebv2.trading.api.TradeDto;
 import dowob.xyz.stockwebv2.trading.domain.Holding;
+import dowob.xyz.stockwebv2.trading.domain.ShareAdjustmentEntry;
+import dowob.xyz.stockwebv2.trading.domain.ShareAdjustmentType;
 import dowob.xyz.stockwebv2.trading.domain.SortDirection;
 import dowob.xyz.stockwebv2.trading.domain.TradeSortKey;
 import dowob.xyz.stockwebv2.trading.domain.TradeTransaction;
 import dowob.xyz.stockwebv2.trading.domain.TradeType;
+import dowob.xyz.stockwebv2.trading.repository.ShareAdjustmentRepository;
 import dowob.xyz.stockwebv2.trading.repository.TradeQuery;
 import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
 
@@ -26,6 +29,7 @@ import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -73,7 +77,11 @@ class TradingServiceTest {
     private static final BigDecimal SENT_FEE = new BigDecimal("1.5");
     private static final OffsetDateTime SENT_EXECUTED_AT = OffsetDateTime.parse("2026-01-10T08:00:00+08:00");
 
+    /** 最晚一筆未沖銷股數調整的生效瞬間（美股 2026-01-05 交易日起點，EST）。 */
+    private static final OffsetDateTime LATEST_ADJUSTMENT_AT = OffsetDateTime.parse("2026-01-05T05:00:00Z");
+
     private TradingRepository repository;
+    private ShareAdjustmentRepository shareAdjustmentRepository;
     private AssetFacade assetFacade;
     private PortfolioCache portfolioCache;
     private TradingService service;
@@ -83,7 +91,10 @@ class TradingServiceTest {
         repository = mock(TradingRepository.class);
         assetFacade = mock(AssetFacade.class);
         portfolioCache = mock(PortfolioCache.class);
-        service = new TradingService(repository, assetFacade, portfolioCache, new TradingMapper());
+        shareAdjustmentRepository = mock(ShareAdjustmentRepository.class);
+        service = new TradingService(repository, assetFacade, portfolioCache, new TradingMapper(),
+            shareAdjustmentRepository);
+        when(shareAdjustmentRepository.findLatestActive(any(), any())).thenReturn(Optional.empty());
         when(repository.listTransactions(any(TradeQuery.class)))
             .thenReturn(PageResponse.of(List.<TradeTransaction>of(), 0, 20, 0L));
     }
@@ -505,6 +516,92 @@ class TradingServiceTest {
     }
 
     @Test
+    @DisplayName("〔04.2〕executedAt 早於該標的最晚未沖銷股數調整 → 400 fields.executedAt，持倉不動、快取不失效、訊息不回射時間")
+    void tradeBeforeLatestShareAdjustmentIsRejected() {
+        stubTradeableAsset();
+        stubProfile(55L, "AAPL", CurrencyCode.USD);
+        stubWritableTrade();
+        when(repository.findHoldingForUpdate(7L, 55L)).thenReturn(Optional.of(holding("400")));
+        when(shareAdjustmentRepository.findLatestActive(7L, 55L)).thenReturn(Optional.of(latestAdjustment()));
+        OffsetDateTime justBefore = LATEST_ADJUSTMENT_AT.minusSeconds(1);
+
+        assertThatThrownBy(() -> service.createTrade(7L, tradeAt("BUY", justBefore), "key-guard"))
+            .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                assertThat(ex.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                assertThat(ex.fields()).containsEntry("executedAt", "before latest share adjustment");
+                assertThat(ex.getMessage()).doesNotContain("2026");
+            });
+        verify(repository, never()).updateHolding(any());
+        verify(repository, never()).insertHoldingIfAbsent(any());
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("〔04.2〕SELL 同樣受守門：早於最晚調整 → 400 fields.executedAt")
+    void sellBeforeLatestShareAdjustmentIsRejected() {
+        stubTradeableAsset();
+        stubProfile(55L, "AAPL", CurrencyCode.USD);
+        stubWritableTrade();
+        when(repository.findHoldingForUpdate(7L, 55L)).thenReturn(Optional.of(holding("400")));
+        when(shareAdjustmentRepository.findLatestActive(7L, 55L)).thenReturn(Optional.of(latestAdjustment()));
+
+        assertThatThrownBy(() -> service.createTrade(7L, tradeAt("SELL", LATEST_ADJUSTMENT_AT.minusDays(1)),
+            "key-guard-sell"))
+            .isInstanceOfSatisfying(BusinessException.class, ex ->
+                assertThat(ex.fields()).containsKey("executedAt"));
+        verify(repository, never()).updateHolding(any());
+    }
+
+    @Test
+    @DisplayName("〔04.2〕executedAt 等於或晚於最晚調整的生效瞬間 → 照常成交、更新持倉")
+    void tradeAtOrAfterLatestShareAdjustmentIsAccepted() {
+        stubTradeableAsset();
+        stubProfile(55L, "AAPL", CurrencyCode.USD);
+        stubWritableTrade();
+        when(repository.findHoldingForUpdate(7L, 55L)).thenReturn(Optional.of(holding("400")));
+        when(repository.updateHolding(any(Holding.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(shareAdjustmentRepository.findLatestActive(7L, 55L)).thenReturn(Optional.of(latestAdjustment()));
+
+        service.createTrade(7L, tradeAt("BUY", LATEST_ADJUSTMENT_AT), "key-at");
+        service.createTrade(7L, tradeAt("BUY", LATEST_ADJUSTMENT_AT.plusHours(1)), "key-after");
+
+        verify(repository, org.mockito.Mockito.times(2)).updateHolding(any(Holding.class));
+    }
+
+    @Test
+    @DisplayName("〔04.2〕守門在鎖持倉之後檢查（同一把鎖內，避免與併發的股數調整交錯）")
+    void shareAdjustmentGuardRunsUnderTheHoldingLock() {
+        stubTradeableAsset();
+        stubProfile(55L, "AAPL", CurrencyCode.USD);
+        stubWritableTrade();
+        when(repository.findHoldingForUpdate(7L, 55L)).thenReturn(Optional.of(holding("400")));
+        when(repository.updateHolding(any(Holding.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.createTrade(7L, tradeAt("BUY", LATEST_ADJUSTMENT_AT), "key-order");
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(repository, shareAdjustmentRepository);
+        order.verify(repository).findHoldingForUpdate(7L, 55L);
+        order.verify(shareAdjustmentRepository).findLatestActive(7L, 55L);
+        order.verify(repository).updateHolding(any(Holding.class));
+    }
+
+    @Test
+    @DisplayName("〔04.2〕冪等快路徑命中（同 key 重送早於調整的舊交易）→ 仍回既有交易，守門不介入")
+    void idempotentReplayOfOldTradeIsNotBlockedByGuard() {
+        stubTradeableAsset();
+        stubProfile(55L, "AAPL", CurrencyCode.USD);
+        TradeTransaction existing = storedTransaction(STORED_QUANTITY);
+        when(repository.findByIdempotencyKey(7L, "key-1")).thenReturn(Optional.of(existing));
+        when(shareAdjustmentRepository.findLatestActive(7L, 55L)).thenReturn(Optional.of(latestAdjustment()));
+
+        TradeDto dto = service.createTrade(7L, buyRequest(SENT_QUANTITY, null), "key-1");
+
+        assertThat(dto.id()).isEqualTo(existing.uuid().toString());
+        verifyNoInteractions(shareAdjustmentRepository);
+        verify(repository, never()).updateHolding(any());
+    }
+
+    @Test
     @DisplayName("建立交易：回應帶標的交易幣別，且幣別經 findProfiles 批次取得而非自行查詢（TRAD-10 / D-28）")
     void createTradeCarriesAssetCurrency() {
         stubTradeableAsset();
@@ -674,6 +771,27 @@ class TradingServiceTest {
             OffsetDateTime.parse("2026-01-10T00:00:01Z"),
             "key-1"
         );
+    }
+
+    private void stubWritableTrade() {
+        when(repository.findByIdempotencyKey(any(), any())).thenReturn(Optional.empty());
+        when(repository.insertTransactionIfAbsent(any(TradeTransaction.class)))
+            .thenAnswer(invocation -> Optional.of(invocation.getArgument(0)));
+    }
+
+    private static Holding holding(String quantity) {
+        return new Holding(3L, 7L, 55L, new BigDecimal(quantity), new BigDecimal("25"), BigDecimal.ZERO, 1,
+            OffsetDateTime.parse("2026-01-05T06:00:00Z"));
+    }
+
+    private static CreateTradeRequest tradeAt(String type, OffsetDateTime executedAt) {
+        return new CreateTradeRequest("AAPL", type, BigDecimal.ONE, BigDecimal.TEN, BigDecimal.ZERO, null, executedAt);
+    }
+
+    private static ShareAdjustmentEntry latestAdjustment() {
+        return new ShareAdjustmentEntry(90L, UUID.randomUUID(), 7L, 55L, ShareAdjustmentType.SPLIT, 4, 1,
+            new BigDecimal("300"), LocalDate.parse("2026-01-05"), LATEST_ADJUSTMENT_AT, null,
+            OffsetDateTime.parse("2026-01-06T00:00:00Z"), "adj-key", null);
     }
 
     private TradeQuery captureQuery() {
