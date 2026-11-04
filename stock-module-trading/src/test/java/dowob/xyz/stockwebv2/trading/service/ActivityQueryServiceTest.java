@@ -1,13 +1,18 @@
 package dowob.xyz.stockwebv2.trading.service;
 
 import dowob.xyz.stockwebv2.common.api.PageResponse;
+import dowob.xyz.stockwebv2.common.error.BusinessException;
+import dowob.xyz.stockwebv2.common.error.ErrorCode;
+import dowob.xyz.stockwebv2.common.error.FieldValidationException;
 import dowob.xyz.stockwebv2.common.model.AssetType;
 import dowob.xyz.stockwebv2.common.model.CurrencyCode;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetProfile;
+import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 import dowob.xyz.stockwebv2.trading.api.PortfolioActivityDto;
 import dowob.xyz.stockwebv2.trading.domain.ActivityKind;
 import dowob.xyz.stockwebv2.trading.domain.ActivitySortKey;
+import dowob.xyz.stockwebv2.trading.domain.ActivityTypeFilter;
 import dowob.xyz.stockwebv2.trading.domain.SortDirection;
 import dowob.xyz.stockwebv2.trading.repository.ActivityRepository;
 import dowob.xyz.stockwebv2.trading.repository.ActivityRepository.ActivityQuery;
@@ -27,9 +32,11 @@ import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
@@ -37,6 +44,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -47,8 +55,11 @@ import static org.mockito.Mockito.when;
  * （金額由 SQL 計算、不適用欄位為 null、沖銷欄位轉成字串 UUID）。count 與 list 必須在同一個
  * 可重複讀的唯讀交易內（D-12）。</p>
  *
+ * <p>04.2-10 Task 2 補上參數解析：type / sort / direction 白名單外一律 400 且附 fields、零 I/O 驗證先於 symbol 解析、
+ * 日期與 symbol 沿用 {@code GET /trades} 的 helper 與錯誤語意、page / size 夾限。</p>
+ *
  * @author Yuan
- * @version 1.0
+ * @version 1.1
  */
 @DisplayName("統一活動列表查詢服務")
 class ActivityQueryServiceTest {
@@ -210,6 +221,101 @@ class ActivityQueryServiceTest {
         assertThat(transactional).isNotNull();
         assertThat(transactional.readOnly()).isTrue();
         assertThat(transactional.isolation()).isEqualTo(Isolation.REPEATABLE_READ);
+    }
+
+    @Test
+    @DisplayName("篩選與排序參數解析後交給 repository：type / symbol（正規化大寫）/ 日期半開區間 / sort / direction；count 與 list 同一查詢")
+    void parsedFiltersArePassedToRepository() {
+        when(assetFacade.findBySymbol("AAPL")).thenReturn(Optional.of(
+            new AssetSummary(AAPL, "AAPL", "Apple Inc.", AssetType.STOCK, "US", true, true)));
+        when(repository.count(eq(USER_ID), any())).thenReturn(0L);
+        when(repository.list(eq(USER_ID), any())).thenReturn(List.of());
+
+        service.list(USER_ID, "dividend", " aapl ", "2026-10-01", "2026-10-31", "total", "asc", 2, 5);
+
+        ArgumentCaptor<ActivityQuery> listQuery = ArgumentCaptor.forClass(ActivityQuery.class);
+        ArgumentCaptor<ActivityQuery> countQuery = ArgumentCaptor.forClass(ActivityQuery.class);
+        verify(repository).list(eq(USER_ID), listQuery.capture());
+        verify(repository).count(eq(USER_ID), countQuery.capture());
+        ActivityQuery query = listQuery.getValue();
+        assertThat(query.type()).contains(ActivityTypeFilter.DIVIDEND);
+        assertThat(query.assetIdOrNull()).isEqualTo(AAPL);
+        assertThat(query.from()).isEqualTo(OffsetDateTime.parse("2026-10-01T00:00:00Z"));
+        /* 純日期的上界涵蓋當日整天：解析為隔日 00:00（與 GET /trades 同一個 helper）。 */
+        assertThat(query.to()).isEqualTo(OffsetDateTime.parse("2026-11-01T00:00:00Z"));
+        assertThat(query.sort()).isEqualTo(ActivitySortKey.TOTAL);
+        assertThat(query.direction()).isEqualTo(SortDirection.ASC);
+        assertThat(query.page()).isEqualTo(2);
+        assertThat(query.size()).isEqualTo(5);
+        assertThat(countQuery.getValue()).isEqualTo(query);
+    }
+
+    @Test
+    @DisplayName("page / size 超出範圍 → 夾限至 0..10000 / 1..100（同 GET /trades）")
+    void pageAndSizeAreClamped() {
+        when(repository.count(eq(USER_ID), any())).thenReturn(0L);
+        when(repository.list(eq(USER_ID), any())).thenReturn(List.of());
+
+        PageResponse<PortfolioActivityDto> page = service.list(USER_ID, null, null, null, null, null, null, -1, 500);
+
+        ArgumentCaptor<ActivityQuery> query = ArgumentCaptor.forClass(ActivityQuery.class);
+        verify(repository).list(eq(USER_ID), query.capture());
+        assertThat(query.getValue().page()).isZero();
+        assertThat(query.getValue().size()).isEqualTo(100);
+        assertThat(page.page()).isZero();
+        assertThat(page.size()).isEqualTo(100);
+    }
+
+    @Test
+    @DisplayName("type 白名單外 → 400 fields.type，不碰 repository 與 Facade")
+    void unknownTypeIsRejectedBeforeAnyIo() {
+        assertThatThrownBy(() -> service.list(USER_ID, "FOO", "AAPL", null, null, null, null, 0, 20))
+            .isInstanceOf(FieldValidationException.class)
+            .satisfies(error -> assertThat(((BusinessException) error).fields()).containsOnlyKeys("type"));
+
+        verifyNoInteractions(repository, assetFacade);
+    }
+
+    @Test
+    @DisplayName("sort 白名單外 → 400 fields.sort；direction 白名單外 → 400 fields.direction")
+    void unknownSortOrDirectionIsRejected() {
+        assertThatThrownBy(() -> service.list(USER_ID, null, null, null, null, "price", null, 0, 20))
+            .isInstanceOf(FieldValidationException.class)
+            .satisfies(error -> assertThat(((BusinessException) error).fields()).containsOnlyKeys("sort"));
+        assertThatThrownBy(() -> service.list(USER_ID, null, null, null, null, null, "up", 0, 20))
+            .isInstanceOf(FieldValidationException.class)
+            .satisfies(error -> assertThat(((BusinessException) error).fields()).containsOnlyKeys("direction"));
+
+        verifyNoInteractions(repository, assetFacade);
+    }
+
+    @Test
+    @DisplayName("日期格式非法或 dateFrom 晚於 dateTo → VALIDATION_FAILED（同 GET /trades），不碰 repository")
+    void invalidDateRangeIsRejected() {
+        assertThatThrownBy(() -> service.list(USER_ID, null, null, "yesterday", null, null, null, 0, 20))
+            .isInstanceOf(BusinessException.class)
+            .extracting("errorCode").isEqualTo(ErrorCode.VALIDATION_FAILED);
+        assertThatThrownBy(() -> service.list(USER_ID, null, null, "2026-10-31", "2026-10-01", null, null, 0, 20))
+            .isInstanceOf(BusinessException.class)
+            .extracting("errorCode").isEqualTo(ErrorCode.VALIDATION_FAILED);
+
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    @DisplayName("symbol 查無 → 404 ASSET_NOT_FOUND fields.symbol（同 GET /trades 現況），不碰 repository")
+    void unknownSymbolIsRejectedLikeTrades() {
+        when(assetFacade.findBySymbol("NOPE")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.list(USER_ID, null, "nope", null, null, null, null, 0, 20))
+            .isInstanceOf(BusinessException.class)
+            .satisfies(error -> {
+                BusinessException business = (BusinessException) error;
+                assertThat(business.errorCode()).isEqualTo(ErrorCode.ASSET_NOT_FOUND);
+                assertThat(business.fields()).containsOnlyKeys("symbol");
+            });
+
+        verifyNoInteractions(repository);
     }
 
     private static ActivityRow buyRow(long assetId) {

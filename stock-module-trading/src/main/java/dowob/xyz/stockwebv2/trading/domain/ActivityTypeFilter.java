@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.trading.domain;
 
+import java.util.Optional;
+
 /**
  * 統一活動列表的 {@code type} 篩選白名單（PORT-13）。
  *
@@ -29,5 +31,15 @@ public enum ActivityTypeFilter {
     /**
      * 只回配股與拆股 / 合股（含沖銷列）。
      */
-    SHARE_ADJUSTMENT
+    SHARE_ADJUSTMENT;
+
+    /**
+     * 將 API 傳入的 type 參數解析為篩選（RED 骨架）。
+     *
+     * @param value 使用者傳入的原始字串
+     * @return empty
+     */
+    public static Optional<ActivityTypeFilter> fromApiValue(String value) {
+        return Optional.empty();
+    }
 }

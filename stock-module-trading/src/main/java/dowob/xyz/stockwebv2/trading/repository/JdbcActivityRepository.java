@@ -9,7 +9,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -105,21 +107,12 @@ public class JdbcActivityRepository implements ActivityRepository {
 
     /**
      * {@inheritDoc}
-     *
-     * <p>排序為「所選欄位 {@code nulls last}、{@code created_at}、{@code id}（UUID）」，方向一致：
-     * tie-breaker 讓同值的列在跨頁時有唯一順序，不會跳列或重複。</p>
      */
     @Override
     public List<ActivityRow> list(Long userId, ActivityQuery query) {
-        String direction = query.direction().sqlKeyword();
-        long offset = (long) query.page() * query.size();
-        return jdbcClient.sql("select a.* from (" + unionOfBranches() + ") a "
-                + "order by " + query.sort().sqlFragment() + " " + direction + " nulls last, "
-                + "a.created_at " + direction + ", a.id " + direction + " "
-                + "limit :limit offset :offset")
-            .param("userId", userId)
-            .param("limit", query.size())
-            .param("offset", offset)
+        Statement statement = listStatement(userId, query);
+        return jdbcClient.sql(statement.sql())
+            .params(statement.params())
             .query(JdbcActivityRepository::mapRow)
             .list();
     }
@@ -129,10 +122,46 @@ public class JdbcActivityRepository implements ActivityRepository {
      */
     @Override
     public long count(Long userId, ActivityQuery query) {
-        return jdbcClient.sql("select count(*) from (" + unionOfBranches() + ") a")
-            .param("userId", userId)
+        Statement statement = countStatement(userId, query);
+        return jdbcClient.sql(statement.sql())
+            .params(statement.params())
             .query(Long.class)
             .single();
+    }
+
+    /**
+     * 組出分頁列表的 SQL 與參數（RED 骨架：尚未套用篩選）。
+     *
+     * <p>排序為「所選欄位 {@code nulls last}、{@code created_at}、{@code id}（UUID）」，方向一致：
+     * tie-breaker 讓同值的列在跨頁時有唯一順序，不會跳列或重複。</p>
+     *
+     * @param userId 擁有者 id
+     * @param query  查詢條件
+     * @return SQL 與具名參數
+     */
+    static Statement listStatement(Long userId, ActivityQuery query) {
+        String direction = query.direction().sqlKeyword();
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("userId", userId);
+        params.put("limit", query.size());
+        params.put("offset", (long) query.page() * query.size());
+        return new Statement("select a.* from (" + unionOfBranches() + ") a "
+            + "order by " + query.sort().sqlFragment() + " " + direction + " nulls last, "
+            + "a.created_at " + direction + ", a.id " + direction + " "
+            + "limit :limit offset :offset", params);
+    }
+
+    /**
+     * 組出總筆數的 SQL 與參數（RED 骨架：尚未套用篩選）。
+     *
+     * @param userId 擁有者 id
+     * @param query  查詢條件
+     * @return SQL 與具名參數
+     */
+    static Statement countStatement(Long userId, ActivityQuery query) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("userId", userId);
+        return new Statement("select count(*) from (" + unionOfBranches() + ") a", params);
     }
 
     /**
@@ -142,6 +171,15 @@ public class JdbcActivityRepository implements ActivityRepository {
      */
     private static String unionOfBranches() {
         return TRADE_BRANCH + " union all " + DIVIDEND_BRANCH + " union all " + ADJUSTMENT_BRANCH;
+    }
+
+    /**
+     * 組好的 SQL 與具名參數；SQL 只由寫死的片段組成，參數承載所有值。
+     *
+     * @param sql    SQL 文字
+     * @param params 具名參數
+     */
+    record Statement(String sql, Map<String, Object> params) {
     }
 
     /**

@@ -10,12 +10,17 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -92,6 +97,205 @@ class PortfolioActivityApiIT extends ContainerIT {
             .andExpect(jsonPath("$.data.items[2].reversible", equalTo(true)))
             .andExpect(jsonPath("$.data.items[3].amount", equalTo(1500.0)))
             .andExpect(jsonPath("$.data.items[0].idempotencyKey").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("篩選：type=DIVIDEND 只回股利、SHARE_ADJUSTMENT 只回調整、BUY 只回買入、symbol=AAPL 只回 AAPL 三種事件、日期為半開區間")
+    void filtersSelectKindsSymbolAndHalfOpenRange() throws Exception {
+        String accessToken = seedMixedHistory("act-filter");
+
+        activities(accessToken, "type=DIVIDEND")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(1)))
+            .andExpect(jsonPath("$.data.items[*].kind", contains("CASH_DIVIDEND")));
+        activities(accessToken, "type=SHARE_ADJUSTMENT")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(2)))
+            .andExpect(jsonPath("$.data.items[*].kind", contains("STOCK_DIVIDEND", "SPLIT")));
+        activities(accessToken, "type=buy")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(2)))
+            .andExpect(jsonPath("$.data.items[*].kind", contains("BUY", "BUY")))
+            .andExpect(jsonPath("$.data.items[*].symbol", contains("TSLA", "AAPL")));
+        activities(accessToken, "type=SELL")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(0)));
+        activities(accessToken, "symbol=AAPL")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(3)))
+            .andExpect(jsonPath("$.data.items[*].kind", contains("STOCK_DIVIDEND", "CASH_DIVIDEND", "BUY")));
+        /* 上界不含：拆股的生效瞬間恰為 2026-10-30T04:00:00Z，不在 [10/29 00:00, 10/30 04:00) 內。 */
+        activities(accessToken, "dateFrom=2026-10-29T00:00:00Z&dateTo=2026-10-30T04:00:00Z")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(2)))
+            .andExpect(jsonPath("$.data.items[*].kind", contains("BUY", "CASH_DIVIDEND")));
+        /* 下界含：同一瞬間作為下界時，拆股出現。 */
+        activities(accessToken, "dateFrom=2026-10-30T04:00:00Z&dateTo=2026-10-31T00:00:00Z")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.items[*].kind", contains("SPLIT")));
+    }
+
+    @Test
+    @DisplayName("非法參數走統一錯誤信封：type=FOO → 400 fields.type、sort=price → 400 fields.sort、size=abc → 400 fields.size；symbol 查無 → 404 ASSET_NOT_FOUND")
+    void invalidParametersReturnFieldErrors() throws Exception {
+        String accessToken = register("act-invalid");
+
+        activities(accessToken, "type=FOO")
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.success", equalTo(false)))
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields.type", notNullValue()));
+        activities(accessToken, "sort=price")
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields.sort", notNullValue()));
+        activities(accessToken, "size=abc")
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields.size", notNullValue()));
+        activities(accessToken, "symbol=NOPE")
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code", equalTo("ASSET_NOT_FOUND")));
+    }
+
+    @Test
+    @DisplayName("sort=quantity：股利（quantity null）不論方向都排最後；size=1 逐頁走完，id 無重複、數量 = total、順序與單頁一致")
+    void nullsLastAndStablePagination() throws Exception {
+        String accessToken = seedMixedHistory("act-sort");
+
+        activities(accessToken, "sort=quantity&direction=desc")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.items[4].kind", equalTo("CASH_DIVIDEND")))
+            .andExpect(jsonPath("$.data.items[3].kind", equalTo("STOCK_DIVIDEND")));
+        activities(accessToken, "sort=quantity&direction=asc")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.items[0].kind", equalTo("STOCK_DIVIDEND")))
+            .andExpect(jsonPath("$.data.items[4].kind", equalTo("CASH_DIVIDEND")));
+        activities(accessToken, "sort=total&direction=desc")
+            .andExpect(status().isOk())
+            /* 金額 desc：2000、1500、120，兩筆沒有金額的調整排最後（彼此依 createdAt desc：配股後記）。 */
+            .andExpect(jsonPath("$.data.items[*].kind",
+                contains("BUY", "BUY", "CASH_DIVIDEND", "STOCK_DIVIDEND", "SPLIT")))
+            .andExpect(jsonPath("$.data.items[0].amount", equalTo(2000.0)))
+            .andExpect(jsonPath("$.data.items[2].kind", equalTo("CASH_DIVIDEND")))
+            .andExpect(jsonPath("$.data.items[3].amount").value(nullValue()))
+            .andExpect(jsonPath("$.data.items[4].amount").value(nullValue()));
+
+        /* 三列 quantity 同為 10（兩筆買入與拆股 ΔQ），靠 createdAt、id tie-breaker 才有唯一順序。 */
+        List<String> singlePage = ids(data(accessToken, "sort=quantity&direction=desc&size=20"));
+        long total = data(accessToken, "sort=quantity&direction=desc&size=1").get("totalElements").asLong();
+        List<String> walked = new ArrayList<>();
+        for (int page = 0; page < total; page++) {
+            walked.addAll(ids(data(accessToken, "sort=quantity&direction=desc&size=1&page=" + page)));
+        }
+        assertThat(total).isEqualTo(5);
+        assertThat(walked).hasSize((int) total).doesNotHaveDuplicates().containsExactlyElementsOf(singlePage);
+    }
+
+    @Test
+    @DisplayName("沖銷標記：股利沖銷後原列 reversed / 不可沖銷、沖銷列指回原列；兩筆配股只有較晚者可沖銷，沖銷較晚者後較早者變為可沖銷")
+    void reversalFlagsAndReversibility() throws Exception {
+        String accessToken = register("act-rev");
+        buy(accessToken, "AAPL", 10, 150, "2026-10-28T15:00:00Z");
+        String dividendId = idOf(postDividend(accessToken, """
+            {"symbol":"AAPL","amount":120,"withholdingTax":30,"paidAt":"2026-10-29T01:00:00Z"}
+            """).andExpect(status().isOk()));
+        String dividendReversalId = idOf(postDividend(accessToken, """
+            {"symbol":"AAPL","amount":120,"withholdingTax":30,"reversalOfId":"%s"}
+            """.formatted(dividendId)).andExpect(status().isOk()));
+        String earlierId = idOf(postAdjustment(accessToken, """
+            {"symbol":"AAPL","type":"STOCK_DIVIDEND","quantity":1,"effectiveDate":"2026-10-30"}
+            """).andExpect(status().isOk()));
+        String laterId = idOf(postAdjustment(accessToken, """
+            {"symbol":"AAPL","type":"STOCK_DIVIDEND","quantity":2,"effectiveDate":"2026-10-31"}
+            """).andExpect(status().isOk()));
+
+        JsonNode before = data(accessToken, "");
+        JsonNode original = itemById(before, dividendId);
+        JsonNode reversal = itemById(before, dividendReversalId);
+        assertThat(original.get("reversed").asBoolean()).isTrue();
+        assertThat(original.get("reversible").asBoolean()).isFalse();
+        assertThat(original.get("reversalOfId").isNull()).isTrue();
+        assertThat(reversal.get("reversalOfId").asText()).isEqualTo(dividendId);
+        assertThat(OffsetDateTime.parse(reversal.get("reversalOfOccurredAt").asText()).toInstant())
+            .isEqualTo(OffsetDateTime.parse(original.get("occurredAt").asText()).toInstant());
+        assertThat(reversal.get("reversalOfEffectiveDate").isNull()).isTrue();
+        /* 沖銷列輸出原值、不反號。 */
+        assertThat(reversal.get("amount").decimalValue()).isEqualByComparingTo("120");
+        assertThat(reversal.get("reversed").asBoolean()).isFalse();
+        assertThat(reversal.get("reversible").asBoolean()).isFalse();
+        assertThat(itemById(before, earlierId).get("reversible").asBoolean()).isFalse();
+        assertThat(itemById(before, laterId).get("reversible").asBoolean()).isTrue();
+
+        String adjustmentReversalId = idOf(postAdjustment(accessToken, """
+            {"symbol":"AAPL","type":"STOCK_DIVIDEND","quantity":2,"effectiveDate":"2026-10-31","reversalOfId":"%s"}
+            """.formatted(laterId)).andExpect(status().isOk()));
+
+        JsonNode after = data(accessToken, "type=SHARE_ADJUSTMENT");
+        assertThat(after.get("totalElements").asLong()).isEqualTo(3);
+        JsonNode later = itemById(after, laterId);
+        JsonNode adjustmentReversal = itemById(after, adjustmentReversalId);
+        assertThat(later.get("reversed").asBoolean()).isTrue();
+        assertThat(later.get("reversible").asBoolean()).isFalse();
+        assertThat(adjustmentReversal.get("reversalOfId").asText()).isEqualTo(laterId);
+        assertThat(adjustmentReversal.get("reversalOfEffectiveDate").asText()).isEqualTo("2026-10-31");
+        assertThat(adjustmentReversal.get("quantity").decimalValue()).isEqualByComparingTo("2");
+        assertThat(adjustmentReversal.get("reversible").asBoolean()).isFalse();
+        assertThat(itemById(after, earlierId).get("reversible").asBoolean()).isTrue();
+    }
+
+    /**
+     * 種一段混合歷史（皆為過去的固定瞬間）：買 AAPL 10 @150（10/28）、AAPL 股利 120（10/29 01:00）、
+     * 買 TSLA 10 @200（10/29 15:00）、TSLA 拆股 2:1（除權 10/30，ΔQ +10）、AAPL 配股 1 股（除權 10/31）。
+     *
+     * @param prefix 使用者前綴
+     * @return 該使用者的 access token
+     */
+    private String seedMixedHistory(String prefix) throws Exception {
+        String accessToken = register(prefix);
+        buy(accessToken, "AAPL", 10, 150, "2026-10-28T15:00:00Z");
+        buy(accessToken, "TSLA", 10, 200, "2026-10-29T15:00:00Z");
+        postDividend(accessToken, """
+            {"symbol":"AAPL","amount":120,"withholdingTax":30,"paidAt":"2026-10-29T01:00:00Z"}
+            """).andExpect(status().isOk());
+        postAdjustment(accessToken, """
+            {"symbol":"TSLA","type":"SPLIT","ratioNew":2,"ratioOld":1,"effectiveDate":"2026-10-30"}
+            """).andExpect(status().isOk());
+        postAdjustment(accessToken, """
+            {"symbol":"AAPL","type":"STOCK_DIVIDEND","quantity":1,"effectiveDate":"2026-10-31"}
+            """).andExpect(status().isOk());
+        return accessToken;
+    }
+
+    private JsonNode data(String accessToken, String query) throws Exception {
+        String body = activities(accessToken, query)
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        return objectMapper.readTree(body).get("data");
+    }
+
+    private static List<String> ids(JsonNode data) {
+        List<String> ids = new ArrayList<>();
+        for (JsonNode item : data.get("items")) {
+            ids.add(item.get("id").asText());
+        }
+        return ids;
+    }
+
+    private static JsonNode itemById(JsonNode data, String id) {
+        for (JsonNode item : data.get("items")) {
+            if (item.get("id").asText().equals(id)) {
+                return item;
+            }
+        }
+        throw new AssertionError("activity not found in page: " + id);
+    }
+
+    private String idOf(ResultActions result) throws Exception {
+        return objectMapper.readTree(result.andReturn().getResponse().getContentAsString())
+            .get("data").get("id").asText();
     }
 
     /**

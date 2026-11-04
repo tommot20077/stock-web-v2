@@ -64,4 +64,14 @@ public enum ActivitySortKey {
     public String apiValue() {
         return apiValue;
     }
+
+    /**
+     * 將 API 傳入的 sort 參數解析為排序鍵（RED 骨架）。
+     *
+     * @param value 使用者傳入的原始字串
+     * @return 預設排序鍵
+     */
+    public static ActivitySortKey fromApiValue(String value) {
+        return EXECUTED_AT;
+    }
 }
