@@ -13,6 +13,7 @@ import dowob.xyz.stockwebv2.trading.domain.Holding;
 import dowob.xyz.stockwebv2.trading.domain.HoldingCalculator;
 import dowob.xyz.stockwebv2.trading.domain.ShareAdjustmentCalculator;
 import dowob.xyz.stockwebv2.trading.domain.ShareAdjustmentEntry;
+import dowob.xyz.stockwebv2.trading.domain.ShareAdjustmentPayloadMatcher;
 import dowob.xyz.stockwebv2.trading.domain.ShareAdjustmentType;
 import dowob.xyz.stockwebv2.trading.repository.ShareAdjustmentRepository;
 import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
@@ -153,7 +154,8 @@ public class ShareAdjustmentService {
      *                           持倉併發更新衝突（409 {@code TRADE_CONFLICT}）；沖銷時另有 reversalOfId 格式錯或
      *                           值與原列不符（400）、原列不存在或屬於他人（404 {@code SHARE_ADJUSTMENT_NOT_FOUND}）、
      *                           已被沖銷（409 {@code SHARE_ADJUSTMENT_ALREADY_REVERSED}）、
-     *                           原列是沖銷或不是最晚一筆（409 {@code SHARE_ADJUSTMENT_NOT_REVERSIBLE}）
+     *                           原列是沖銷或不是最晚一筆（409 {@code SHARE_ADJUSTMENT_NOT_REVERSIBLE}）；
+     *                           同一把鍵搭配不同 payload（409 {@code SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED}）
      */
     @Transactional
     public ShareAdjustmentDto create(Long userId, CreateShareAdjustmentRequest request, String idempotencyKey) {
@@ -183,8 +185,8 @@ public class ShareAdjustmentService {
         // 若先被擋下，使用者會看到假性 409，而實際上他的沖銷早已成功。
         Optional<ShareAdjustmentEntry> known = repository.findByIdempotencyKey(userId, idempotencyKey);
         if (known.isPresent()) {
-            // 快路徑：資料完全沒有變動，不鎖持倉、不失效快取。
-            return toDto(known.get(), repository.isReversed(known.get().id()));
+            // 快路徑：資料完全沒有變動，不鎖持倉、不失效快取；payload 不同則 409。
+            return resolveIdempotentHit(known.get(), type, request, asset.id(), original);
         }
         if (original != null) {
             return reverse(userId, request, idempotencyKey, asset, original, now);
@@ -231,7 +233,7 @@ public class ShareAdjustmentService {
             // 衝突被 DO NOTHING 吸收、不會中止本交易，因此重讀是安全的；持倉尚未改動，直接回對方那筆。
             Optional<ShareAdjustmentEntry> concurrent = repository.findByIdempotencyKey(userId, idempotencyKey);
             if (concurrent.isPresent()) {
-                return toDto(concurrent.get(), repository.isReversed(concurrent.get().id()));
+                return resolveIdempotentHit(concurrent.get(), type, request, asset.id(), null);
             }
             throw new BusinessException(ErrorCode.DUPLICATE_RESOURCE, ErrorCode.DUPLICATE_RESOURCE.defaultMessage());
         }
@@ -239,6 +241,30 @@ public class ShareAdjustmentService {
         // 只有實際新建了列才失效：持倉股數 / 均價與 summary 都已改變。失效排在 COMMIT 之後（PortfolioCache 實作）。
         portfolioCache.invalidateAfterTrade(userId, asset.id());
         return toDto(inserted.get(), false);
+    }
+
+    /**
+     * 冪等命中時的 payload 比對（快路徑與 insert 落空重讀共用，避免兩處各寫一次而逐漸分歧）：
+     * 相同回既有列，不同則拒絕且不寫入。錯誤訊息為靜態字串，不回射冪等鍵或任何輸入。
+     *
+     * @param existing 以同一把鍵查出的既有列
+     * @param type     本次請求的調整類型
+     * @param request  本次請求
+     * @param assetId  本次請求解析出的標的主鍵
+     * @param original 本次請求解析出的沖銷原列；一般紀錄為 null
+     * @return 既有列的 DTO
+     * @throws BusinessException payload 不同時 {@code SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED}
+     */
+    private ShareAdjustmentDto resolveIdempotentHit(ShareAdjustmentEntry existing, ShareAdjustmentType type,
+                                                    CreateShareAdjustmentRequest request, Long assetId,
+                                                    ShareAdjustmentEntry original) {
+        Long requestedReversalOfId = original == null ? null : original.id();
+        if (!ShareAdjustmentPayloadMatcher.matches(existing, assetId, type, request.quantity(), request.ratioNew(),
+            request.ratioOld(), request.effectiveDate(), requestedReversalOfId)) {
+            throw new BusinessException(ErrorCode.SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED,
+                ErrorCode.SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED.defaultMessage());
+        }
+        return toDto(existing, repository.isReversed(existing.id()));
     }
 
     /**
@@ -298,7 +324,7 @@ public class ShareAdjustmentService {
             // （uk_share_adjustments_reversal_of）→ 重讀落空。兩者持倉都尚未改動。
             Optional<ShareAdjustmentEntry> concurrent = repository.findByIdempotencyKey(userId, idempotencyKey);
             if (concurrent.isPresent()) {
-                return toDto(concurrent.get(), repository.isReversed(concurrent.get().id()));
+                return resolveIdempotentHit(concurrent.get(), original.type(), request, asset.id(), original);
             }
             throw new BusinessException(ErrorCode.SHARE_ADJUSTMENT_ALREADY_REVERSED,
                 ErrorCode.SHARE_ADJUSTMENT_ALREADY_REVERSED.defaultMessage());
