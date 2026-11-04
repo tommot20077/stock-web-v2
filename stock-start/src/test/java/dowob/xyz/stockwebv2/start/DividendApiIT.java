@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasLength;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -39,7 +40,8 @@ import tools.jackson.databind.ObjectMapper;
  * <p>鎖三條主線：沒有任何持倉的新使用者也能記一筆現金股利，回 DTO（幣別取自標的、不含冪等鍵）且
  * {@code cash_dividends} 恰一列、{@code holdings} 不受影響（D-01 / D-03）；同 key 同 body 重送回同一筆、
  * 列數不變（D-13 冪等）；cookie 登入未帶 CSRF header 被擋（T-04.2-08）。
- * 04.2-04 起另鎖沖銷（原列變 reversed、重複沖銷 / 沖銷「沖銷列」409、跨使用者 404、不同 key 併發沖銷只有一筆成功）。</p>
+ * 04.2-04 起另鎖沖銷（原列變 reversed、重複沖銷 / 沖銷「沖銷列」409、跨使用者 404、不同 key 併發沖銷只有一筆成功）、
+ * 同 key 不同 payload 409、缺 {@code Idempotency-Key} 的 {@code fields}、欄位越界與沖銷值不符的 {@code fields} 歸屬。</p>
  *
  * @author Yuan
  * @version 1.0
@@ -229,6 +231,100 @@ class DividendApiIT extends ContainerIT {
         }
 
         assertThat(dividendRows(email)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("同 key 不同 payload：409 DIVIDEND_IDEMPOTENCY_KEY_REUSED、不回射 key、列數不變；只改 note（數值 scale 不同）重送回既有那筆")
+    void sameKeyWithDifferentPayloadIsRejectedAsReuse() throws Exception {
+        String email = "div-reuse-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "divreuse" + UUID.randomUUID().toString().substring(0, 8));
+        String key = "div-reuse-" + UUID.randomUUID();
+        String id = dividendIdOf(postDividend(accessToken, key, AAPL_DIVIDEND).andExpect(status().isOk()));
+
+        String error = postDividend(accessToken, key, """
+                {"symbol":"AAPL","amount":121,"withholdingTax":30,"paidAt":"2026-10-30T09:15:00+08:00"}
+                """)
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code", equalTo("DIVIDEND_IDEMPOTENCY_KEY_REUSED")))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        assertThat(error).doesNotContain(key);
+
+        postDividend(accessToken, key, """
+                {"symbol":"AAPL","amount":120.00000000,"withholdingTax":30.0,
+                 "paidAt":"2026-10-30T01:15:00Z","note":"changed"}
+                """)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.id", equalTo(id)));
+
+        assertThat(dividendRows(email)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("缺少 Idempotency-Key：400 VALIDATION_FAILED、error.fields['Idempotency-Key']，cash_dividends 無列")
+    void missingIdempotencyKeyIsRejectedWithFieldError() throws Exception {
+        String email = "div-nokey-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "divnokey" + UUID.randomUUID().toString().substring(0, 8));
+
+        mockMvc.perform(post("/api/v1/portfolio/dividends")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + accessToken)
+                .content(AAPL_DIVIDEND))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields['Idempotency-Key']", notNullValue()));
+
+        assertThat(dividendRows(email)).isZero();
+    }
+
+    @Test
+    @DisplayName("欄位越界與沖銷值不符：400 VALIDATION_FAILED 且 fields 指名欄位（amount / withholdingTax / note / reversalOfId / paidAt）；回應不回射 symbol 與 key")
+    void fieldErrorsNameTheOffendingField() throws Exception {
+        String email = "div-fields-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "divfield" + UUID.randomUUID().toString().substring(0, 8));
+        String canaryKey = "LEAK-CANARY-" + UUID.randomUUID();
+
+        assertFieldError(accessToken, canaryKey, """
+            {"symbol":"CANARYSYM","amount":0}
+            """, "amount");
+        assertFieldError(accessToken, canaryKey, """
+            {"symbol":"CANARYSYM","amount":1.123456789}
+            """, "amount");
+        assertFieldError(accessToken, canaryKey, """
+            {"symbol":"CANARYSYM","amount":120,"withholdingTax":-1}
+            """, "withholdingTax");
+        assertFieldError(accessToken, canaryKey, """
+            {"symbol":"CANARYSYM","amount":120,"note":"%s"}
+            """.formatted("n".repeat(501)), "note");
+        assertFieldError(accessToken, canaryKey, """
+            {"symbol":"AAPL","amount":120,"reversalOfId":"not-a-uuid"}
+            """, "reversalOfId");
+        assertFieldError(accessToken, canaryKey, """
+            {"symbol":"AAPL","amount":120,"paidAt":"2999-01-01T00:00:00Z"}
+            """, "paidAt");
+
+        String originalId = dividendIdOf(postDividend(accessToken, UUID.randomUUID().toString(), AAPL_DIVIDEND)
+            .andExpect(status().isOk()));
+        assertFieldError(accessToken, canaryKey, """
+            {"symbol":"AAPL","amount":121,"withholdingTax":30,"reversalOfId":"%s"}
+            """.formatted(originalId), "amount");
+        assertFieldError(accessToken, canaryKey, """
+            {"symbol":"AAPL","amount":120,"withholdingTax":31,"reversalOfId":"%s"}
+            """.formatted(originalId), "withholdingTax");
+
+        assertThat(dividendRows(email)).isEqualTo(1);
+    }
+
+    private void assertFieldError(String accessToken, String key, String body, String field) throws Exception {
+        String response = postDividend(accessToken, key, body)
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields." + field, notNullValue()))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        assertThat(response).doesNotContain("CANARYSYM").doesNotContain(key);
     }
 
     private static String reversalBody(String reversalOfId) {

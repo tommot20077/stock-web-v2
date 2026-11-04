@@ -475,6 +475,80 @@ class DividendServiceTest {
         verifyNoInteractions(portfolioCache);
     }
 
+    @Test
+    @DisplayName("快路徑命中但 amount 不同：DIVIDEND_IDEMPOTENCY_KEY_REUSED，訊息不回射 key，不寫入、不失效")
+    void sameKeyWithDifferentAmountIsKeyReused() {
+        when(repository.findByIdempotencyKey(USER_ID, "LEAK-CANARY-KEY"))
+            .thenReturn(Optional.of(existingDividend(41L, "LEAK-CANARY-KEY")));
+
+        assertThatThrownBy(() -> service.createDividend(USER_ID,
+            new CreateDividendRequest("AAPL", new BigDecimal("121"), null, null, null, null), "LEAK-CANARY-KEY"))
+            .isInstanceOf(BusinessException.class)
+            .hasMessageNotContaining("LEAK-CANARY-KEY")
+            .extracting(exception -> ((BusinessException) exception).errorCode())
+            .isEqualTo(ErrorCode.DIVIDEND_IDEMPOTENCY_KEY_REUSED);
+        verify(repository, never()).insertIfAbsent(any());
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("快路徑命中但明確送了不同的 paidAt：DIVIDEND_IDEMPOTENCY_KEY_REUSED")
+    void sameKeyWithDifferentExplicitPaidAtIsKeyReused() {
+        when(repository.findByIdempotencyKey(USER_ID, "k-time"))
+            .thenReturn(Optional.of(existingDividend(42L, "k-time")));
+
+        assertBusinessCode(() -> service.createDividend(USER_ID,
+            new CreateDividendRequest("AAPL", new BigDecimal("120"), null,
+                OffsetDateTime.parse("2026-10-02T09:00:00+08:00"), null, null), "k-time"),
+            ErrorCode.DIVIDEND_IDEMPOTENCY_KEY_REUSED);
+        verify(repository, never()).insertIfAbsent(any());
+    }
+
+    @Test
+    @DisplayName("同一把 key 從一般紀錄切換成沖銷：DIVIDEND_IDEMPOTENCY_KEY_REUSED（沖銷對象是比對維度）")
+    void sameKeySwitchingToReversalIsKeyReused() {
+        stubOriginal(originalDividend(null));
+        when(repository.findByIdempotencyKey(USER_ID, "k-switch")).thenReturn(Optional.of(
+            new CashDividend(43L, UUID.randomUUID(), USER_ID, AAPL_ID, new BigDecimal("120.00000000"),
+                new BigDecimal("30.00000000"), null, ORIGINAL_PAID_AT, ORIGINAL_PAID_AT, "k-switch", null)));
+
+        assertBusinessCode(() -> service.createDividend(USER_ID,
+            reversalRequest("AAPL", "120", "30", ORIGINAL_UUID.toString()), "k-switch"),
+            ErrorCode.DIVIDEND_IDEMPOTENCY_KEY_REUSED);
+        verify(repository, never()).insertIfAbsent(any());
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("快路徑命中且只有 note 不同（數值 scale 也不同）：回既有那筆，不寫入、不失效")
+    void sameKeyWithOnlyDifferentNoteReturnsExisting() {
+        CashDividend existing = existingDividend(44L, "k-note");
+        when(repository.findByIdempotencyKey(USER_ID, "k-note")).thenReturn(Optional.of(existing));
+
+        DividendDto dto = service.createDividend(USER_ID,
+            new CreateDividendRequest("AAPL", new BigDecimal("120.0"), new BigDecimal("0.00"), null, "changed", null),
+            "k-note");
+
+        assertThat(dto.id()).isEqualTo(existing.uuid().toString());
+        verify(repository, never()).insertIfAbsent(any());
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("insert 落空後以 key 重讀命中、但 payload 不同：DIVIDEND_IDEMPOTENCY_KEY_REUSED，不失效")
+    void concurrentSameKeyWithDifferentPayloadIsKeyReused() {
+        when(repository.findByIdempotencyKey(USER_ID, "k-race-diff"))
+            .thenReturn(Optional.empty())
+            .thenReturn(Optional.of(existingDividend(45L, "k-race-diff")));
+        when(repository.insertIfAbsent(any(CashDividend.class))).thenReturn(Optional.empty());
+
+        assertBusinessCode(() -> service.createDividend(USER_ID,
+            new CreateDividendRequest("AAPL", new BigDecimal("120"), new BigDecimal("5"), null, null, null),
+            "k-race-diff"),
+            ErrorCode.DIVIDEND_IDEMPOTENCY_KEY_REUSED);
+        verifyNoInteractions(portfolioCache);
+    }
+
     private void assertMismatch(CreateDividendRequest request, String field) {
         assertThatThrownBy(() -> service.createDividend(USER_ID, request, "k-mismatch-" + field))
             .isInstanceOf(BusinessException.class)
