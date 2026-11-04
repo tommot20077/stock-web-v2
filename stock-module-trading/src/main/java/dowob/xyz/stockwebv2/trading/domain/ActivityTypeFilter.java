@@ -1,5 +1,10 @@
 package dowob.xyz.stockwebv2.trading.domain;
 
+import dowob.xyz.stockwebv2.common.error.FieldValidationException;
+
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -34,12 +39,30 @@ public enum ActivityTypeFilter {
     SHARE_ADJUSTMENT;
 
     /**
-     * 將 API 傳入的 type 參數解析為篩選（RED 骨架）。
+     * 白名單外的值統一使用的錯誤原因；刻意列出合法值而不回射原始輸入。
+     */
+    private static final String INVALID_REASON = "must be one of BUY, SELL, DIVIDEND, SHARE_ADJUSTMENT";
+
+    /**
+     * 將 API 傳入的 type 參數解析為篩選（trim 後大小寫不敏感比對常數名）。
      *
-     * @param value 使用者傳入的原始字串
-     * @return empty
+     * <p>kind 名稱（{@code CASH_DIVIDEND}、{@code STOCK_DIVIDEND}、{@code SPLIT}）不是合法的 type：
+     * 頁籤以「股利」「股數調整」分組，契約只開放四個值。</p>
+     *
+     * @param value 使用者傳入的原始字串；null 或空白代表未指定
+     * @return 對應的篩選；未指定時回傳 empty（三種事件全部）
+     * @throws FieldValidationException 值不在白名單內時，fields 指名 {@code type}；訊息不回射原始輸入
      */
     public static Optional<ActivityTypeFilter> fromApiValue(String value) {
-        return Optional.empty();
+        if (StringUtils.isBlank(value)) {
+            return Optional.empty();
+        }
+        String normalized = value.trim();
+        for (ActivityTypeFilter filter : values()) {
+            if (filter.name().equalsIgnoreCase(normalized)) {
+                return Optional.of(filter);
+            }
+        }
+        throw new FieldValidationException("type " + INVALID_REASON, Map.of("type", INVALID_REASON));
     }
 }

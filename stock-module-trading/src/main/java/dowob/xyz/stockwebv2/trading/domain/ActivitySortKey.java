@@ -1,5 +1,11 @@
 package dowob.xyz.stockwebv2.trading.domain;
 
+import dowob.xyz.stockwebv2.common.error.FieldValidationException;
+
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.Map;
+
 /**
  * 統一活動列表的排序鍵白名單（PORT-13）。
  *
@@ -31,6 +37,11 @@ public enum ActivitySortKey {
      * 依數量排序：交易數量 / 配股股數 / 拆股 ΔQ；股利沒有數量（NULLS LAST）。
      */
     QUANTITY("quantity", "a.quantity");
+
+    /**
+     * 白名單外的值統一使用的錯誤原因；刻意列出合法值而不回射原始輸入。
+     */
+    private static final String INVALID_REASON = "must be one of executedAt, createdAt, total, quantity";
 
     /**
      * 對外 API 契約使用的參數值（camelCase），大小寫不敏感比對。
@@ -66,12 +77,24 @@ public enum ActivitySortKey {
     }
 
     /**
-     * 將 API 傳入的 sort 參數解析為排序鍵（RED 骨架）。
+     * 將 API 傳入的 sort 參數解析為排序鍵（trim 後大小寫不敏感比對，與 {@link TradeSortKey} 同規則）。
      *
-     * @param value 使用者傳入的原始字串
-     * @return 預設排序鍵
+     * <p>與 {@link TradeSortKey} 的差別只在錯誤附 {@code fields.sort}（契約〈GET /portfolio/activities〉；前端依此標示欄位）。</p>
+     *
+     * @param value 使用者傳入的原始字串；null 或空白代表未指定
+     * @return 對應的排序鍵；未指定時回傳預設值 {@link #EXECUTED_AT}
+     * @throws FieldValidationException 值不在白名單內時，fields 指名 {@code sort}；訊息不回射原始輸入
      */
     public static ActivitySortKey fromApiValue(String value) {
-        return EXECUTED_AT;
+        if (StringUtils.isBlank(value)) {
+            return EXECUTED_AT;
+        }
+        String normalized = value.trim();
+        for (ActivitySortKey key : values()) {
+            if (key.apiValue.equalsIgnoreCase(normalized)) {
+                return key;
+            }
+        }
+        throw new FieldValidationException("sort " + INVALID_REASON, Map.of("sort", INVALID_REASON));
     }
 }

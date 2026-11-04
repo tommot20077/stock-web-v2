@@ -1,6 +1,7 @@
 package dowob.xyz.stockwebv2.trading.repository;
 
 import dowob.xyz.stockwebv2.trading.domain.ActivityKind;
+import dowob.xyz.stockwebv2.trading.domain.ActivityTypeFilter;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -9,6 +10,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +24,9 @@ import java.util.UUID;
  *
  * <p><strong>每個分支各自帶 {@code where user_id = :userId}</strong>（T-04.2-22）：擁有者條件不放在外層，
  * 任何一個分支漏掉都會讓他人的紀錄出現在列表裡，因此不依賴優化器把外層條件推進分支。</p>
+ *
+ * <p>種類篩選以寫死的分支選擇實作（見 {@link #filter}），不是在 UNION 之後再篩 {@code kind}：
+ * 只查需要的表，也讓「股利」頁籤不必掃交易表。</p>
  *
  * <p>本類<strong>不 JOIN 資產主檔</strong>（D-21，{@code TradingSqlBoundaryTest}）：只輸出 {@code asset_id}，
  * symbol / currency 由 service 經 {@code AssetFacade.findProfiles} 一次補上。</p>
@@ -130,47 +135,97 @@ public class JdbcActivityRepository implements ActivityRepository {
     }
 
     /**
-     * 組出分頁列表的 SQL 與參數（RED 骨架：尚未套用篩選）。
+     * 組出分頁列表的 SQL 與參數。
      *
      * <p>排序為「所選欄位 {@code nulls last}、{@code created_at}、{@code id}（UUID）」，方向一致：
-     * tie-breaker 讓同值的列在跨頁時有唯一順序，不會跳列或重複。</p>
+     * tie-breaker 讓同值的列在跨頁時有唯一順序，不會跳列或重複。{@code nulls last} 兩個方向都套用
+     * （契約：依 {@code total} 排序時沒有金額的股數調整、依 {@code quantity} 排序時沒有數量的股利排最後）。</p>
      *
      * @param userId 擁有者 id
      * @param query  查詢條件
      * @return SQL 與具名參數
      */
     static Statement listStatement(Long userId, ActivityQuery query) {
+        Filter filter = filter(userId, query);
         String direction = query.direction().sqlKeyword();
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("userId", userId);
+        Map<String, Object> params = new LinkedHashMap<>(filter.params());
         params.put("limit", query.size());
         params.put("offset", (long) query.page() * query.size());
-        return new Statement("select a.* from (" + unionOfBranches() + ") a "
-            + "order by " + query.sort().sqlFragment() + " " + direction + " nulls last, "
+        return new Statement("select a.* from (" + filter.union() + ") a" + filter.where()
+            + " order by " + query.sort().sqlFragment() + " " + direction + " nulls last, "
             + "a.created_at " + direction + ", a.id " + direction + " "
             + "limit :limit offset :offset", params);
     }
 
     /**
-     * 組出總筆數的 SQL 與參數（RED 骨架：尚未套用篩選）。
+     * 組出總筆數的 SQL 與參數；篩選與 {@link #listStatement} 相同，不含排序與分頁。
      *
      * @param userId 擁有者 id
      * @param query  查詢條件
      * @return SQL 與具名參數
      */
     static Statement countStatement(Long userId, ActivityQuery query) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("userId", userId);
-        return new Statement("select count(*) from (" + unionOfBranches() + ") a", params);
+        Filter filter = filter(userId, query);
+        return new Statement("select count(*) from (" + filter.union() + ") a" + filter.where(), filter.params());
     }
 
     /**
-     * 以 {@code union all} 串起三個寫死的分支。
+     * 依查詢條件挑選分支並組出外層條件。
      *
-     * @return 三個分支的 UNION ALL SQL
+     * <p>種類篩選只決定拼接哪些<strong>寫死</strong>的分支：股利只拼 {@link #DIVIDEND_BRANCH}、股數調整只拼
+     * {@link #ADJUSTMENT_BRANCH}、買入 / 賣出只拼 {@link #TRADE_BRANCH} 並追加 {@code t.type = :tradeType}
+     * （值以參數繫結）。標的與時間區間作用於外層別名 {@code a}（三個分支統一輸出的欄位）：
+     * {@code occurred_at} 為半開區間（下界含、上界不含），與 {@code GET /trades} 的 {@code executed_at} 語意相同；
+     * PostgreSQL 會把這類簡單條件推進 UNION ALL 的每個分支，不影響索引使用。</p>
+     *
+     * @param userId 擁有者 id
+     * @param query  查詢條件
+     * @return 分支 SQL、外層 where 子句（無條件時為空字串）與具名參數
      */
-    private static String unionOfBranches() {
-        return TRADE_BRANCH + " union all " + DIVIDEND_BRANCH + " union all " + ADJUSTMENT_BRANCH;
+    private static Filter filter(Long userId, ActivityQuery query) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("userId", userId);
+        List<String> branches = new ArrayList<>();
+        ActivityTypeFilter type = query.type().orElse(null);
+        if (type == null) {
+            branches.add(TRADE_BRANCH);
+            branches.add(DIVIDEND_BRANCH);
+            branches.add(ADJUSTMENT_BRANCH);
+        } else {
+            switch (type) {
+                case BUY, SELL -> {
+                    branches.add(TRADE_BRANCH + "  and t.type = :tradeType\n");
+                    params.put("tradeType", type.name());
+                }
+                case DIVIDEND -> branches.add(DIVIDEND_BRANCH);
+                case SHARE_ADJUSTMENT -> branches.add(ADJUSTMENT_BRANCH);
+            }
+        }
+        List<String> conditions = new ArrayList<>();
+        if (query.assetIdOrNull() != null) {
+            conditions.add("a.asset_id = :assetId");
+            params.put("assetId", query.assetIdOrNull());
+        }
+        if (query.from() != null) {
+            conditions.add("a.occurred_at >= :dateFrom");
+            params.put("dateFrom", query.from());
+        }
+        if (query.to() != null) {
+            conditions.add("a.occurred_at < :dateTo");
+            params.put("dateTo", query.to());
+        }
+        String where = conditions.isEmpty() ? "" : " where " + String.join(" and ", conditions);
+        return new Filter(String.join(" union all ", branches), where, params);
+    }
+
+    /**
+     * 分支選擇與外層條件的組合結果。
+     *
+     * @param union  以 {@code union all} 串起的分支 SQL
+     * @param where  外層 where 子句（含前導空白）；無條件時為空字串
+     * @param params 具名參數（含 {@code userId}）
+     */
+    private record Filter(String union, String where, Map<String, Object> params) {
     }
 
     /**
