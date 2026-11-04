@@ -11,6 +11,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -21,7 +22,7 @@ import java.util.UUID;
  * 標的的代號與幣別一律經 {@code AssetFacade} 取得（D-21，{@code TradingSqlBoundaryTest} 守門）。</p>
  *
  * @author Yuan
- * @version 1.0
+ * @version 1.1
  */
 @Repository
 public class JdbcShareAdjustmentRepository implements ShareAdjustmentRepository {
@@ -210,6 +211,32 @@ public class JdbcShareAdjustmentRepository implements ShareAdjustmentRepository 
             .param("assetId", assetId)
             .query(JdbcShareAdjustmentRepository::mapEntry)
             .optional();
+    }
+
+    /**
+     * 列出該使用者在某瞬間（含）之後生效的股數調整；沖銷列反號。
+     *
+     * @param userId 擁有者
+     * @param since  生效瞬間下界（含）
+     * @return 依生效時間與記錄順序排序的調整
+     */
+    @Override
+    public List<DayAdjustment> listSince(Long userId, OffsetDateTime since) {
+        return jdbcClient.sql("""
+                select asset_id,
+                       case when reversal_of_id is null then quantity_delta else -quantity_delta end as signed_delta,
+                       effective_at
+                from share_adjustments
+                where user_id = :userId and effective_at >= :since
+                order by effective_at, id
+                """)
+            .param("userId", userId)
+            .param("since", since)
+            .query((rs, rowNum) -> new DayAdjustment(
+                rs.getLong("asset_id"),
+                rs.getBigDecimal("signed_delta"),
+                rs.getObject("effective_at", OffsetDateTime.class)))
+            .list();
     }
 
     /**

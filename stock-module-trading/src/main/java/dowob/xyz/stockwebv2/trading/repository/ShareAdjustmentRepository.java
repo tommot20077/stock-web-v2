@@ -4,6 +4,7 @@ import dowob.xyz.stockwebv2.trading.domain.ShareAdjustmentEntry;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -14,7 +15,7 @@ import java.util.UUID;
  * （以主鍵查的 {@link #isReversed} / {@link #uuidOf} 除外，其主鍵只來自已綁使用者範圍查出的列）。</p>
  *
  * @author Yuan
- * @version 1.0
+ * @version 1.1
  */
 public interface ShareAdjustmentRepository {
 
@@ -89,4 +90,27 @@ public interface ShareAdjustmentRepository {
      * @return 最晚的有效調整；沒有時回傳空 Optional
      */
     Optional<ShareAdjustmentEntry> findLatestActive(Long userId, Long assetId);
+
+    /**
+     * 列出該使用者在某瞬間（含）之後生效的所有股數調整，供今日損益扣除當日非現金股數變動（ADJ-02 / D-10）。
+     *
+     * <p>沖銷列以<strong>反號</strong>回傳，所以同日記錄又沖銷的淨額為 0；同一除權日的多筆調整全部列出
+     * （依記錄順序疊加，加總即為當日淨變動）。呼叫端以今日成交查詢的同一個 {@code since} 一次取回，
+     * 再依各資產自己的交易日起點過濾。</p>
+     *
+     * @param userId 擁有者（只讀本人的列）
+     * @param since  生效瞬間下界（含）
+     * @return 生效時間不早於 {@code since} 的調整，依生效時間與記錄順序排序；沒有時為空 list
+     */
+    List<DayAdjustment> listSince(Long userId, OffsetDateTime since);
+
+    /**
+     * 今日損益用的一筆股數調整。
+     *
+     * @param assetId     標的主鍵
+     * @param signedDelta 帶號股數變動（沖銷列已反號）
+     * @param effectiveAt 生效瞬間（除權日的交易日起點）
+     */
+    record DayAdjustment(Long assetId, BigDecimal signedDelta, OffsetDateTime effectiveAt) {
+    }
 }

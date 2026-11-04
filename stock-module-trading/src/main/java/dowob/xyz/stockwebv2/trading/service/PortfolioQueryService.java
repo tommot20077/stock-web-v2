@@ -20,9 +20,12 @@ import dowob.xyz.stockwebv2.trading.domain.DayPnl;
 import dowob.xyz.stockwebv2.trading.domain.DayPnlCalculator;
 import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
 import dowob.xyz.stockwebv2.trading.domain.HoldingSnapshot;
+import dowob.xyz.stockwebv2.trading.domain.ShareAdjustment;
 import dowob.xyz.stockwebv2.trading.repository.CashLedgerRepository;
 import dowob.xyz.stockwebv2.trading.repository.DividendRepository;
 import dowob.xyz.stockwebv2.trading.repository.DividendRepository.DividendTotals;
+import dowob.xyz.stockwebv2.trading.repository.ShareAdjustmentRepository;
+import dowob.xyz.stockwebv2.trading.repository.ShareAdjustmentRepository.DayAdjustment;
 import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
 
 import org.slf4j.Logger;
@@ -86,8 +89,14 @@ import java.util.TreeSet;
  * 今日價格損益不含股利。股利標的（含從未持有者）的幣別併入同一次 {@code findProfiles}，D-23 的預算不變；
  * 股利寫入（含沖銷）commit 後由 {@link PortfolioCache#invalidateSummaryAfterCommit} 失效 summary。</p>
  *
+ * <p>ADJ-02（D-10）起今日損益扣除當日股數調整：{@link ShareAdjustmentRepository#listSince} 以今日成交查詢的
+ * 同一個 {@code since} 一次取回（沖銷列反號），依各資產交易日起點過濾後交給 {@link DayPnlCalculator} 的
+ * {@link ShareAdjustment} 擴充點，持倉與今日賣光的平倉候選<strong>兩個呼叫點都帶入</strong>，單檔與總額才一致。
+ * 行情最新時間早於調整生效時間（行情尚未反映）時該檔今日損益為 null 並計入排除數。股數調整寫入（含沖銷）
+ * commit 後由 {@link PortfolioCache#invalidateAfterTrade} 失效該持倉與 summary。</p>
+ *
  * @author Yuan
- * @version 6.0
+ * @version 7.0
  */
 @Service
 public class PortfolioQueryService {
@@ -100,6 +109,7 @@ public class PortfolioQueryService {
     private final TradingRepository repository;
     private final CashLedgerRepository cashLedgerRepository;
     private final DividendRepository dividendRepository;
+    private final ShareAdjustmentRepository shareAdjustmentRepository;
     private final MarketDataFacade marketDataFacade;
     private final PortfolioCache portfolioCache;
     private final UserPreferenceFacade userPreferenceFacade;
@@ -112,6 +122,7 @@ public class PortfolioQueryService {
      * @param repository       交易與持倉資料存取
      * @param cashLedgerRepository 現金分錄帳本的聚合查詢（可用現金推導）
      * @param dividendRepository 現金股利帳本的聚合查詢（可用現金第三來源與股利收入）
+     * @param shareAdjustmentRepository 股數調整帳本（今日損益扣除當日非現金股數變動）
      * @param marketDataFacade 跨模組最新價查詢
      * @param portfolioCache   持倉與摘要的 Redis 快取
      * @param userPreferenceFacade 跨模組取得使用者基準幣
@@ -122,6 +133,7 @@ public class PortfolioQueryService {
         TradingRepository repository,
         CashLedgerRepository cashLedgerRepository,
         DividendRepository dividendRepository,
+        ShareAdjustmentRepository shareAdjustmentRepository,
         MarketDataFacade marketDataFacade,
         PortfolioCache portfolioCache,
         UserPreferenceFacade userPreferenceFacade,
@@ -131,6 +143,7 @@ public class PortfolioQueryService {
         this.repository = repository;
         this.cashLedgerRepository = cashLedgerRepository;
         this.dividendRepository = dividendRepository;
+        this.shareAdjustmentRepository = shareAdjustmentRepository;
         this.marketDataFacade = marketDataFacade;
         this.portfolioCache = portfolioCache;
         this.userPreferenceFacade = userPreferenceFacade;
@@ -212,7 +225,8 @@ public class PortfolioQueryService {
                         position,
                         missDay.quotes().get(position.assetId()),
                         missProfiles.get(position.assetId()),
-                        missDay.fillsOf(position.assetId()));
+                        missDay.fillsOf(position.assetId()),
+                        missDay.adjustmentsOf(position.assetId()));
             })
             .toList();
         return new Valuation(holdings, day);
@@ -228,19 +242,21 @@ public class PortfolioQueryService {
     }
 
     /**
-     * 批次取得一組資產的報價與今日成交：一次 {@code findDailyQuotes}、至多一次 {@code listFillsSince}。
+     * 批次取得一組資產的報價、今日成交與當日股數調整：一次 {@code findDailyQuotes}、至多各一次
+     * {@code listFillsSince} 與 {@code listSince}。
      *
      * <p>交易日規則由資產屬性建立（{@code TradingDay.of(assetType, market)}）；資產屬性缺失時退回 UTC，
      * 讓行情仍可取得。各資產的交易日起點以<strong>與 market-data 相同的公式</strong>
      * {@code tradingDay.dayStart(quote.priceTime().toInstant())} 計算，兩邊才會逐位元一致。
      * 平倉候選若沒有行情，交易日起點退而取 {@code tradingDay.dayStart(Instant.now())}，
-     * 才能判斷它今天有沒有成交。今日成交以所有交易日起點的最小值一次查詢，再逐資產以各自的起點過濾。
+     * 才能判斷它今天有沒有成交。今日成交與當日股數調整都以所有交易日起點的最小值一次查詢，
+     * 再逐資產以各自的起點過濾（D-10）。
      *
      * @param userId    使用者 id
      * @param assetIds  要取價的資產 id
      * @param closedIds 其中屬於平倉候選者
      * @param profiles  已取得的資產屬性
-     * @return 報價與各資產今日成交；沒有行情的資產不在 {@code quotes} 內
+     * @return 報價、各資產今日成交與當日股數調整；沒有行情的資產不在 {@code quotes} 內
      */
     private DayContext loadDayContext(
         Long userId,
@@ -262,31 +278,80 @@ public class PortfolioQueryService {
             dayStarts.computeIfAbsent(closedId, id -> tradingDays.getOrDefault(id, TradingDay.UTC).dayStart(now));
         }
         if (dayStarts.isEmpty()) {
-            return new DayContext(quotes, Map.of());
+            return new DayContext(quotes, Map.of(), Map.of());
         }
         Instant earliest = dayStarts.values().stream().min(Instant::compareTo).orElseThrow();
+        OffsetDateTime since = OffsetDateTime.ofInstant(earliest, ZoneOffset.UTC);
         Map<Long, List<DayFill>> fillsByAsset = new HashMap<>();
-        for (DayFill fill : repository.listFillsSince(userId, OffsetDateTime.ofInstant(earliest, ZoneOffset.UTC))) {
+        for (DayFill fill : repository.listFillsSince(userId, since)) {
             Instant dayStart = dayStarts.get(fill.assetId());
             if (dayStart != null && !fill.executedAt().toInstant().isBefore(dayStart)) {
                 fillsByAsset.computeIfAbsent(fill.assetId(), id -> new ArrayList<>()).add(fill);
             }
         }
-        return new DayContext(quotes, fillsByAsset);
+        Map<Long, List<DayAdjustment>> adjustmentsByAsset = new HashMap<>();
+        for (DayAdjustment adjustment : shareAdjustmentRepository.listSince(userId, since)) {
+            Instant dayStart = dayStarts.get(adjustment.assetId());
+            /* 早於該資產交易日起點生效者已含在期初持股內，不是「當日」調整。 */
+            if (dayStart != null && !adjustment.effectiveAt().toInstant().isBefore(dayStart)) {
+                adjustmentsByAsset.computeIfAbsent(adjustment.assetId(), id -> new ArrayList<>()).add(adjustment);
+            }
+        }
+        return new DayContext(quotes, fillsByAsset, adjustmentsByAsset);
     }
 
     /**
-     * 一次請求內的報價與今日成交。
+     * 一次請求內的報價、今日成交與當日股數調整。
      *
-     * @param quotes       資產 id → 目前交易日報價；沒有行情的資產不在內
-     * @param fillsByAsset 資產 id → 該資產在其交易日起點之後的成交
+     * @param quotes             資產 id → 目前交易日報價；沒有行情的資產不在內
+     * @param fillsByAsset       資產 id → 該資產在其交易日起點之後的成交
+     * @param adjustmentsByAsset 資產 id → 該資產在其交易日起點（含）之後生效的股數調整（沖銷列已反號）
      */
-    private record DayContext(Map<Long, DailyQuote> quotes, Map<Long, List<DayFill>> fillsByAsset) {
-        static final DayContext EMPTY = new DayContext(Map.of(), Map.of());
+    private record DayContext(
+        Map<Long, DailyQuote> quotes,
+        Map<Long, List<DayFill>> fillsByAsset,
+        Map<Long, List<DayAdjustment>> adjustmentsByAsset
+    ) {
+        static final DayContext EMPTY = new DayContext(Map.of(), Map.of(), Map.of());
 
         List<DayFill> fillsOf(Long assetId) {
             return fillsByAsset.getOrDefault(assetId, List.of());
         }
+
+        List<DayAdjustment> adjustmentsOf(Long assetId) {
+            return adjustmentsByAsset.getOrDefault(assetId, List.of());
+        }
+    }
+
+    /**
+     * 以報價、今日成交與當日股數調整計算單一標的的今日價格損益（持倉與平倉候選共用，兩邊才一致）。
+     *
+     * @param quantityNow 目前持股 Q1（平倉候選為 0）
+     * @param quote       報價；null 表示查無行情
+     * @param fills       該資產在其交易日起點之後的成交
+     * @param adjustments 該資產在其交易日起點（含）之後生效的股數調整
+     * @return 今日損益；查無行情、缺必要價格或行情尚未反映調整時為 empty
+     */
+    private static Optional<DayPnl> dayPnlOf(
+        BigDecimal quantityNow,
+        DailyQuote quote,
+        List<DayFill> fills,
+        List<DayAdjustment> adjustments
+    ) {
+        if (quote == null) {
+            return Optional.empty();
+        }
+        List<ShareAdjustment> shareAdjustments = new ArrayList<>(adjustments.size());
+        for (DayAdjustment adjustment : adjustments) {
+            // 行情尚未反映調整（Q4.4）：Q1 已是調整後股數，最新價卻仍是調整前的價格（例如拆股當日第一筆 tick 還沒來），
+            // 硬算會把拆股算成假性暴漲 / 暴跌；與 D-17「缺資料回 null」同精神，回 empty 讓該檔計入排除數。
+            if (adjustment.effectiveAt().isAfter(quote.priceTime())) {
+                return Optional.empty();
+            }
+            shareAdjustments.add(new ShareAdjustment(adjustment.signedDelta()));
+        }
+        return DayPnlCalculator.calculate(
+            quantityNow, quote.latestPrice(), quote.previousClose(), fills, shareAdjustments);
     }
 
     /**
@@ -625,14 +690,14 @@ public class PortfolioQueryService {
      * 彙總今日價格損益總額（基準幣）。
      *
      * <p>持倉列的單檔損益與分母直接取自（可能來自快取的）{@link HoldingDto}；平倉候選則以本次請求取回的報價與
-     * 今日成交計算。不可得者計入排除數；換不到匯率者改記入 {@code unconverted}（D-04），不計入排除數。
+     * 今日成交與當日股數調整計算。不可得者計入排除數；換不到匯率者改記入 {@code unconverted}（D-04），不計入排除數。
      *
      * @param base        使用者基準幣
      * @param rates       目前匯率
      * @param positions   持有數量大於 0 的持倉位置
      * @param holdings    與 {@code positions} 同順序的估值
      * @param closedIds   平倉候選資產 id
-     * @param day         本次取回的報價與今日成交
+     * @param day         本次取回的報價、今日成交與當日股數調整
      * @param profiles    資產屬性
      * @param unconverted 換不到匯率的幣別（會被加入）
      * @return 總額、比率與排除數
@@ -661,11 +726,9 @@ public class PortfolioQueryService {
                 // 平倉後今天沒有成交：不是候選，也不算排除。
                 continue;
             }
-            DailyQuote quote = day.quotes().get(closedId);
-            Optional<DayPnl> dayPnl = quote == null
-                ? Optional.empty()
-                : DayPnlCalculator.calculate(
-                    BigDecimal.ZERO, quote.latestPrice(), quote.previousClose(), fills, List.of());
+            // 今天先拆股再賣光的部位也要扣除當日調整（Pitfall 2：平倉候選最容易漏改）。
+            Optional<DayPnl> dayPnl = dayPnlOf(
+                BigDecimal.ZERO, day.quotes().get(closedId), fills, day.adjustmentsOf(closedId));
             total.add(profiles.get(closedId), dayPnl);
         }
         return total.result();
@@ -748,8 +811,9 @@ public class PortfolioQueryService {
      * <p>查無行情時退回平均成本估值：市值等於成本、未實現損益為零，今日損益三欄為 null。這是刻意的——
      * 寧可顯示「沒有變化」，也不要拿一個不知道多舊的價格假裝賺賠。
      *
-     * <p>今日損益由 {@link DayPnlCalculator} 以 04.2 的拆股擴充點為空 list 計算；只依賴該資產今日成交與行情，
-     * 所以隨持倉一起寫入快取（交易 commit 已會失效該鍵）。
+     * <p>今日損益由 {@link DayPnlCalculator} 計算，當日股數調整經 {@link ShareAdjustment} 擴充點扣除（D-10）；
+     * 只依賴該資產今日成交、當日調整與行情，所以隨持倉一起寫入快取（交易與股數調整的 commit 都會失效該鍵）。
+     * {@code previousClose} 維持行情原值，不另算調整後前收。
      *
      * <p>估值結果存原幣（{@code baseCurrency} / {@code marketValueInBase} 為 null）。查無資產屬性
      * （理論上不會發生，FK 保證存在）時不寫快取，讓下一次請求重試，並以 null 的幣別讓呼叫端排除折算。
@@ -758,23 +822,22 @@ public class PortfolioQueryService {
      * @param quote    已批次取得的報價；null 表示查無行情
      * @param profile  已批次取得的資產屬性；null 表示查無
      * @param fills    該資產在其交易日起點之後的成交
+     * @param adjustments 該資產在其交易日起點（含）之後生效的股數調整
      * @return 估值後的持倉 DTO
      */
     private HoldingDto calculateAndCacheHolding(
         HoldingPosition position,
         DailyQuote quote,
         AssetProfile profile,
-        List<DayFill> fills
+        List<DayFill> fills,
+        List<DayAdjustment> adjustments
     ) {
         BigDecimal price = quote != null ? quote.latestPrice() : position.avgCost();
         OffsetDateTime priceTime = quote != null ? quote.priceTime() : position.lastUpdated();
         BigDecimal costBasis = position.totalQuantity().multiply(position.avgCost()).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
         BigDecimal marketValue = position.totalQuantity().multiply(price).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
         BigDecimal unrealized = marketValue.subtract(costBasis);
-        Optional<DayPnl> dayPnl = quote == null
-            ? Optional.empty()
-            : DayPnlCalculator.calculate(
-                position.totalQuantity(), quote.latestPrice(), quote.previousClose(), fills, List.of());
+        Optional<DayPnl> dayPnl = dayPnlOf(position.totalQuantity(), quote, fills, adjustments);
         HoldingDto dto = new HoldingDto(
             position.assetUuid().toString(),
             position.symbol(),
