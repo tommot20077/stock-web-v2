@@ -47,7 +47,7 @@
 - [x] **PORT-10**: summary 與 holdings 以基準幣折算：summary 金額（含 realized PnL）以 `baseCurrency` 表示，匯率直接 → 反向 → 經 USD 三角換算，換不到的部位不計入並回報 `fxExcludedCount` / `unconvertedCurrencies`；`HoldingDto` 帶原幣 `currency` 與 `marketValueInBase`；前端金額一律以 ISO 代碼後綴顯示、Positions 權重以基準幣市值計算。（D-04、D-05、D-21、D-22、D-23、D-30）
 - [x] **PORT-11**: 今日價格損益：`HoldingDto` 單檔與 summary 總額，依各檔市場最近交易日（`TradingDay` / `findDailyQuotes`）、D-12 算法、D-16 分母；今日首次買入照算；計算所需價格缺失時回 `null` 並回報 `dayPnlExcludedCount`；只含價格損益、不含匯差與手續費。（D-12 ~ D-17、D-26）
 - [x] **PORT-12**: 資產配置（`asset_type` + 正現金，基準幣）與產業分組（`assets.sector`，null = 未分類）由後端計算（summary `allocation` / `sectorAllocation`）；`HoldingDto` 帶 `assetType` / `sector`；資產屬性一律經 `AssetFacade`，trading 不得 SQL JOIN `assets` 取新屬性；Overview donut 與 Positions 產業分布在 API mode 顯示真實值。（D-18 ~ D-21）
-- [ ] **PORT-13**: Trades 頁 API mode 改以 `GET /api/v1/portfolio/activities`（交易 + 現金股利 + 股數調整 UNION ALL；與 `GET /trades` 同名同語意的篩選 / 排序 / 分頁參數，`type` 增 `DIVIDEND` / `SHARE_ADJUSTMENT`）；頁籤「全部 / 買入 / 賣出 / 股利 / 股數調整 / 年度」皆為後端篩選，CSV 同源；沖銷列與被沖銷列有標示；`GET /api/v1/trades` 與 `TradeDto` 契約不變。（D-12、D-13）
+- [x] **PORT-13**: Trades 頁 API mode 改以 `GET /api/v1/portfolio/activities`（交易 + 現金股利 + 股數調整 UNION ALL；與 `GET /trades` 同名同語意的篩選 / 排序 / 分頁參數，`type` 增 `DIVIDEND` / `SHARE_ADJUSTMENT`）；頁籤「全部 / 買入 / 賣出 / 股利 / 股數調整 / 年度」皆為後端篩選，CSV 同源；沖銷列與被沖銷列有標示；`GET /api/v1/trades` 與 `TradeDto` 契約不變。（D-12、D-13）
 
 ### Cash Ledger
 
@@ -57,9 +57,9 @@
 
 ### Dividends & Share Adjustments
 
-- [ ] **DIV-01**: 使用者可記一筆現金股利（`POST /api/v1/portfolio/dividends`）：標的（active + tradeable）、入帳時間（選填，不得超前）、實領總額（標的幣別）、預扣稅（選填）；`Idempotency-Key` 必填且冪等（同 key 不同 payload → 409 `DIVIDEND_IDEMPOTENCY_KEY_REUSED`）；`cash_dividends` append-only（DB trigger），以 `reversalOfId` 一鍵沖銷（DB 擋重複沖銷 / 沖銷沖銷 / 值不一致）；無持倉或已賣光仍可記；不動股數與平均成本；「股利與股數調整」對話框（Positions 每檔持倉、Trades「股利」頁籤 `+ 記錄股利`）沿用 Phase 4 key 生命週期與成功後重讀。（D-01、D-02、D-03、D-11、D-13、D-28）
-- [ ] **DIV-02**: 現金股利計入可用現金（標的幣別，與交易現金流同一推導）與 summary：`dividendIncome`（實領淨額 × 目前匯率，基準幣）、`dividendTaxWithheld`；`totalPnl` 含股利、`roi = totalPnl / totalCostBasis`；今日損益不含股利；summary 快取鍵升 `v3`；Overview KPI #4 與 Positions 總損益卡顯示股利收入附加列；現金頁說明股利不列入入出金紀錄並連到 Trades「股利」頁籤。（D-01、D-27）
-- [ ] **ADJ-01**: 使用者可記配股（實領股數）或拆股 / 合股（比例 new:old，1–1000 整數且不相等）（`POST /api/v1/portfolio/share-adjustments`）：`share_adjustments` append-only；共用「股數變、總成本不變」純函式；拆股依除權日（`TradingDay.startOf`）起點持股計算新股數（scale 8、DOWN，零股以小數保留）；除權日或目前無持倉 → 409 `TRADE_INSUFFICIENT_HOLDING`；除權日不得早於該標的最晚未沖銷調整、只能沖銷最晚一筆且沖銷後持股 > 0；冪等、一鍵沖銷；`POST /trades` 拒絕早於該標的最晚未沖銷調整生效起點的 `executedAt`（400 `fields.executedAt`）。（D-04 ~ D-09、D-11、D-13）
+- [x] **DIV-01**: 使用者可記一筆現金股利（`POST /api/v1/portfolio/dividends`）：標的（active + tradeable）、入帳時間（選填，不得超前）、實領總額（標的幣別）、預扣稅（選填）；`Idempotency-Key` 必填且冪等（同 key 不同 payload → 409 `DIVIDEND_IDEMPOTENCY_KEY_REUSED`）；`cash_dividends` append-only（DB trigger），以 `reversalOfId` 一鍵沖銷（DB 擋重複沖銷 / 沖銷沖銷 / 值不一致）；無持倉或已賣光仍可記；不動股數與平均成本；「股利與股數調整」對話框（Positions 每檔持倉、Trades「股利」頁籤 `+ 記錄股利`）沿用 Phase 4 key 生命週期與成功後重讀。（D-01、D-02、D-03、D-11、D-13、D-28）
+- [x] **DIV-02**: 現金股利計入可用現金（標的幣別，與交易現金流同一推導）與 summary：`dividendIncome`（實領淨額 × 目前匯率，基準幣）、`dividendTaxWithheld`；`totalPnl` 含股利、`roi = totalPnl / totalCostBasis`；今日損益不含股利；summary 快取鍵升 `v3`；Overview KPI #4 與 Positions 總損益卡顯示股利收入附加列；現金頁說明股利不列入入出金紀錄並連到 Trades「股利」頁籤。（D-01、D-27）
+- [x] **ADJ-01**: 使用者可記配股（實領股數）或拆股 / 合股（比例 new:old，1–1000 整數且不相等）（`POST /api/v1/portfolio/share-adjustments`）：`share_adjustments` append-only；共用「股數變、總成本不變」純函式；拆股依除權日（`TradingDay.startOf`）起點持股計算新股數（scale 8、DOWN，零股以小數保留）；除權日或目前無持倉 → 409 `TRADE_INSUFFICIENT_HOLDING`；除權日不得早於該標的最晚未沖銷調整、只能沖銷最晚一筆且沖銷後持股 > 0；冪等、一鍵沖銷；`POST /trades` 拒絕早於該標的最晚未沖銷調整生效起點的 `executedAt`（400 `fields.executedAt`）。（D-04 ~ D-09、D-11、D-13）
 - [x] **ADJ-02**: 配股 / 拆股生效當日的今日損益以 `DayPnlCalculator` 的 `ShareAdjustment` 扣除非現金股數變動（等同前收依比例調整），單檔與 summary 總額（含今日賣光的平倉候選）一致；行情尚未反映調整時該檔回 `null` 並計入 `dayPnlExcludedCount`。（D-10）
 
 ### Trading
@@ -76,8 +76,8 @@
 
 - [x] **WATCH-01**: 多個具名自選清單（`GET/POST /api/v1/watchlists`、`PATCH/DELETE /api/v1/watchlists/{id}`）：首次 `GET` 後端自動建立「我的自選」（併發安全）；每人上限 20 個、名稱 1–30 字且同使用者唯一；超過上限 400 `VALIDATION_FAILED`（`fields` 指名）；非擁有者一律 404 `WATCHLIST_NOT_FOUND`。（D-14、D-15、D-17）
 - [x] **WATCH-02**: 清單項目可加入（任何 active 資產，含 FX / 債券）、移除、整份重排（集合不符 409 `WATCHLIST_ORDER_CONFLICT`）；每清單上限 100 檔；清單回應一併帶每檔報價（`findDailyQuotes`，與 `GET /assets` 的 `AssetDto` 同一 mapper，無行情為 `null`）。（D-15、D-17、D-18、D-19）
-- [ ] **WATCH-03**: 前端 `watchlistApi.ts` 三件組；Chart / Markets / Watchlist 三頁不再 import mock portfolio store（守門測試）；星號改為清單選擇器；Watchlist 頁 API mode 以後端資料渲染（清單 tabs、建立 / 改名 / 刪除、拖拉與鍵盤排序持久化、無報價「—」），移除該頁示範資料標示；Markets / Chart 行情仍為示範資料，保留標示並加例外行。（D-14 ~ D-18、D-20）
-- [ ] **WATCH-04**: Watchlist 頁與 Overview 觀察清單卡在 API mode 以前端 WS client（`apiClient.ts` 旁的獨立 service，ticket 經 `apiClient`）接收 `tick.{symbol}` 即時價；每分頁一條連線、4002 不重連並提示、背景關閉 / 前景重連、退避 1 s → 30 s；沒有 tick 或斷線時顯示最後一次 GET 報價與「更新於 HH:mm」，無報價「—」；mock 模式為明確的假推播；元件不直接使用瀏覽器 WebSocket；Overview 觀察清單卡接真資料、新聞卡加示範資料標示。（D-19、D-21、D-23、D-24、D-26）
+- [x] **WATCH-03**: 前端 `watchlistApi.ts` 三件組；Chart / Markets / Watchlist 三頁不再 import mock portfolio store（守門測試）；星號改為清單選擇器；Watchlist 頁 API mode 以後端資料渲染（清單 tabs、建立 / 改名 / 刪除、拖拉與鍵盤排序持久化、無報價「—」），移除該頁示範資料標示；Markets / Chart 行情仍為示範資料，保留標示並加例外行。（D-14 ~ D-18、D-20）
+- [x] **WATCH-04**: Watchlist 頁與 Overview 觀察清單卡在 API mode 以前端 WS client（`apiClient.ts` 旁的獨立 service，ticket 經 `apiClient`）接收 `tick.{symbol}` 即時價；每分頁一條連線、4002 不重連並提示、背景關閉 / 前景重連、退避 1 s → 30 s；沒有 tick 或斷線時顯示最後一次 GET 報價與「更新於 HH:mm」，無報價「—」；mock 模式為明確的假推播；元件不直接使用瀏覽器 WebSocket；Overview 觀察清單卡接真資料、新聞卡加示範資料標示。（D-19、D-21、D-23、D-24、D-26）
 - [x] **WATCH-05**: 後端 `SubscriptionManager` 依 channel 類型分開計數（`tick` 每連線 100、`kline` 10），WELCOME 告知兩個上限；`ai-docs/security.md` WS 章節改寫成與程式一致。（D-22、D-25）
 
 ### Error Handling
@@ -173,15 +173,15 @@ Roadmap creation will map each v1 requirement to exactly one phase.
 | CASH-03 | Phase 04.1 | Complete |
 | TRAD-10 | Phase 04.1 | Complete |
 | ERR-01 | Phase 04.1 | Complete |
-| DIV-01 | Phase 04.2 | Pending |
-| DIV-02 | Phase 04.2 | Pending |
-| ADJ-01 | Phase 04.2 | Pending |
+| DIV-01 | Phase 04.2 | Complete |
+| DIV-02 | Phase 04.2 | Complete |
+| ADJ-01 | Phase 04.2 | Complete |
 | ADJ-02 | Phase 04.2 | Complete |
-| PORT-13 | Phase 04.2 | Pending |
+| PORT-13 | Phase 04.2 | Complete |
 | WATCH-01 | Phase 04.2 | Complete |
 | WATCH-02 | Phase 04.2 | Complete |
-| WATCH-03 | Phase 04.2 | Pending |
-| WATCH-04 | Phase 04.2 | Pending |
+| WATCH-03 | Phase 04.2 | Complete |
+| WATCH-04 | Phase 04.2 | Complete |
 | WATCH-05 | Phase 04.2 | Complete |
 
 2026-09-27 狀態回填(依測試證據,非依 phase 完成宣稱):
@@ -200,4 +200,4 @@ Roadmap creation will map each v1 requirement to exactly one phase.
 
 ---
 *Requirements defined: 2026-05-30*  
-*Last updated: 2026-11-04 Phase 04.2 收尾閘門(04.2-26):ADJ-02、WATCH-01、WATCH-02、WATCH-05 依 CI run 41769138322 標 Complete;其餘六條待 Browser E2E(PR 觸發)與 Yuan 走查*
+*Last updated: 2026-11-04 Phase 04.2 收尾閘門(04.2-26):ADJ-02、WATCH-01、WATCH-02、WATCH-05 依 CI run 41769138322 標 Complete;DIV-01、DIV-02、ADJ-01、PORT-13、WATCH-03、WATCH-04 依 PR #51 CI run 41811626895(Browser E2E 117/117,J1/J2/J3/W1/L1 全過)與 Yuan 走查(「ok」)標 Complete*
