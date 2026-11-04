@@ -435,7 +435,8 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 - `effective_at = TradingDay.of(assetType, market).startOf(effectiveDate)`：除權日**該市場交易日的起點**（股票為交易所時區午夜、外匯紐約 17:00、加密 UTC 00:00，與今日損益同一條規則）。
 - `effective_at` 晚於伺服器時間 5 分鐘以上 → 400 `fields.effectiveDate`。
 - `effective_at` 早於該標的最晚一筆「**未被沖銷且非沖銷列**」調整的 `effective_at` → 400 `fields.effectiveDate`（調整只能依時間往後記；要補記更早的，先沖銷較晚者）。
-- 事件日起點持股 `Q_asOf`（由交易與既有調整推得，沖銷列反號）≤ 0，或目前持倉不存在 / ≤ 0 → 409 `TRADE_INSUFFICIENT_HOLDING`（D-06 / D-09）。
+- **同一除權日可記多筆調整，依記錄順序疊加**（2026-11-04 裁決）：與最晚有效調整同一 `effective_at` 不算「早於」；後記錄者的 `Q_asOf` 包含同一 `effective_at`、已先記錄的調整。例：100 股同一除權日記兩次 2:1 拆股 → 第一筆 ΔQ +100、第二筆 ΔQ +200，結果 400 股。「最晚」依 (`effective_at` DESC, 記錄順序 DESC) 排序。
+- 事件日起點持股 `Q_asOf` = `executed_at` **早於** `effective_at` 的交易淨股數 + `effective_at` **不晚於**本筆生效瞬間的既有調整淨股數（沖銷列反號；本筆尚未寫入，因此只含先記錄者）。`Q_asOf` ≤ 0，或目前持倉不存在 / ≤ 0 → 409 `TRADE_INSUFFICIENT_HOLDING`（D-06 / D-09）。
 - 對應地，`POST /trades` 不接受早於最晚未沖銷調整生效起點的 `executedAt`（見該節〈錯誤〉）。
 
 ### `quantityDelta` 計算式
@@ -452,7 +453,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 **沖銷（`reversalOfId`）**：
 
 - 值（`symbol` / `type` / `quantity` 或 `ratioNew` + `ratioOld` / `effectiveDate`）必須與原列相同，否則 400 `VALIDATION_FAILED`（`fields` 指名）。
-- **只能沖銷該標的最晚一筆未沖銷調整**；沖銷非最晚者，或原列本身是沖銷 → 409 `SHARE_ADJUSTMENT_NOT_REVERSIBLE`（沖銷中間一筆會讓後續調整的 ΔQ 基準失真）。
+- **只能沖銷該標的最晚一筆未沖銷調整**；沖銷非最晚者，或原列本身是沖銷 → 409 `SHARE_ADJUSTMENT_NOT_REVERSIBLE`（沖銷中間一筆會讓後續調整的 ΔQ 基準失真）。同一除權日的多筆依記錄順序**倒著**沖：先沖最後記錄的那筆，才能再沖前一筆。
 - 沖銷**撤銷已記錄的 `quantityDelta`、不重算比例**：持倉回到調整前股數、總成本不變。沖銷後持股 ≤ 0 → 409 `TRADE_INSUFFICIENT_HOLDING`。
 - 不存在 / 他人 → 404 `SHARE_ADJUSTMENT_NOT_FOUND`；已被沖銷 → 409 `SHARE_ADJUSTMENT_ALREADY_REVERSED`。
 - 沖銷列在資料庫中存與原列相同的值（含 `quantity_delta`、`effective_date`、`effective_at`），聚合時反號。
@@ -583,4 +584,5 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 ## 變更紀錄
 
+- 2026-11-04（Phase 04.2，04.2-08）：股數調整〈生效時間與時序規則〉明定**同一除權日的多筆調整依記錄順序疊加**（Yuan 裁決「同日依記錄順序疊加」）：`Q_asOf` 的調整段改為含同一 `effective_at`、已先記錄者（交易段仍為嚴格早於）；沖銷依記錄順序倒著來。修正前同日第二筆拆股的 `Q_asOf` 不含第一筆（100 股兩次 2:1 → 300 而非 400）。
 - 2026-11-01（Phase 04.2，04.2-02）：凍結 `POST /portfolio/dividends`、`POST /portfolio/share-adjustments`、`GET /portfolio/activities` 三節，summary 新增 `dividendIncome` / `dividendTaxWithheld`、`totalPnl` 與 `roi` 含股利（語意變更）、summary 快取鍵 `v3`、`POST /trades` 新增 `fields.executedAt` 早於最晚股數調整的 400。股利與股數調整**實作為新表 `cash_dividends` / `share_adjustments`，而非擴充 `transactions.type`**（先前〈尚未提供〉的「`transactions.type` 擴充」敘述已刪除；裁決見 `.planning/phases/04.2-dividends-share-adjustments-watchlist/04.2-02-SUMMARY.md`）。Watchlist 契約另立 [watchlist-contract.md](watchlist-contract.md)。
