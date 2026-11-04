@@ -33,6 +33,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -399,6 +400,129 @@ class WatchlistApiIT extends ContainerIT {
         } finally {
             dropTempAssets("WLRACE-");
         }
+    }
+
+    @Test
+    @DisplayName("IT 11：加入 A、B、C → PUT order [C, A, B] → 200 且順序 C, A, B；GET 也是（持久化）；PUT [A, B] → 409")
+    void reorderPersistsAndRejectsDifferentSet() throws Exception {
+        String token = registerAndLogin("watch-order@example.com", "watchorder");
+        String id = getWatchlists(token).get(0).get("id").asText();
+        addItem(token, id, "AAPL").andExpect(status().isOk());
+        addItem(token, id, "BTC").andExpect(status().isOk());
+        JsonNode items = data(addItem(token, id, "US10Y").andExpect(status().isOk())).get("items");
+        assertThat(symbols(items)).containsExactly("AAPL", "BTC", "US10Y");
+        String a = items.get(0).get("uuid").asText();
+        String b = items.get(1).get("uuid").asText();
+        String c = items.get(2).get("uuid").asText();
+
+        JsonNode reordered = data(reorder(token, id, List.of(c, a, b)).andExpect(status().isOk()));
+        assertThat(symbols(reordered.get("items"))).containsExactly("US10Y", "AAPL", "BTC");
+        assertThat(symbols(getWatchlists(token).get(0).get("items"))).containsExactly("US10Y", "AAPL", "BTC");
+
+        reorder(token, id, List.of(a, b))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code", equalTo("WATCHLIST_ORDER_CONFLICT")));
+        reorder(token, id, List.of(a, b, b))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code", equalTo("WATCHLIST_ORDER_CONFLICT")));
+        assertThat(symbols(getWatchlists(token).get(0).get("items"))).containsExactly("US10Y", "AAPL", "BTC");
+
+        addItem(token, id, "ETH")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.items[-1].symbol", equalTo("ETH")));
+    }
+
+    @Test
+    @DisplayName("IT 12：DELETE items/{AAPL uuid} → items 不含 AAPL；再 DELETE → 200 原樣；未知資產 uuid → 200 原樣")
+    void removeItemIsIdempotent() throws Exception {
+        String token = registerAndLogin("watch-remove@example.com", "watchremove");
+        String id = getWatchlists(token).get(0).get("id").asText();
+        String aapl = data(addItem(token, id, "AAPL").andExpect(status().isOk())).get("items").get(0).get("uuid").asText();
+        addItem(token, id, "MSFT").andExpect(status().isOk());
+
+        JsonNode removed = data(removeItem(token, id, aapl).andExpect(status().isOk()));
+        assertThat(symbols(removed.get("items"))).containsExactly("MSFT");
+
+        JsonNode again = data(removeItem(token, id, aapl).andExpect(status().isOk()));
+        assertThat(symbols(again.get("items"))).containsExactly("MSFT");
+
+        JsonNode unknown = data(removeItem(token, id, UUID.randomUUID().toString()).andExpect(status().isOk()));
+        assertThat(symbols(unknown.get("items"))).containsExactly("MSFT");
+
+        removeItem(token, id, "not-a-uuid")
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")));
+    }
+
+    @Test
+    @DisplayName("IT 14：使用者 B 對 A 的清單 POST / DELETE / PUT items → 皆 404 WATCHLIST_NOT_FOUND，A 的項目不變")
+    void otherUsersCannotTouchItems() throws Exception {
+        String ownerToken = registerAndLogin("watch-items-owner@example.com", "watchitemsowner");
+        String intruderToken = registerAndLogin("watch-items-intruder@example.com", "watchitemsintruder");
+        String id = getWatchlists(ownerToken).get(0).get("id").asText();
+        String aapl = data(addItem(ownerToken, id, "AAPL").andExpect(status().isOk()))
+            .get("items").get(0).get("uuid").asText();
+
+        addItem(intruderToken, id, "MSFT")
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code", equalTo("WATCHLIST_NOT_FOUND")));
+        removeItem(intruderToken, id, aapl)
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code", equalTo("WATCHLIST_NOT_FOUND")));
+        reorder(intruderToken, id, List.of(aapl))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code", equalTo("WATCHLIST_NOT_FOUND")));
+        String body = addItem(ownerToken, UUID.randomUUID().toString(), "AAPL")
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code", equalTo("WATCHLIST_NOT_FOUND")))
+            .andReturn().getResponse().getContentAsString();
+        assertThat(body).doesNotContain(id);
+
+        assertThat(symbols(getWatchlists(ownerToken).get(0).get("items"))).containsExactly("AAPL");
+    }
+
+    @Test
+    @DisplayName("IT 15：cookie 路徑 POST / DELETE / PUT items 不帶 CSRF header → 403 AUTH_CSRF_TOKEN_INVALID")
+    void cookieItemMutationsRequireCsrf() throws Exception {
+        Cookie access = registerAndLoginWithCookie("watch-items-csrf@example.com", "watchitemscsrf");
+        String body = mockMvc.perform(get("/api/v1/watchlists").cookie(access))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString();
+        String id = objectMapper.readTree(body).get("data").get(0).get("id").asText();
+
+        mockMvc.perform(post("/api/v1/watchlists/" + id + "/items")
+                .cookie(access)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"symbol\":\"AAPL\"}"))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code", equalTo("AUTH_CSRF_TOKEN_INVALID")));
+        mockMvc.perform(delete("/api/v1/watchlists/" + id + "/items/" + UUID.randomUUID()).cookie(access))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code", equalTo("AUTH_CSRF_TOKEN_INVALID")));
+        mockMvc.perform(put("/api/v1/watchlists/" + id + "/items/order")
+                .cookie(access)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"assetIds\":[]}"))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code", equalTo("AUTH_CSRF_TOKEN_INVALID")));
+
+        Integer rows = jdbcClient.sql("select count(*) from watchlist_items where watchlist_id = :id")
+            .param("id", watchlistId(id))
+            .query(Integer.class)
+            .single();
+        assertThat(rows).isZero();
+    }
+
+    private ResultActions removeItem(String token, String id, String assetId) throws Exception {
+        return mockMvc.perform(delete("/api/v1/watchlists/" + id + "/items/" + assetId)
+            .header("Authorization", "Bearer " + token));
+    }
+
+    private ResultActions reorder(String token, String id, List<String> assetIds) throws Exception {
+        return mockMvc.perform(put("/api/v1/watchlists/" + id + "/items/order")
+            .header("Authorization", "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(Map.of("assetIds", assetIds))));
     }
 
     private ResultActions addItem(String token, String id, String symbol) throws Exception {

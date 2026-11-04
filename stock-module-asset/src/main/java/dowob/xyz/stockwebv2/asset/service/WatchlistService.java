@@ -168,6 +168,32 @@ public class WatchlistService {
     }
 
     /**
+     * RED skeleton（04.2-12）。
+     *
+     * @param userId        擁有者
+     * @param watchlistUuid 清單 UUID
+     * @param assetUuid     資產 UUID
+     * @return 移除後的清單
+     */
+    @Transactional
+    public WatchlistDto removeItem(Long userId, UUID watchlistUuid, UUID assetUuid) {
+        return null;
+    }
+
+    /**
+     * RED skeleton（04.2-12）。
+     *
+     * @param userId        擁有者
+     * @param watchlistUuid 清單 UUID
+     * @param assetUuids    新順序
+     * @return 重排後的清單
+     */
+    @Transactional
+    public WatchlistDto reorder(Long userId, UUID watchlistUuid, List<UUID> assetUuids) {
+        return null;
+    }
+
+    /**
      * 名稱正規化：去除前後空白（{@link String#strip()}，含全形空白），trim 後須為 1–30 個 code point。
      *
      * @param name 使用者輸入

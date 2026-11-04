@@ -19,6 +19,9 @@ import org.mockito.InOrder;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -39,7 +42,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * {@link WatchlistService} 單元測試：清單列出、預設清單、報價批次、建立 / 改名 / 刪除與上限（WATCH-01；D-14、D-15、D-17、D-19）。
+ * {@link WatchlistService} 單元測試：清單列出、預設清單、報價批次、建立 / 改名 / 刪除、項目加入 / 移除 / 重排與上限（WATCH-01 / WATCH-02；D-14 ~ D-19）。
  *
  * @author Yuan
  * @version 1.0
@@ -467,5 +470,156 @@ class WatchlistServiceTest {
         order.verify(repository).findByUuidForUpdate(USER_ID, list.uuid());
         order.verify(repository).countItems(1L);
         verify(repository, never()).insertItemAtEnd(anyLong(), anyLong());
+    }
+
+    // ── 移除項目 ──────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("移除：鎖清單列 → 以資產 uuid 解析 → deleteItem → 回新 DTO")
+    void removeItem_present_deletesAndReturnsFreshDto() {
+        Watchlist list = watchlist(1L, "我的自選");
+        Asset msft = asset(21L, "MSFT", AssetType.STOCK, "US");
+        UUID aaplUuid = UUID.randomUUID();
+        when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
+        when(repository.findAssetIdByUuid(aaplUuid)).thenReturn(Optional.of(10L));
+        when(repository.itemsByWatchlist(List.of(1L))).thenReturn(Map.of(1L, List.of(msft)));
+        when(marketData.findDailyQuotes(any())).thenReturn(Map.of());
+
+        WatchlistDto dto = service.removeItem(USER_ID, list.uuid(), aaplUuid);
+
+        InOrder order = inOrder(repository);
+        order.verify(repository).findByUuidForUpdate(USER_ID, list.uuid());
+        order.verify(repository).deleteItem(1L, 10L);
+        order.verify(repository).itemsByWatchlist(List.of(1L));
+        assertThat(dto).isNotNull();
+        assertThat(dto.items()).extracting(AssetDto::symbol).containsExactly("MSFT");
+    }
+
+    @Test
+    @DisplayName("移除：資產 uuid 不存在 → 原樣回傳，不刪除、不報錯（不洩漏資產存在性）")
+    void removeItem_unknownAsset_returnsUnchanged() {
+        Watchlist list = watchlist(1L, "我的自選");
+        UUID unknown = UUID.randomUUID();
+        when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
+        when(repository.findAssetIdByUuid(unknown)).thenReturn(Optional.empty());
+        when(repository.itemsByWatchlist(List.of(1L))).thenReturn(Map.of());
+
+        WatchlistDto dto = service.removeItem(USER_ID, list.uuid(), unknown);
+
+        verify(repository, never()).deleteItem(anyLong(), anyLong());
+        assertThat(dto).isNotNull();
+        assertThat(dto.id()).isEqualTo(list.uuid());
+        assertThat(dto.items()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("移除：他人或不存在的清單 → 404 WATCHLIST_NOT_FOUND，不解析資產、不刪除")
+    void removeItem_otherUsersList_watchlistNotFound() {
+        UUID uuid = UUID.randomUUID();
+        when(repository.findByUuidForUpdate(USER_ID, uuid)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.removeItem(USER_ID, uuid, UUID.randomUUID()))
+            .isInstanceOf(BusinessException.class)
+            .satisfies(error -> assertThat(((BusinessException) error).errorCode())
+                .isEqualTo(ErrorCode.WATCHLIST_NOT_FOUND));
+        verify(repository, never()).findAssetIdByUuid(any());
+        verify(repository, never()).deleteItem(anyLong(), anyLong());
+    }
+
+    // ── 整份重排 ──────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("重排：集合相同 → 鎖清單列後讀目前集合，依送來順序 rewritePositions，回 DTO 依新順序")
+    void reorder_sameSet_rewritesPositionsInRequestOrder() {
+        Watchlist list = watchlist(1L, "我的自選");
+        Asset a = asset(10L, "A", AssetType.STOCK, "US");
+        Asset b = asset(11L, "B", AssetType.STOCK, "US");
+        Asset c = asset(12L, "C", AssetType.STOCK, "US");
+        when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
+        when(repository.itemAssetIdsByUuid(1L)).thenReturn(currentItems(a, b, c));
+        when(repository.itemsByWatchlist(List.of(1L))).thenReturn(Map.of(1L, List.of(c, a, b)));
+        when(marketData.findDailyQuotes(any())).thenReturn(Map.of());
+
+        WatchlistDto dto = service.reorder(USER_ID, list.uuid(), List.of(c.uuid(), a.uuid(), b.uuid()));
+
+        InOrder order = inOrder(repository);
+        order.verify(repository).findByUuidForUpdate(USER_ID, list.uuid());
+        order.verify(repository).itemAssetIdsByUuid(1L);
+        order.verify(repository).rewritePositions(1L, List.of(12L, 10L, 11L));
+        order.verify(repository).itemsByWatchlist(List.of(1L));
+        assertThat(dto).isNotNull();
+        assertThat(dto.items()).extracting(AssetDto::symbol).containsExactly("C", "A", "B");
+    }
+
+    @Test
+    @DisplayName("重排：少一個、多一個（不在清單中）、重複、空陣列對非空清單 → 409 WATCHLIST_ORDER_CONFLICT，不重寫")
+    void reorder_differentSet_conflict() {
+        Watchlist list = watchlist(1L, "我的自選");
+        Asset a = asset(10L, "A", AssetType.STOCK, "US");
+        Asset b = asset(11L, "B", AssetType.STOCK, "US");
+        when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
+        when(repository.itemAssetIdsByUuid(1L)).thenReturn(currentItems(a, b));
+
+        List<List<UUID>> invalid = List.of(
+            List.of(a.uuid()),
+            List.of(a.uuid(), b.uuid(), UUID.randomUUID()),
+            List.of(a.uuid(), a.uuid()),
+            List.of(a.uuid(), b.uuid(), b.uuid()),
+            List.of()
+        );
+        for (List<UUID> assetIds : invalid) {
+            assertThatThrownBy(() -> service.reorder(USER_ID, list.uuid(), assetIds))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> {
+                    BusinessException exception = (BusinessException) error;
+                    assertThat(exception.errorCode()).isEqualTo(ErrorCode.WATCHLIST_ORDER_CONFLICT);
+                    assertThat(exception.getMessage()).doesNotContain(a.uuid().toString());
+                });
+        }
+        verify(repository, never()).rewritePositions(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("重排：assetIds 為 null 或含 null 元素 → 400 VALIDATION_FAILED fields.assetIds，不重寫")
+    void reorder_nullInput_validationFailed() {
+        Watchlist list = watchlist(1L, "我的自選");
+        Asset a = asset(10L, "A", AssetType.STOCK, "US");
+        when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
+        when(repository.itemAssetIdsByUuid(1L)).thenReturn(currentItems(a));
+        List<UUID> withNull = new ArrayList<>();
+        withNull.add(null);
+
+        for (List<UUID> assetIds : Arrays.asList(null, withNull)) {
+            assertThatThrownBy(() -> service.reorder(USER_ID, list.uuid(), assetIds))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> {
+                    BusinessException exception = (BusinessException) error;
+                    assertThat(exception.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                    assertThat(exception.fields()).containsOnlyKeys("assetIds");
+                });
+        }
+        verify(repository, never()).rewritePositions(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("重排：他人或不存在的清單 → 404 WATCHLIST_NOT_FOUND，不讀項目、不重寫")
+    void reorder_otherUsersList_watchlistNotFound() {
+        UUID uuid = UUID.randomUUID();
+        when(repository.findByUuidForUpdate(USER_ID, uuid)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.reorder(USER_ID, uuid, List.of(UUID.randomUUID())))
+            .isInstanceOf(BusinessException.class)
+            .satisfies(error -> assertThat(((BusinessException) error).errorCode())
+                .isEqualTo(ErrorCode.WATCHLIST_NOT_FOUND));
+        verify(repository, never()).itemAssetIdsByUuid(anyLong());
+        verify(repository, never()).rewritePositions(anyLong(), any());
+    }
+
+    private static Map<UUID, Long> currentItems(Asset... assets) {
+        Map<UUID, Long> items = new LinkedHashMap<>();
+        for (Asset asset : assets) {
+            items.put(asset.uuid(), asset.id());
+        }
+        return items;
     }
 }

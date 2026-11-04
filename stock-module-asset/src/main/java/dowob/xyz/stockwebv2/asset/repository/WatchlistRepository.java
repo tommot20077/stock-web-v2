@@ -130,4 +130,37 @@ public interface WatchlistRepository {
      * @return 實際新增一列時為 true；已存在時為 false
      */
     boolean insertItemAtEnd(Long watchlistId, Long assetId);
+
+    /**
+     * 以資產 UUID 解析內部 id（不限 active：移除項目時資產可能已下架）。
+     *
+     * @param assetUuid 資產 UUID（{@code AssetDto.uuid}）
+     * @return 資產內部 id；不存在時為 empty
+     */
+    Optional<Long> findAssetIdByUuid(UUID assetUuid);
+
+    /**
+     * 自清單移除一檔；不在清單中時不做任何事。
+     *
+     * @param watchlistId 清單 id（呼叫端已鎖列）
+     * @param assetId     資產 id
+     */
+    void deleteItem(Long watchlistId, Long assetId);
+
+    /**
+     * 清單目前<strong>可見</strong>（active 資產）的項目，依 position 排序。重排以此集合比對前端送來的集合——
+     * 與 {@link #itemsByWatchlist} 回給前端的集合一致，否則含下架資產的清單永遠無法重排。
+     *
+     * @param watchlistId 清單 id
+     * @return 資產 UUID → 資產內部 id（保持 position 順序）
+     */
+    Map<UUID, Long> itemAssetIdsByUuid(Long watchlistId);
+
+    /**
+     * 依給定順序把 position 重寫為 1..n（逐列 UPDATE，n ≤ 100，於呼叫端的同一交易內）。
+     *
+     * @param watchlistId      清單 id（呼叫端已鎖列並確認集合相符）
+     * @param assetIdsInOrder  新順序的資產 id
+     */
+    void rewritePositions(Long watchlistId, List<Long> assetIdsInOrder);
 }

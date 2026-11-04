@@ -214,6 +214,26 @@ public class JdbcWatchlistRepository implements WatchlistRepository {
             .update() == 1;
     }
 
+    @Override
+    public Optional<Long> findAssetIdByUuid(UUID assetUuid) {
+        throw new UnsupportedOperationException("04.2-12 RED skeleton");
+    }
+
+    @Override
+    public void deleteItem(Long watchlistId, Long assetId) {
+        throw new UnsupportedOperationException("04.2-12 RED skeleton");
+    }
+
+    @Override
+    public Map<UUID, Long> itemAssetIdsByUuid(Long watchlistId) {
+        throw new UnsupportedOperationException("04.2-12 RED skeleton");
+    }
+
+    @Override
+    public void rewritePositions(Long watchlistId, List<Long> assetIdsInOrder) {
+        throw new UnsupportedOperationException("04.2-12 RED skeleton");
+    }
+
     /**
      * {@inheritDoc}
      *
