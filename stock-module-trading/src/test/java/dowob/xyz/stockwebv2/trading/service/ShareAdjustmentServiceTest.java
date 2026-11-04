@@ -269,7 +269,7 @@ class ShareAdjustmentServiceTest {
     }
 
     @Test
-    @DisplayName("與最晚未沖銷調整同一生效時間 → 允許（規則只拒絕「早於」）")
+    @DisplayName("與最晚未沖銷調整同一生效時間 → 允許（規則只拒絕「早於」；同日依記錄順序疊加）")
     void effectiveDateEqualToLatestActiveAdjustmentIsAllowed() {
         holding("100", "100");
         when(repository.findLatestActive(USER_ID, AAPL_ID)).thenReturn(Optional.of(
@@ -281,6 +281,36 @@ class ShareAdjustmentServiceTest {
             "k-same-day");
 
         verify(repository).insertIfAbsent(any(ShareAdjustmentEntry.class));
+    }
+
+    @Test
+    @DisplayName("100 股、同一除權日記兩次 2:1 拆股 → 400 股：第二筆的 Q_asOf 含同日先記錄的第一筆（Yuan 2026-11-04 裁決）")
+    void sameDaySplitsStackInRecordOrder() {
+        holding("100", "100");
+        /* 第一筆：除權日起點持股 100（沒有同日先記錄的調整）→ ΔQ +100。 */
+        when(repository.quantityAsOf(USER_ID, AAPL_ID, TODAY_START_US)).thenReturn(new BigDecimal("100"));
+        service.create(USER_ID, new CreateShareAdjustmentRequest("AAPL", "SPLIT", null, 2, 1, TODAY, null, null),
+            "k-split-1");
+        ArgumentCaptor<Holding> afterFirst = ArgumentCaptor.forClass(Holding.class);
+        verify(tradingRepository).updateHolding(afterFirst.capture());
+        assertThat(afterFirst.getValue().totalQuantity()).isEqualByComparingTo("200");
+
+        /* 第二筆：同一瞬間，repository 依契約把先記錄的第一筆（+100）算進 Q_asOf → 200 → ΔQ +200。 */
+        when(tradingRepository.findHoldingForUpdate(USER_ID, AAPL_ID)).thenReturn(Optional.of(afterFirst.getValue()));
+        when(repository.findLatestActive(USER_ID, AAPL_ID)).thenReturn(Optional.of(
+            split(101L, "100", TODAY, TODAY_START_US, null, 2, 1)));
+        when(repository.quantityAsOf(USER_ID, AAPL_ID, TODAY_START_US)).thenReturn(new BigDecimal("200"));
+        service.create(USER_ID, new CreateShareAdjustmentRequest("AAPL", "SPLIT", null, 2, 1, TODAY, null, null),
+            "k-split-2");
+
+        ArgumentCaptor<ShareAdjustmentEntry> written = ArgumentCaptor.forClass(ShareAdjustmentEntry.class);
+        verify(repository, times(2)).insertIfAbsent(written.capture());
+        assertThat(written.getAllValues().get(1).quantityDelta()).isEqualByComparingTo("200");
+        ArgumentCaptor<Holding> updated = ArgumentCaptor.forClass(Holding.class);
+        verify(tradingRepository, times(2)).updateHolding(updated.capture());
+        assertThat(updated.getAllValues().get(1).totalQuantity()).isEqualByComparingTo("400");
+        /* 總成本不變：100 × 100 = 400 × 25。 */
+        assertThat(updated.getAllValues().get(1).avgCost()).isEqualByComparingTo("25");
     }
 
     @Test

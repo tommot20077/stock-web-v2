@@ -252,6 +252,49 @@ class ShareAdjustmentApiIT extends ContainerIT {
         assertThat(adjustmentRows(ownerEmail)).isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("100 股、同一除權日記兩次 2:1 拆股：400 股（同日依記錄順序疊加）；沖銷依記錄順序倒著來，先沖第一筆 409")
+    void sameDaySplitsStackInRecordOrderAndReverseBackwards() throws Exception {
+        String email = "adj-sameday-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "adjsame" + UUID.randomUUID().toString().substring(0, 8));
+        buy(accessToken, 100, 100, threeDaysAgo());
+        String today = LocalDate.now(NEW_YORK).toString();
+
+        String first = createdId(postAdjustment(accessToken, UUID.randomUUID().toString(),
+                splitBody(2, 1, today, null))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.quantityDelta", equalTo(100.00000000))));
+        String second = createdId(postAdjustment(accessToken, UUID.randomUUID().toString(),
+                splitBody(2, 1, today, null))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.quantityDelta", equalTo(200.00000000))));
+        assertHolding(accessToken, 400);
+
+        postAdjustment(accessToken, UUID.randomUUID().toString(), splitBody(2, 1, today, first))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code", equalTo("SHARE_ADJUSTMENT_NOT_REVERSIBLE")));
+
+        postAdjustment(accessToken, UUID.randomUUID().toString(), splitBody(2, 1, today, second))
+            .andExpect(status().isOk());
+        assertHolding(accessToken, 200);
+        postAdjustment(accessToken, UUID.randomUUID().toString(), splitBody(2, 1, today, first))
+            .andExpect(status().isOk());
+        assertHolding(accessToken, 100);
+
+        /* 兩筆都已沖銷後再記一次同日 2:1：Q_asOf = 100 + (100 − 100) + (200 − 200) = 100 → ΔQ +100。 */
+        postAdjustment(accessToken, UUID.randomUUID().toString(), splitBody(2, 1, today, null))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.quantityDelta", equalTo(100.00000000)));
+        assertHolding(accessToken, 200);
+    }
+
+    private void assertHolding(String accessToken, int expectedQuantity) throws Exception {
+        mockMvc.perform(get("/api/v1/portfolio/holdings")
+                .header("Authorization", "Bearer " + accessToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(expectedQuantity * 1.0)));
+    }
+
     private static String threeDaysAgo() {
         return Instant.now().minus(3, ChronoUnit.DAYS).truncatedTo(ChronoUnit.SECONDS).toString();
     }
