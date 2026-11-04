@@ -9,6 +9,7 @@ import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 import dowob.xyz.stockwebv2.trading.api.CreateDividendRequest;
 import dowob.xyz.stockwebv2.trading.api.DividendDto;
 import dowob.xyz.stockwebv2.trading.domain.CashDividend;
+import dowob.xyz.stockwebv2.trading.domain.DividendPayloadMatcher;
 import dowob.xyz.stockwebv2.trading.repository.DividendRepository;
 
 import org.apache.commons.lang3.StringUtils;
@@ -123,6 +124,9 @@ public class DividendService {
      * <p>每請求的 Facade 往返為 2 次（{@code findBySymbol} 解析標的、{@code findProfiles} 取幣別），
      * 在 ≤ 3 的預算內；持倉相關的資料存取一次都沒有（D-01 / D-03）。</p>
      *
+     * <p>冪等命中（快路徑或 insert 落空後重讀）一律經 {@link DividendPayloadMatcher} 比對：payload 相同回既有列
+     * 且不失效快取，不同則 409 {@code DIVIDEND_IDEMPOTENCY_KEY_REUSED}。</p>
+     *
      * <p>沖銷（{@code reversalOfId} 非 null）：原列以使用者範圍解析，且<strong>排在冪等快路徑之前</strong>
      * （快路徑的比對需要原列的內部 id）；沖銷規則則<strong>排在快路徑之後</strong>——沖銷成功後以同一把 key 重送時
      * 原列已是「已沖銷」，若先檢查規則，使用者會看到假性 409，而他的沖銷其實早已成功。</p>
@@ -136,7 +140,8 @@ public class DividendService {
      *                           標的不存在 / inactive / 不可交易（404 {@code ASSET_NOT_FOUND}）、
      *                           沖銷對象不存在或屬於他人（404 {@code DIVIDEND_NOT_FOUND}）、
      *                           沖銷對象已被沖銷，含併發沖銷落敗（409 {@code DIVIDEND_ALREADY_REVERSED}）、
-     *                           沖銷對象本身是沖銷（409 {@code DIVIDEND_NOT_REVERSIBLE}），
+     *                           沖銷對象本身是沖銷（409 {@code DIVIDEND_NOT_REVERSIBLE}）、
+     *                           同一把鍵搭配不同 payload（409 {@code DIVIDEND_IDEMPOTENCY_KEY_REUSED}），
      *                           或一般紀錄 insert 落空而以 key 重讀也落空（409 {@code DUPLICATE_RESOURCE}）
      */
     @Transactional
@@ -163,7 +168,9 @@ public class DividendService {
 
         Optional<CashDividend> known = repository.findByIdempotencyKey(userId, idempotencyKey);
         if (known.isPresent()) {
-            return toDto(known.get(), repository.isReversed(known.get().id()));
+            // 快路徑：資料完全沒有變動，不失效快取；payload 不同則 409。
+            return resolveIdempotentHit(known.get(), asset.id(), request.amount(), withholdingTax, requestedPaidAt,
+                original);
         }
         if (original != null) {
             validateReversalRules(original, asset.id(), request.amount(), withholdingTax);
@@ -186,7 +193,8 @@ public class DividendService {
             // （重讀命中）；或另一把 key 的沖銷搶先沖了同一筆（uk_cash_dividends_reversal_of，重讀落空）。
             Optional<CashDividend> concurrent = repository.findByIdempotencyKey(userId, idempotencyKey);
             if (concurrent.isPresent()) {
-                return toDto(concurrent.get(), repository.isReversed(concurrent.get().id()));
+                return resolveIdempotentHit(concurrent.get(), asset.id(), request.amount(), withholdingTax,
+                    requestedPaidAt, original);
             }
             ErrorCode lost = original == null ? ErrorCode.DUPLICATE_RESOURCE : ErrorCode.DIVIDEND_ALREADY_REVERSED;
             throw new BusinessException(lost, lost.defaultMessage());
@@ -196,6 +204,31 @@ public class DividendService {
         portfolioCache.invalidateSummaryAfterCommit(userId);
         // 剛寫入的紀錄不可能已被沖銷，不必再查一次。
         return toDto(inserted.get(), false);
+    }
+
+    /**
+     * 冪等命中時的 payload 比對（快路徑與 insert 落空重讀共用，避免兩處各寫一次而逐漸分歧）：
+     * 相同回既有列，不同則拒絕且不寫入。錯誤訊息為靜態字串，不回射冪等鍵、金額或備註。
+     *
+     * @param existing        以同一把鍵查出的既有列
+     * @param assetId         本次請求解析出的標的主鍵
+     * @param amount          本次請求的實領金額
+     * @param withholdingTax  本次請求的預扣稅（省略已正規化為 0）
+     * @param requestedPaidAt 本次請求明確送出的入帳時間（已截到微秒）；未送為 null
+     * @param original        本次請求解析出的沖銷原列；一般紀錄為 null
+     * @return 既有列的 DTO（{@code reversed} 讀自帳本）
+     * @throws BusinessException payload 不同時 {@code DIVIDEND_IDEMPOTENCY_KEY_REUSED}
+     */
+    private DividendDto resolveIdempotentHit(CashDividend existing, Long assetId, BigDecimal amount,
+                                             BigDecimal withholdingTax, OffsetDateTime requestedPaidAt,
+                                             CashDividend original) {
+        Long requestedReversalOfId = original == null ? null : original.id();
+        if (!DividendPayloadMatcher.matches(existing, assetId, amount, withholdingTax, requestedPaidAt,
+            requestedReversalOfId)) {
+            throw new BusinessException(ErrorCode.DIVIDEND_IDEMPOTENCY_KEY_REUSED,
+                ErrorCode.DIVIDEND_IDEMPOTENCY_KEY_REUSED.defaultMessage());
+        }
+        return toDto(existing, repository.isReversed(existing.id()));
     }
 
     /**
