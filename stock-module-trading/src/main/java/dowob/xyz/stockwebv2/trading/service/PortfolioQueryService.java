@@ -21,6 +21,8 @@ import dowob.xyz.stockwebv2.trading.domain.DayPnlCalculator;
 import dowob.xyz.stockwebv2.trading.domain.HoldingPosition;
 import dowob.xyz.stockwebv2.trading.domain.HoldingSnapshot;
 import dowob.xyz.stockwebv2.trading.repository.CashLedgerRepository;
+import dowob.xyz.stockwebv2.trading.repository.DividendRepository;
+import dowob.xyz.stockwebv2.trading.repository.DividendRepository.DividendTotals;
 import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
 
 import org.slf4j.Logger;
@@ -78,8 +80,14 @@ import java.util.TreeSet;
  * 快取未命中時每個 Facade 至多一次批次呼叫（共 4 次，D-23）的預算不變，見 {@link #summary} 內的呼叫點註解；
  * 現金的兩道聚合 SQL 是本模組自己的表，不算 Facade。</p>
  *
+ * <p>DIV-02 起 summary 帶現金股利（D-01、D-03）：{@link DividendRepository#netByAsset}（沖銷列反號）是可用現金的
+ * <strong>第三個來源</strong>（實領淨額記入標的幣別），同時折成基準幣成為 {@code dividendIncome} /
+ * {@code dividendTaxWithheld}；{@code totalPnl} 含 {@code dividendIncome}、{@code roi} 公式不變（04.2-02 裁決），
+ * 今日價格損益不含股利。股利標的（含從未持有者）的幣別併入同一次 {@code findProfiles}，D-23 的預算不變；
+ * 股利寫入（含沖銷）commit 後由 {@link PortfolioCache#invalidateSummaryAfterCommit} 失效 summary。</p>
+ *
  * @author Yuan
- * @version 5.0
+ * @version 6.0
  */
 @Service
 public class PortfolioQueryService {
@@ -91,6 +99,7 @@ public class PortfolioQueryService {
 
     private final TradingRepository repository;
     private final CashLedgerRepository cashLedgerRepository;
+    private final DividendRepository dividendRepository;
     private final MarketDataFacade marketDataFacade;
     private final PortfolioCache portfolioCache;
     private final UserPreferenceFacade userPreferenceFacade;
@@ -102,6 +111,7 @@ public class PortfolioQueryService {
      *
      * @param repository       交易與持倉資料存取
      * @param cashLedgerRepository 現金分錄帳本的聚合查詢（可用現金推導）
+     * @param dividendRepository 現金股利帳本的聚合查詢（可用現金第三來源與股利收入）
      * @param marketDataFacade 跨模組最新價查詢
      * @param portfolioCache   持倉與摘要的 Redis 快取
      * @param userPreferenceFacade 跨模組取得使用者基準幣
@@ -111,6 +121,7 @@ public class PortfolioQueryService {
     public PortfolioQueryService(
         TradingRepository repository,
         CashLedgerRepository cashLedgerRepository,
+        DividendRepository dividendRepository,
         MarketDataFacade marketDataFacade,
         PortfolioCache portfolioCache,
         UserPreferenceFacade userPreferenceFacade,
@@ -119,6 +130,7 @@ public class PortfolioQueryService {
     ) {
         this.repository = repository;
         this.cashLedgerRepository = cashLedgerRepository;
+        this.dividendRepository = dividendRepository;
         this.marketDataFacade = marketDataFacade;
         this.portfolioCache = portfolioCache;
         this.userPreferenceFacade = userPreferenceFacade;
@@ -326,6 +338,11 @@ public class PortfolioQueryService {
      * 列入 {@code unconvertedCurrencies}（D-04）。交易資產的幣別與持倉共用同一次 {@code findProfiles}。
      * 此方法不驗證餘額、不擋任何操作（D-01）。快取失效由寫入端負責，見類別說明。
      *
+     * <p>現金股利（D-01、D-03）：各標的股利實領淨額（沖銷列反號）以標的幣別併入 {@code cashBalances}（第三個現金來源）；
+     * 同時逐標的以目前匯率折成基準幣，加總為 {@code dividendIncome}（計入 {@code totalPnl}）與
+     * {@code dividendTaxWithheld}（僅顯示）。換不到匯率者不計入、列入 {@code unconvertedCurrencies}。
+     * {@code roi = totalPnl / totalCostBasis} 公式不變，故含股利；{@code dayPricePnl} 不含股利。
+     *
      * <p>資產配置（D-18 ~ D-21）：「可折算且持有數量 &gt; 0」的持倉（換不到匯率或缺資產屬性者不進配置，與總額一致）
      * 以基準幣市值依 {@code assetType} 分類並加上正現金成為 {@code allocation}；依 {@code sector} 原值分組成
      * {@code sectorAllocation}（不含現金，null 產業排最後）。兩個分母的差異與排序規則見
@@ -338,7 +355,8 @@ public class PortfolioQueryService {
     public PortfolioSummaryDto summary(Long userId) {
         // Facade 呼叫點（D-23：快取未命中時 4 次批次呼叫，皆為批次、結果有快取、命中路徑只有第 1 次）：
         // 1. userPreferenceFacade.findBaseCurrency — 取基準幣，同時是 summary 快取鍵的一部分，必須先於快取讀取。
-        // 2. assetFacade.findProfiles — 一次取全部持倉（含已平倉）的幣別，供市值與已實現損益折算。
+        // 2. assetFacade.findProfiles — 一次取全部持倉（含已平倉）、交易現金流標的與現金股利標的（含從未持有者，D-03）
+        //    的幣別，供市值、已實現損益、現金與股利收入折算；股利標的併入這一次，不另外呼叫。
         // 3. marketDataFacade.findDailyQuotes — 持倉快取未命中者 ∪ 近 7 天平倉候選，合併成同一次批次取最新價與前收
         //    （見 valuePositions）。今日成交 repository.listFillsSince 是本模組自己的表，至多一次，不算 Facade。
         // 4. fxRateFacade.currentRates — 一次取回完整匯率表，之後逐筆折算在記憶體完成。
@@ -350,13 +368,15 @@ public class PortfolioQueryService {
         }
         List<HoldingSnapshot> snapshots = repository.listHoldingSnapshots(userId);
         List<HoldingPosition> positions = repository.listHoldings(userId);
-        // 現金的兩道聚合 SQL 是本模組自己的表（不是 Facade）。交易資產的幣別併入下面同一次 findProfiles。
+        // 現金的三道聚合 SQL 是本模組自己的表（不是 Facade）。交易與股利標的的幣別併入下面同一次 findProfiles。
         Map<Long, BigDecimal> tradeCashFlows = repository.tradeCashFlowByAsset(userId);
         Map<CurrencyCode, BigDecimal> ledgerNet = cashLedgerRepository.netByCurrency(userId);
+        Map<Long, DividendTotals> dividendTotals = dividendRepository.netByAsset(userId);
         Set<Long> assetIds = new LinkedHashSet<>();
         snapshots.forEach(snapshot -> assetIds.add(snapshot.assetId()));
         positions.forEach(position -> assetIds.add(position.assetId()));
         assetIds.addAll(tradeCashFlows.keySet());
+        assetIds.addAll(dividendTotals.keySet());
         Map<Long, AssetProfile> profiles = assetIds.isEmpty() ? Map.of() : assetFacade.findProfiles(assetIds);
         Set<Long> closedIds = closedCandidateIds(snapshots);
         Valuation valuation = valuePositions(userId, positions, profiles, closedIds);
@@ -413,9 +433,13 @@ public class PortfolioQueryService {
         }
         // 未實現損益由已折算的市值與成本相減，確保 totalMarketValue - totalCostBasis = unrealizedPnl 恆成立。
         BigDecimal unrealizedPnl = marketValue.subtract(costBasis);
-        BigDecimal totalPnl = realizedPnl.add(unrealizedPnl);
+        DividendIncome dividendIncome = dividendIncome(base, rates, dividendTotals, profiles, unconverted);
+        // totalPnl 含股利收入（04.2-02 裁決）；roi 公式不變，因此也含股利。預扣稅只顯示、不計入。
+        BigDecimal totalPnl = realizedPnl.add(unrealizedPnl).add(dividendIncome.income());
         DayTotals dayTotals = dayTotals(base, rates, positions, holdings, closedIds, valuation.day(), profiles, unconverted);
-        CashSummary cashSummary = cashSummary(base, rates, ledgerNet, tradeCashFlows, profiles, unconverted);
+        Map<Long, BigDecimal> dividendFlows = new LinkedHashMap<>();
+        dividendTotals.forEach((assetId, totals) -> dividendFlows.put(assetId, totals.net()));
+        CashSummary cashSummary = cashSummary(base, rates, ledgerNet, tradeCashFlows, dividendFlows, profiles, unconverted);
         // 純函式：只吃已折算的持倉值與基準幣現金，不另呼叫任何 Facade（D-23 的呼叫預算不變）。
         AllocationCalculator.Result allocation = AllocationCalculator.calculate(allocationInputs, cashSummary.cash());
         PortfolioSummaryDto dto = new PortfolioSummaryDto(
@@ -436,7 +460,9 @@ public class PortfolioQueryService {
             marketValue.add(cashSummary.cash()),
             cashSummary.balances(),
             allocation.allocation(),
-            allocation.sectors()
+            allocation.sectors(),
+            dividendIncome.income(),
+            dividendIncome.tax()
         );
         portfolioCache.writeSummary(userId, base, dto);
         return dto;
@@ -445,7 +471,8 @@ public class PortfolioQueryService {
     /**
      * 推導各幣別現金餘額，並折成基準幣合計。
      *
-     * <p>現金流 = 入出金淨額（以帳本幣別）＋ 各標的交易現金流（以標的幣別，D-07），交給
+     * <p>現金流 = 入出金淨額（以帳本幣別）＋ 各標的交易現金流（以標的幣別，D-07）＋ 各標的現金股利實領淨額
+     * （以標的幣別、沖銷列已反號，D-01），交給
      * {@link CashBalanceCalculator#balances} 依幣別加總；加總後逐幣別以目前匯率折成基準幣。
      * 換不到匯率的幣別不計入合計，改記入 {@code unconverted}（D-04），其原幣餘額仍列在 {@code balances}。
      * 取不到資產屬性的交易標的無從得知幣別，略過並記 WARN（理論上不會發生，FK 保證存在），
@@ -455,6 +482,7 @@ public class PortfolioQueryService {
      * @param rates        目前匯率
      * @param ledgerNet    入出金淨額（幣別 → 金額）
      * @param tradeFlows   交易現金流（標的 id → 金額，標的幣別）
+     * @param dividendFlows 現金股利實領淨額（標的 id → 金額，標的幣別）
      * @param profiles     資產屬性
      * @param unconverted  換不到匯率的幣別（會被加入）
      * @return 基準幣合計與各幣別原幣餘額
@@ -464,19 +492,14 @@ public class PortfolioQueryService {
         FxRates rates,
         Map<CurrencyCode, BigDecimal> ledgerNet,
         Map<Long, BigDecimal> tradeFlows,
+        Map<Long, BigDecimal> dividendFlows,
         Map<Long, AssetProfile> profiles,
         Set<String> unconverted
     ) {
         List<CashFlow> flows = new ArrayList<>();
         ledgerNet.forEach((currency, amount) -> flows.add(new CashFlow(currency, amount)));
-        tradeFlows.forEach((assetId, amount) -> {
-            AssetProfile profile = profiles.get(assetId);
-            if (profile == null) {
-                log.warn("Trade asset profile missing for assetId={}, trade cash flow excluded from cash", assetId);
-                return;
-            }
-            flows.add(new CashFlow(profile.currency(), amount));
-        });
+        addAssetFlows(flows, tradeFlows, profiles, "trade");
+        addAssetFlows(flows, dividendFlows, profiles, "dividend");
         Map<CurrencyCode, BigDecimal> balances = CashBalanceCalculator.balances(flows);
         BigDecimal cash = BigDecimal.ZERO.setScale(MONEY_SCALE);
         List<CashBalanceDto> balanceDtos = new ArrayList<>();
@@ -490,6 +513,86 @@ public class PortfolioQueryService {
             cash = cash.add(inBase.get());
         }
         return new CashSummary(cash, List.copyOf(balanceDtos));
+    }
+
+    /**
+     * 把以標的計的現金流依標的幣別轉成 {@link CashFlow} 加入 {@code flows}。
+     *
+     * <p>取不到資產屬性的標的無從得知幣別，略過並記 WARN（理論上不會發生，FK 保證存在）。</p>
+     *
+     * @param flows    要加入的現金流 list
+     * @param byAsset  標的 id → 金額（標的幣別）
+     * @param profiles 資產屬性
+     * @param source   來源名稱（只用於 WARN 訊息）
+     */
+    private void addAssetFlows(
+        List<CashFlow> flows,
+        Map<Long, BigDecimal> byAsset,
+        Map<Long, AssetProfile> profiles,
+        String source
+    ) {
+        byAsset.forEach((assetId, amount) -> {
+            AssetProfile profile = profiles.get(assetId);
+            if (profile == null) {
+                log.warn("{} asset profile missing for assetId={}, cash flow excluded from cash", source, assetId);
+                return;
+            }
+            flows.add(new CashFlow(profile.currency(), amount));
+        });
+    }
+
+    /**
+     * 把各標的的現金股利淨額與預扣稅以目前匯率折成基準幣後加總（D-01）。
+     *
+     * <p>逐標的依各自幣別折算（與已實現損益同規則）：換不到匯率者不計入兩個總和，幣別記入 {@code unconverted}
+     * （D-04）；淨額與稅額皆為 0 的標的（原列已全數沖銷）不需要匯率，不計入 unconverted。
+     * 取不到資產屬性者無從得知幣別，略過並記 WARN。</p>
+     *
+     * @param base           使用者基準幣
+     * @param rates          目前匯率
+     * @param dividendTotals 標的 id → 股利淨額與預扣稅（標的幣別，沖銷列已反號）
+     * @param profiles       資產屬性
+     * @param unconverted    換不到匯率的幣別（會被加入）
+     * @return 基準幣的股利收入與預扣稅合計
+     */
+    private DividendIncome dividendIncome(
+        CurrencyCode base,
+        FxRates rates,
+        Map<Long, DividendTotals> dividendTotals,
+        Map<Long, AssetProfile> profiles,
+        Set<String> unconverted
+    ) {
+        BigDecimal income = BigDecimal.ZERO.setScale(MONEY_SCALE);
+        BigDecimal tax = BigDecimal.ZERO.setScale(MONEY_SCALE);
+        for (Map.Entry<Long, DividendTotals> entry : dividendTotals.entrySet()) {
+            DividendTotals totals = entry.getValue();
+            if (totals.net().signum() == 0 && totals.tax().signum() == 0) {
+                continue;
+            }
+            AssetProfile profile = profiles.get(entry.getKey());
+            if (profile == null) {
+                log.warn("Dividend asset profile missing for assetId={}, excluded from dividend income", entry.getKey());
+                continue;
+            }
+            Optional<BigDecimal> incomeInBase = rates.convert(totals.net(), profile.currency(), base);
+            Optional<BigDecimal> taxInBase = rates.convert(totals.tax(), profile.currency(), base);
+            if (incomeInBase.isEmpty() || taxInBase.isEmpty()) {
+                unconverted.add(profile.currency().name());
+                continue;
+            }
+            income = income.add(incomeInBase.get());
+            tax = tax.add(taxInBase.get());
+        }
+        return new DividendIncome(income, tax);
+    }
+
+    /**
+     * 基準幣的現金股利收入與預扣稅合計。
+     *
+     * @param income 股利實領淨額合計（基準幣，計入 totalPnl）
+     * @param tax    預扣稅合計（基準幣，僅顯示）
+     */
+    private record DividendIncome(BigDecimal income, BigDecimal tax) {
     }
 
     /**

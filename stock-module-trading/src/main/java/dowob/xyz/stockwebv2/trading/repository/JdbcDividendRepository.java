@@ -8,6 +8,8 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -18,7 +20,7 @@ import java.util.UUID;
  * 標的的代號與幣別一律經 {@code AssetFacade} 取得（D-21，{@code TradingSqlBoundaryTest} 守門）。</p>
  *
  * @author Yuan
- * @version 1.0
+ * @version 1.1
  */
 @Repository
 public class JdbcDividendRepository implements DividendRepository {
@@ -147,6 +149,36 @@ public class JdbcDividendRepository implements DividendRepository {
             .param("dividendId", dividendId)
             .query((rs, rowNum) -> rs.getObject("uuid", UUID.class))
             .optional();
+    }
+
+    /**
+     * 依標的加總該使用者的股利淨額與預扣稅。
+     *
+     * <p>{@code where user_id = :userId} 是跨使用者隔離的唯一防線（T-04.2-12），不可省略。
+     * {@code case} 的兩支都寫明：一般列（{@code reversal_of_id is null}）取正值、沖銷列取負值，
+     * 使原列與其沖銷列相加為 0。不與資產主檔 join（D-21）：幣別由呼叫端經 {@code AssetFacade} 取得。</p>
+     *
+     * @param userId 紀錄擁有者 id
+     * @return 標的 id → 淨額與預扣稅；沒有任何股利時為空 map
+     */
+    @Override
+    public Map<Long, DividendTotals> netByAsset(Long userId) {
+        Map<Long, DividendTotals> totals = new LinkedHashMap<>();
+        jdbcClient.sql("""
+                select asset_id,
+                       sum(case when reversal_of_id is null then amount else -amount end) as net,
+                       sum(case when reversal_of_id is null then withholding_tax else -withholding_tax end) as tax
+                from cash_dividends
+                where user_id = :userId
+                group by asset_id
+                order by asset_id
+                """)
+            .param("userId", userId)
+            .query(rs -> {
+                totals.put(rs.getLong("asset_id"),
+                    new DividendTotals(rs.getBigDecimal("net"), rs.getBigDecimal("tax")));
+            });
+        return totals;
     }
 
     /**

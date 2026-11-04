@@ -2,6 +2,8 @@ package dowob.xyz.stockwebv2.trading.repository;
 
 import dowob.xyz.stockwebv2.trading.domain.CashDividend;
 
+import java.math.BigDecimal;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -12,7 +14,7 @@ import java.util.UUID;
  * （以主鍵查的 {@link #isReversed} / {@link #uuidOf} 除外，其主鍵只來自已綁使用者範圍查出的列）。</p>
  *
  * @author Yuan
- * @version 1.0
+ * @version 1.1
  */
 public interface DividendRepository {
 
@@ -60,4 +62,24 @@ public interface DividendRepository {
      * @return 對外 UUID；查無時回傳空 Optional
      */
     Optional<UUID> uuidOf(Long dividendId);
+
+    /**
+     * 依標的加總該使用者的現金股利淨額與預扣稅（summary 的可用現金第三來源與 {@code dividendIncome}）。
+     *
+     * <p>沖銷列在資料庫中存與原列相同的正值，加總時一律<strong>反號</strong>；因此原列與其沖銷列相加為 0。
+     * 只回傳有紀錄的標的（含淨額為 0 者）；金額皆為標的幣別原幣。</p>
+     *
+     * @param userId 紀錄擁有者 id
+     * @return 標的 id → 淨額與預扣稅；沒有任何股利時為空 map
+     */
+    Map<Long, DividendTotals> netByAsset(Long userId);
+
+    /**
+     * 單一標的的股利加總（標的幣別原幣，沖銷列已反號）。
+     *
+     * @param net 實領淨額合計（{@code amount}）
+     * @param tax 預扣稅合計（{@code withholding_tax}）
+     */
+    record DividendTotals(BigDecimal net, BigDecimal tax) {
+    }
 }
