@@ -18,11 +18,19 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasLength;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -38,7 +46,8 @@ import tools.jackson.databind.ObjectMapper;
  * <p>鎖四條主線：配股改寫持倉（股數增加、總成本不變、均價攤薄，D-05）且 {@code share_adjustments} 恰一列；
  * 拆股依<strong>除權日起點持股</strong>換算，除權日之後的買入不參與（D-08，Pitfall 1）；
  * 無持倉記配股回 409 {@code TRADE_INSUFFICIENT_HOLDING}（D-06）；cookie 登入未帶 CSRF header 被擋。
- * 04.2-08 補上沖銷（只能沖銷最晚一筆、已沖銷 409、他人 404）。</p>
+ * 04.2-08 補上沖銷（只能沖銷最晚一筆、已沖銷 409、他人 404、同日依記錄順序疊加與倒著沖）、
+ * 冪等 payload 比對 409 與 8 執行緒同 key 恰一列。</p>
  *
  * <p>AAPL 屬美股：除權日以紐約日曆日表示，生效瞬間為紐約午夜；買入的 {@code executedAt} 一律明確送出三天前，
  * 確保落在「今天 / 昨天」除權日起點之前。</p>
@@ -286,6 +295,95 @@ class ShareAdjustmentApiIT extends ContainerIT {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.quantityDelta", equalTo(100.00000000)));
         assertHolding(accessToken, 200);
+    }
+
+    @Test
+    @DisplayName("8 條併發的同 key 同 body 配股：全部 200 且同一 id、share_adjustments 恰一列、持倉只增加一次")
+    void concurrentSameKeyCreatesExactlyOneAdjustment() throws Exception {
+        String email = "adj-concurrent-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "adjconc" + UUID.randomUUID().toString().substring(0, 8));
+        buy(accessToken, 100, 100, threeDaysAgo());
+        String key = "adj-concurrent-" + UUID.randomUUID();
+        String body = dividendBody(10, LocalDate.now(NEW_YORK).toString(), null);
+
+        int threads = 8;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch go = new CountDownLatch(1);
+        List<Future<String>> responses = new ArrayList<>();
+        try {
+            for (int i = 0; i < threads; i++) {
+                responses.add(pool.submit(() -> {
+                    ready.countDown();
+                    go.await();
+                    var response = postAdjustment(accessToken, key, body).andReturn().getResponse();
+                    return response.getStatus() + " " + response.getContentAsString();
+                }));
+            }
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            go.countDown();
+
+            List<String> ids = new ArrayList<>();
+            for (Future<String> response : responses) {
+                String raw = response.get(30, TimeUnit.SECONDS);
+                assertThat(raw).startsWith("200 ");
+                ids.add(objectMapper.readTree(raw.substring(4)).get("data").get("id").asText());
+            }
+            /* 斷言不變量（只有一個 id）而非時序：哪一條 thread 贏得 insert 不確定，「大家看到同一筆」才是契約。 */
+            assertThat(ids).containsOnly(ids.getFirst());
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(adjustmentRows(email)).isEqualTo(1);
+        assertHolding(accessToken, 110);
+    }
+
+    @Test
+    @DisplayName("同 key 不同 payload：409 SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED，持倉與列數不變；只改 note 重送回既有那筆")
+    void sameKeyWithDifferentPayloadIsRejectedAsReuse() throws Exception {
+        String email = "adj-reuse-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "adjreuse" + UUID.randomUUID().toString().substring(0, 8));
+        buy(accessToken, 100, 100, threeDaysAgo());
+        String today = LocalDate.now(NEW_YORK).toString();
+        String key = "adj-reuse-" + UUID.randomUUID();
+        String id = createdId(postAdjustment(accessToken, key, dividendBody(10, today, null))
+            .andExpect(status().isOk()));
+
+        String error = postAdjustment(accessToken, key, dividendBody(11, today, null))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code", equalTo("SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED")))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        assertThat(error).doesNotContain(key);
+
+        postAdjustment(accessToken, key, """
+            {"symbol":"AAPL","type":"STOCK_DIVIDEND","quantity":10.00000000,"effectiveDate":"%s","note":"changed"}
+            """.formatted(today))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.id", equalTo(id)));
+
+        assertThat(adjustmentRows(email)).isEqualTo(1);
+        assertHolding(accessToken, 110);
+    }
+
+    @Test
+    @DisplayName("缺少 Idempotency-Key：400 VALIDATION_FAILED、error.fields['Idempotency-Key']，share_adjustments 無列")
+    void missingIdempotencyKeyIsRejectedWithFieldError() throws Exception {
+        String email = "adj-nokey-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "adjnokey" + UUID.randomUUID().toString().substring(0, 8));
+        buy(accessToken, 100, 100, threeDaysAgo());
+
+        mockMvc.perform(post("/api/v1/portfolio/share-adjustments")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + accessToken)
+                .content(dividendBody(10, LocalDate.now(NEW_YORK).toString(), null)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields['Idempotency-Key']", notNullValue()));
+
+        assertThat(adjustmentRows(email)).isZero();
     }
 
     private void assertHolding(String accessToken, int expectedQuantity) throws Exception {

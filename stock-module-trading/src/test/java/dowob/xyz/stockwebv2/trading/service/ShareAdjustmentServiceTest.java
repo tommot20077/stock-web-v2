@@ -687,6 +687,69 @@ class ShareAdjustmentServiceTest {
     }
 
     @Test
+    @DisplayName("同 key 命中但 payload 不同（配股股數 5 → 6）→ 409 SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED，不鎖持倉、不寫入、訊息不含 key")
+    void reusedKeyWithDifferentPayloadIsRejected() {
+        when(repository.findByIdempotencyKey(USER_ID, "LEAK-CANARY-KEY")).thenReturn(Optional.of(
+            existing(77L, TODAY, TODAY_START_US)));
+
+        assertThatThrownBy(() -> service.create(USER_ID,
+            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("6"), null, null, TODAY, null,
+                null), "LEAK-CANARY-KEY"))
+            .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                assertThat(ex.errorCode()).isEqualTo(ErrorCode.SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED);
+                assertThat(ex.getMessage()).doesNotContain("LEAK-CANARY-KEY");
+            });
+        verifyNoInteractions(tradingRepository, portfolioCache);
+        verify(repository, never()).insertIfAbsent(any());
+    }
+
+    @Test
+    @DisplayName("同 key 命中、只有 note 不同、quantity scale 不同（5 vs 5.00000000）→ 回既有那筆")
+    void sameKeyWithOnlyNoteAndScaleChangedReturnsExisting() {
+        ShareAdjustmentEntry known = new ShareAdjustmentEntry(77L, UUID.randomUUID(), USER_ID, AAPL_ID,
+            ShareAdjustmentType.STOCK_DIVIDEND, null, null, new BigDecimal("5.00000000"), TODAY, TODAY_START_US,
+            "第一次的備註", OffsetDateTime.parse("2026-10-30T10:00:00Z"), "k-note", null);
+        when(repository.findByIdempotencyKey(USER_ID, "k-note")).thenReturn(Optional.of(known));
+
+        ShareAdjustmentDto dto = service.create(USER_ID,
+            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY,
+                "改過的備註", null), "k-note");
+
+        assertThat(dto.id()).isEqualTo(known.uuid().toString());
+        verifyNoInteractions(tradingRepository, portfolioCache);
+    }
+
+    @Test
+    @DisplayName("同 key 先記一般調整、再拿來沖銷（reversalOfId 不同）→ 409 SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED")
+    void reusingAKeyForAReversalIsRejected() {
+        ShareAdjustmentEntry original = split(90L, "300", YESTERDAY, YESTERDAY_START_US, null);
+        stubOriginal(original);
+        when(repository.findByIdempotencyKey(USER_ID, "k-orig-90")).thenReturn(Optional.of(original));
+
+        assertErrorCode(() -> service.create(USER_ID,
+            reverseSplitRequest(4, 1, YESTERDAY, original.uuid(), null), "k-orig-90"),
+            ErrorCode.SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED);
+        verifyNoInteractions(tradingRepository, portfolioCache);
+    }
+
+    @Test
+    @DisplayName("insert 落空、以 key 重讀命中但 payload 不同 → 409 SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED，不更新持倉")
+    void insertConflictWithDifferentConcurrentPayloadIsKeyReuse() {
+        holding("100", "100");
+        when(repository.quantityAsOf(USER_ID, AAPL_ID, TODAY_START_US)).thenReturn(new BigDecimal("100"));
+        when(repository.findByIdempotencyKey(USER_ID, "k-race-diff"))
+            .thenReturn(Optional.empty())
+            .thenReturn(Optional.of(existing(88L, TODAY, TODAY_START_US)));
+        when(repository.insertIfAbsent(any(ShareAdjustmentEntry.class))).thenReturn(Optional.empty());
+
+        assertErrorCode(() -> service.create(USER_ID,
+            new CreateShareAdjustmentRequest("AAPL", "SPLIT", null, 2, 1, TODAY, null, null), "k-race-diff"),
+            ErrorCode.SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED);
+        verify(tradingRepository, never()).updateHolding(any());
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
     @DisplayName("create 在單一交易內執行（鎖持倉、寫帳本、更新持倉必須同生共死）")
     void createIsTransactional() throws NoSuchMethodException {
         assertThat(ShareAdjustmentService.class
