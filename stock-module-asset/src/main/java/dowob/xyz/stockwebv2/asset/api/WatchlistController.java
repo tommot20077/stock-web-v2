@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -124,6 +125,46 @@ public class WatchlistController {
     ) {
         return ApiResponse.success(
             watchlistService.addItem(AuthenticatedUserResolver.resolve(authentication), id, request.symbol()),
+            ApiMetaFactory.current());
+    }
+
+    /**
+     * 自清單移除一檔；不在清單中或資產不存在時原樣回傳（冪等）。
+     *
+     * @param id             清單 UUID
+     * @param assetId        資產 UUID（{@code AssetDto.uuid}）
+     * @param authentication 已驗證的身分，name 即 userId
+     * @return 移除後的清單（含項目與報價）
+     */
+    @DeleteMapping("/{id}/items/{assetId}")
+    @PreAuthorize("hasAuthority('WATCHLIST_MANAGE')")
+    public ApiResponse<WatchlistDto> removeItem(
+        @PathVariable UUID id,
+        @PathVariable UUID assetId,
+        Authentication authentication
+    ) {
+        return ApiResponse.success(
+            watchlistService.removeItem(AuthenticatedUserResolver.resolve(authentication), id, assetId),
+            ApiMetaFactory.current());
+    }
+
+    /**
+     * 整份重排：依送來的資產 UUID 順序重寫 position 1..n；集合與目前不同回 409。
+     *
+     * @param id             清單 UUID
+     * @param request        新順序的資產 UUID（須為目前全部項目）
+     * @param authentication 已驗證的身分，name 即 userId
+     * @return 重排後的清單（含項目與報價）
+     */
+    @PutMapping("/{id}/items/order")
+    @PreAuthorize("hasAuthority('WATCHLIST_MANAGE')")
+    public ApiResponse<WatchlistDto> reorder(
+        @PathVariable UUID id,
+        @Valid @RequestBody ReorderWatchlistItemsRequest request,
+        Authentication authentication
+    ) {
+        return ApiResponse.success(
+            watchlistService.reorder(AuthenticatedUserResolver.resolve(authentication), id, request.assetIds()),
             ApiMetaFactory.current());
     }
 }

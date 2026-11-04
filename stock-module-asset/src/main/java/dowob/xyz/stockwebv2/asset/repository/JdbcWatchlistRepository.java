@@ -216,22 +216,56 @@ public class JdbcWatchlistRepository implements WatchlistRepository {
 
     @Override
     public Optional<Long> findAssetIdByUuid(UUID assetUuid) {
-        throw new UnsupportedOperationException("04.2-12 RED skeleton");
+        return jdbcClient.sql("select id from assets where uuid = :uuid")
+            .param("uuid", assetUuid)
+            .query(Long.class)
+            .optional();
     }
 
     @Override
     public void deleteItem(Long watchlistId, Long assetId) {
-        throw new UnsupportedOperationException("04.2-12 RED skeleton");
+        jdbcClient.sql("delete from watchlist_items where watchlist_id = :watchlistId and asset_id = :assetId")
+            .param("watchlistId", watchlistId)
+            .param("assetId", assetId)
+            .update();
     }
 
     @Override
     public Map<UUID, Long> itemAssetIdsByUuid(Long watchlistId) {
-        throw new UnsupportedOperationException("04.2-12 RED skeleton");
+        Map<UUID, Long> result = new LinkedHashMap<>();
+        jdbcClient.sql("""
+                select a.uuid, a.id
+                from watchlist_items wi
+                join assets a on a.id = wi.asset_id
+                where wi.watchlist_id = :watchlistId
+                  and a.active = true
+                order by wi.position, a.id
+                """)
+            .param("watchlistId", watchlistId)
+            .query((ResultSet rs) -> {
+                result.put(UUID.fromString(rs.getString("uuid")), rs.getLong("id"));
+            });
+        return result;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>逐列 UPDATE：position 沒有唯一約束（見 V18 註解），中途的暫時重複不會失敗。</p>
+     */
     @Override
     public void rewritePositions(Long watchlistId, List<Long> assetIdsInOrder) {
-        throw new UnsupportedOperationException("04.2-12 RED skeleton");
+        for (int index = 0; index < assetIdsInOrder.size(); index++) {
+            jdbcClient.sql("""
+                    update watchlist_items
+                    set position = :position
+                    where watchlist_id = :watchlistId and asset_id = :assetId
+                    """)
+                .param("position", index + 1)
+                .param("watchlistId", watchlistId)
+                .param("assetId", assetIdsInOrder.get(index))
+                .update();
+        }
     }
 
     /**

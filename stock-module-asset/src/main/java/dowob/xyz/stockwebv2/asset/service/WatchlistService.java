@@ -14,9 +14,11 @@ import dowob.xyz.stockwebv2.infrastructure.marketdata.MarketDataFacade;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -168,29 +170,52 @@ public class WatchlistService {
     }
 
     /**
-     * RED skeleton（04.2-12）。
+     * 自清單移除一檔（冪等）。
      *
      * @param userId        擁有者
      * @param watchlistUuid 清單 UUID
-     * @param assetUuid     資產 UUID
-     * @return 移除後的清單
+     * @param assetUuid     資產 UUID（{@code AssetDto.uuid}）
+     * @return 移除後的清單；資產不存在或不在清單中時為原樣（不洩漏資產存在性）
+     * @throws BusinessException 清單不存在或屬於他人（404 {@code WATCHLIST_NOT_FOUND}）
      */
     @Transactional
     public WatchlistDto removeItem(Long userId, UUID watchlistUuid, UUID assetUuid) {
-        return null;
+        Watchlist watchlist = watchlistRepository.findByUuidForUpdate(userId, watchlistUuid)
+            .orElseThrow(WatchlistService::notFound);
+        watchlistRepository.findAssetIdByUuid(assetUuid)
+            .ifPresent(assetId -> watchlistRepository.deleteItem(watchlist.id(), assetId));
+        return toDto(watchlist);
     }
 
     /**
-     * RED skeleton（04.2-12）。
+     * 整份重排（D-15）：送來的 UUID 須恰為清單目前全部可見項目（不多、不少、不重複），
+     * 於同一交易內依序把 position 重寫為 1..n。
+     *
+     * <p>先鎖清單列再讀目前集合：與並發的加入 / 移除序列化，集合比對不會讀到過時狀態；
+     * 集合不符代表另一分頁已變更清單，回 409 讓前端重讀。</p>
      *
      * @param userId        擁有者
      * @param watchlistUuid 清單 UUID
-     * @param assetUuids    新順序
+     * @param assetUuids    新順序的資產 UUID
      * @return 重排後的清單
+     * @throws BusinessException 清單不存在或屬於他人（404 {@code WATCHLIST_NOT_FOUND}）、assetIds 為 null 或含 null
+     *                           （400 {@code VALIDATION_FAILED}，{@code fields.assetIds}）、集合與目前不同
+     *                           （409 {@code WATCHLIST_ORDER_CONFLICT}）
      */
     @Transactional
     public WatchlistDto reorder(Long userId, UUID watchlistUuid, List<UUID> assetUuids) {
-        return null;
+        Watchlist watchlist = watchlistRepository.findByUuidForUpdate(userId, watchlistUuid)
+            .orElseThrow(WatchlistService::notFound);
+        if (assetUuids == null || assetUuids.stream().anyMatch(Objects::isNull)) {
+            throw new FieldValidationException("Watchlist order is invalid", Map.of("assetIds", "must be a list of asset ids"));
+        }
+        Map<UUID, Long> current = watchlistRepository.itemAssetIdsByUuid(watchlist.id());
+        if (assetUuids.size() != current.size() || !current.keySet().equals(new HashSet<>(assetUuids))) {
+            throw new BusinessException(ErrorCode.WATCHLIST_ORDER_CONFLICT,
+                ErrorCode.WATCHLIST_ORDER_CONFLICT.defaultMessage());
+        }
+        watchlistRepository.rewritePositions(watchlist.id(), assetUuids.stream().map(current::get).toList());
+        return toDto(watchlist);
     }
 
     /**
