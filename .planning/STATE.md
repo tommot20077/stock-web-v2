@@ -73,7 +73,7 @@ Last activity: 2026-11-04 — Phase 04.2 complete, transitioned to Phase 5
 | `npm run build` | exit 0（含 `vue-tsc --noEmit`） |
 | `TradingApiIT` 連跑 3 次 | 各 29/29 全綠；`concurrentSameKeyCreatesExactlyOneTrade` 累計 8 次零偶發 |
 
-Progress(milestone v1.0):[░░░░░░░░░░░░░░░░░░░░] 79/79 plans(Phase 1-4、04.1、04.2 完成;下一步 Phase 5)
+Progress(milestone v1.0):[█████████████████░░░] 6/7 phases (86%)(Phase 1-4、04.1、04.2 完成;下一步 Phase 5)
 Progress(plan):Phase 1-4、04.1(32)、04.2(26)全部執行完畢並驗證;Phase 5 尚未 plan
 
 > 57% 是 milestone 真實進度(7 個 phase 完成 4 個;Phase 04.1 於 2026-07-26 插入、04.2 於 2026-09-28 拆出)。
