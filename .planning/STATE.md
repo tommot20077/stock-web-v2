@@ -167,6 +167,11 @@ Recent decisions affecting current work:
 
 - [Phase 4]: DP-1 裁定採 (c):以 develop 為基準,Phase 4 只做冪等,不等 PR #15。executedAt 未來時間驗證與 ApiTimeParser 不屬 Phase 4 範圍,留給 PR #15(仍為 OPEN draft)。理由:PR #15 修改了已在 origin/develop 的 V9 migration,違反 flyway-convention「Never modify an applied migration」,等它合併會把 checksum 債帶進 Phase 4 的時程。同時排除 Docker blocker:實跑 docker info → Server 29.5.3 可用,Testcontainers 路徑可行。
 
+- [Phase 04.2]: 04.2-02 決策閘門 Yuan 回覆「ok」→ option-recommended:股利 / 股數調整新表(append-only + reversal_of_id)、roi 公式不變因而含股利、POST /trades 拒絕早於最晚未沖銷股數調整的 executedAt。
+- [Phase 04.2]: 2026-11-04 Yuan 裁決「同日依記錄順序疊加」:同一除權日可多筆,Q_asOf 含同日先記錄者,最晚一筆依 (effective_at desc, id desc),只能倒序沖銷。
+- [Phase 04.2]: 執行改用「每 repo 一條執行線」(isolation=none,run-scoped 覆寫):plan 為跨 repo 絕對路徑,worktree 不適用;前端 plan 的 SUMMARY 由 orchestrator 提交以避免兩 repo 併發寫入。
+- [Phase 04.2]: code review WR-05/06/07/11(前端 race / 過時回應)已修;WR-09(除權日預設依市場時區,需改 UI-SPEC)與 WR-01(資產下架後無法沖銷)Yuan 同意延後,已列入 PROJECT.md Active。
+
 ### Pending Todos
 
 *(註:原有一條「Phase 2 planning should consume browser-auth-contract.md and avoid frontend token storage」已於 2026-07-19 移除 —— Phase 2 已完成,該提醒已過時。)*
@@ -195,6 +200,8 @@ Recent decisions affecting current work:
 ### Blockers/Concerns
 
 - Confirm exact frontend package scripts in sibling repo during Phase 5 planning.
+- [Phase 04.2] PR tommot20077/stock-web-v2#51 與 tommot20077/stock-web-v2-front-end#19 開向 develop,CI 全綠(含 Browser E2E 117/117、GitGuardian),待 Yuan review / merge;merge 後共用環境套用 V16 / V17 / V18(單向門)。
+- [Phase 04.2] 04.2-REVIEW 仍有 14 條建議性 finding open(WR-02/03/04/08/10、IN-01 ~ IN-09),不觸及 Success Criteria,見 04.2-REVIEW-DISPOSITION.md;另有契約文件小修 G2 與 Markets 頁 < 640px 溢出(既有)建議另開 quick task。
 
 ## Deferred Items
 
@@ -209,11 +216,11 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-31T17:07:25.370Z
+Last session: 2026-11-04T12:28:33Z
 Stopped at: Phase 04.2 complete, ready to plan Phase 5
 前端契約凍結(見 04-05-SUMMARY 末節)。
-Resume file: .planning/phases/04.2-dividends-share-adjustments-watchlist/04.2-UI-SPEC.md
-Next action: `/gsd-plan-phase 04.2`(RESEARCH、VALIDATION、UI-SPEC 已就緒;PR #50 / #18 已於 2026-10-31 合併)。
+Resume file: None
+Next action: `/gsd-plan-phase 5`(或先處理 04.2 PR review / merge 與上列建議 quick task)。
 
 ~~**前端 repo 的狀態**:04-06 ~ 04-09 的 commit 只在本機、分支未推送。~~
 (2026-10-23 更正:已過時。Phase 4 前端經 PR #9 合併進 `develop @ a00fb29`,前端 repo 為 `tommot20077/stock-web-v2-front-end`。)
