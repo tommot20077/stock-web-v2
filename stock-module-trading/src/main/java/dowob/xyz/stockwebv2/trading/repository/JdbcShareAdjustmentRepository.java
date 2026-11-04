@@ -149,7 +149,9 @@ public class JdbcShareAdjustmentRepository implements ShareAdjustmentRepository 
     }
 
     /**
-     * 切點前的持股數 = 交易淨股數 + 既有調整淨股數（沖銷列反號）。
+     * 新調整的換算基準持股 = 生效瞬間<strong>之前</strong>的交易淨股數 + 生效瞬間<strong>（含）之前</strong>的
+     * 既有調整淨股數（沖銷列反號）。調整段用 {@code <=} 讓同一除權日先記錄的調整依記錄順序疊加
+     * （Yuan 2026-11-04 裁決；同瞬間的原列與其沖銷列淨額為 0），交易段維持 {@code <}。
      *
      * <p>兩段 {@code case} 都把兩支分支寫明、不用 {@code else}：未知 type 會得到 NULL 而被 {@code sum} 忽略，
      * 不會被 {@code else} 默默算成某個方向（04.1 Pitfall 9 的教訓）。兩段分別走
@@ -157,32 +159,32 @@ public class JdbcShareAdjustmentRepository implements ShareAdjustmentRepository 
      * 呼叫端已在同一交易內鎖住該標的的持倉列；交易寫入路徑在 commit 前必須取得同一把持倉列鎖，
      * 因此兩段讀取之間不會有同標的的新成交被 commit 而只被其中一段看見。</p>
      *
-     * @param userId  擁有者
-     * @param assetId 標的主鍵
-     * @param before  切點（不含）
-     * @return 切點前的持股數；從未持有時為 0
+     * @param userId      擁有者
+     * @param assetId     標的主鍵
+     * @param effectiveAt 新調整的生效瞬間
+     * @return 換算基準持股；從未持有時為 0
      */
     @Override
-    public BigDecimal quantityAsOf(Long userId, Long assetId, OffsetDateTime before) {
+    public BigDecimal quantityAsOf(Long userId, Long assetId, OffsetDateTime effectiveAt) {
         BigDecimal traded = jdbcClient.sql("""
                 select coalesce(sum(case when type = 'BUY' then quantity when type = 'SELL' then -quantity end), 0)
                 from transactions
-                where user_id = :userId and asset_id = :assetId and executed_at < :before
+                where user_id = :userId and asset_id = :assetId and executed_at < :effectiveAt
                 """)
             .param("userId", userId)
             .param("assetId", assetId)
-            .param("before", before)
+            .param("effectiveAt", effectiveAt)
             .query(BigDecimal.class)
             .single();
         BigDecimal adjusted = jdbcClient.sql("""
                 select coalesce(sum(case when reversal_of_id is null then quantity_delta
                                          else -quantity_delta end), 0)
                 from share_adjustments
-                where user_id = :userId and asset_id = :assetId and effective_at < :before
+                where user_id = :userId and asset_id = :assetId and effective_at <= :effectiveAt
                 """)
             .param("userId", userId)
             .param("assetId", assetId)
-            .param("before", before)
+            .param("effectiveAt", effectiveAt)
             .query(BigDecimal.class)
             .single();
         return traded.add(adjusted);

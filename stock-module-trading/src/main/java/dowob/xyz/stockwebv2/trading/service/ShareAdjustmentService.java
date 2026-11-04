@@ -464,7 +464,8 @@ public class ShareAdjustmentService {
      * 時序規則：新調整的生效瞬間不得早於該標的最晚一筆「非沖銷列且未被沖銷」的調整（RESEARCH Q2.4）。
      *
      * <p>較晚調整的 ΔQ 是以「不含較早事件」的 {@code Q_asOf} 算出的；插隊補記會讓兩筆都錯。
-     * 要補記更早的，先沖銷較晚者。同一瞬間不視為「早於」。</p>
+     * 要補記更早的，先沖銷較晚者。同一瞬間不視為「早於」：同一除權日可記多筆，依記錄順序疊加
+     * （{@code quantityAsOf} 的調整段含同瞬間已先記錄者，Yuan 2026-11-04 裁決）。</p>
      *
      * @param userId      擁有者
      * @param assetId     標的主鍵

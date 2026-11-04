@@ -64,17 +64,22 @@ public interface ShareAdjustmentRepository {
     Optional<UUID> uuidOf(Long adjustmentId);
 
     /**
-     * 某標的在指定瞬間<strong>之前</strong>的持股數（RESEARCH Q2.2 的 {@code Q_asOf}）。
+     * 新調整在其生效瞬間所依據的持股數（RESEARCH Q2.2 的 {@code Q_asOf}）。
      *
-     * <p>= 交易帳本中 {@code executed_at < before} 的買入減賣出，加上 {@code effective_at < before} 的
+     * <p>= 交易帳本中 {@code executed_at < effectiveAt} 的買入減賣出，加上 {@code effective_at <= effectiveAt} 的
      * 既有股數調整（沖銷列反號）。持倉表只有「目前」值，事件日持股只能由帳本推得。</p>
      *
-     * @param userId  擁有者
-     * @param assetId 標的主鍵
-     * @param before  切點（不含）；通常是除權日的交易日起點
-     * @return 切點前的持股數；從未持有時為 0
+     * <p>兩段切點刻意不同（Yuan 2026-11-04 裁決「同日依記錄順序疊加」）：同一除權日可記多筆調整，後記錄者要以
+     * 「含先記錄者」的持股換算（100 股同日兩次 2:1 → 400 股，而不是 300）；呼叫時本筆尚未寫入，
+     * 所以 {@code <=} 只會納入同一瞬間<strong>已先記錄</strong>的調整（與 {@link #findLatestActive} 的記錄順序一致）。
+     * 交易維持嚴格小於：除權日起點（含）之後的成交已是除權後股數，不參與換算。</p>
+     *
+     * @param userId      擁有者
+     * @param assetId     標的主鍵
+     * @param effectiveAt 新調整的生效瞬間（除權日的交易日起點）
+     * @return 生效瞬間的換算基準持股；從未持有時為 0
      */
-    BigDecimal quantityAsOf(Long userId, Long assetId, OffsetDateTime before);
+    BigDecimal quantityAsOf(Long userId, Long assetId, OffsetDateTime effectiveAt);
 
     /**
      * 該標的最晚一筆「非沖銷列且未被沖銷」的調整（依 {@code effective_at DESC, id DESC}）。
