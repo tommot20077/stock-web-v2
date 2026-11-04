@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.start;
 
+import dowob.xyz.stockwebv2.common.model.AssetType;
+import dowob.xyz.stockwebv2.common.model.TradingDay;
 import dowob.xyz.stockwebv2.start.support.ContainerIT;
 
 import org.junit.jupiter.api.DisplayName;
@@ -12,10 +14,15 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.hamcrest.Matchers.equalTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -33,8 +40,12 @@ import tools.jackson.databind.ObjectMapper;
  * 最新列在 1 分鐘前），並先刪 Redis {@code market:latest:{id}}，確保讀到的是本測試寫的值。
  * 本類使用其他 IT 沒用到的 MSFT / META / AMZN / GOOGL，避免與共用容器內的殘留行情互相污染。</p>
  *
+ * <p>04.2（ADJ-02 / D-10）起另驗拆股當日：以 {@code TradingDay.of(STOCK, "US")} 算出今日交易日起點，
+ * 種「昨日拆前收盤 + 今日拆後最新價」或「今日尚無 tick」兩種行情；每個測試開頭都重新種自己用的標的，
+ * 所以與本類其他測試共用 MSFT / AMZN 不會互相污染。</p>
+ *
  * @author Yuan
- * @version 1.0
+ * @version 1.1
  */
 @AutoConfigureMockMvc
 @DisplayName("今日價格損益")
@@ -51,6 +62,12 @@ class PortfolioDayPnlIT extends ContainerIT {
 
     @Autowired
     StringRedisTemplate redisTemplate;
+
+    /** 美股交易日規則；今日起點一律由此計算，不寫死時區。 */
+    private static final TradingDay US = TradingDay.of(AssetType.STOCK, "US");
+
+    /** 金額數值比較的容差。 */
+    private static final BigDecimal TOLERANCE = new BigDecimal("0.000001");
 
     @Test
     @DisplayName("持倉列帶單檔今日損益：昨買今買、今天首次買入無前收、只有最新價三種情形；今日賣光的不在持倉列")
@@ -108,6 +125,55 @@ class PortfolioDayPnlIT extends ContainerIT {
         assertThat(emptySummary.get("dayPricePnl").decimalValue()).isEqualByComparingTo("0");
         assertThat(emptySummary.hasNonNull("dayPricePnlRatio")).isFalse();
         assertThat(emptySummary.get("dayPnlExcludedCount").asInt()).isZero();
+    }
+
+    @Test
+    @DisplayName("拆股 4:1 當日：昨日拆前收盤 400、今日拆後最新價 101 → 持倉 400 股、單檔與 summary 今日損益皆為 400（D-10）")
+    void splitDayPnlUsesAdjustedQuantity() throws Exception {
+        AuthTokens tokens = register("daypnl-split@example.com", "daypnlsplit", "Password1");
+        patchBaseCurrency(tokens, "USD");
+        trade(tokens, "MSFT", "BUY", "100", "390", OffsetDateTime.now().minusDays(3).toString());
+        Instant todayStart = US.dayStart(Instant.now());
+        Instant latestAt = max(Instant.now().minusSeconds(60), todayStart.plusSeconds(1));
+        seedPricesAt("MSFT", new BigDecimal("400"), todayStart.minus(Duration.ofHours(2)),
+            new BigDecimal("101"), latestAt);
+
+        split(tokens, "MSFT", 4, 1, tradingDate(todayStart));
+
+        JsonNode msft = bySymbol(getData(tokens, "/api/v1/portfolio/holdings"), "MSFT");
+        assertThat(msft.get("totalQuantity").decimalValue()).isEqualByComparingTo("400");
+        // Q0 = 400 − 300 = 100：400×101 − 100×400 = 400（未扣調整會是 −119600 的假性暴跌）
+        assertThat(msft.get("dayPricePnl").decimalValue()).isCloseTo(new BigDecimal("400"), within(TOLERANCE));
+        assertThat(msft.get("dayPricePnlRatio").decimalValue()).isCloseTo(new BigDecimal("0.01"), within(TOLERANCE));
+        // previousClose 維持行情原值（拆前前收），不另算調整後前收
+        assertThat(msft.get("previousClose").decimalValue()).isEqualByComparingTo("400");
+
+        JsonNode summary = getData(tokens, "/api/v1/portfolio/summary");
+        assertThat(summary.get("dayPricePnl").decimalValue()).isCloseTo(new BigDecimal("400"), within(TOLERANCE));
+        assertThat(summary.get("dayPnlExcludedCount").asInt()).isZero();
+    }
+
+    @Test
+    @DisplayName("拆股除權日為今天但今日尚無 tick（最新價仍是昨日拆前價）：該檔今日損益為 null 並計入 dayPnlExcludedCount（Q4.4）")
+    void adjustmentNotYetPricedExcludesHolding() throws Exception {
+        AuthTokens tokens = register("daypnl-unpriced@example.com", "daypnlunpriced", "Password1");
+        patchBaseCurrency(tokens, "USD");
+        trade(tokens, "AMZN", "BUY", "100", "180", OffsetDateTime.now().minusDays(3).toString());
+        Instant todayStart = US.dayStart(Instant.now());
+        Instant yesterdayLatest = todayStart.minus(Duration.ofHours(1));
+        Instant previousCloseAt = US.dayStart(yesterdayLatest).minus(Duration.ofHours(1));
+        seedPricesAt("AMZN", new BigDecimal("390"), previousCloseAt, new BigDecimal("400"), yesterdayLatest);
+
+        split(tokens, "AMZN", 4, 1, tradingDate(todayStart));
+
+        JsonNode amzn = bySymbol(getData(tokens, "/api/v1/portfolio/holdings"), "AMZN");
+        assertThat(amzn.get("totalQuantity").decimalValue()).isEqualByComparingTo("400");
+        assertThat(amzn.hasNonNull("dayPricePnl")).isFalse();
+        assertThat(amzn.hasNonNull("dayPricePnlRatio")).isFalse();
+
+        JsonNode summary = getData(tokens, "/api/v1/portfolio/summary");
+        assertThat(summary.hasNonNull("dayPricePnl")).isFalse();
+        assertThat(summary.get("dayPnlExcludedCount").asInt()).isGreaterThanOrEqualTo(1);
     }
 
     /**
@@ -204,6 +270,83 @@ class PortfolioDayPnlIT extends ContainerIT {
             insertPrice(assetId, previousClose, "26 hours");
         }
         insertPrice(assetId, latest, "1 minute");
+    }
+
+    /**
+     * 為標的種明確時間的前收與最新價；先清掉舊行情與 Redis latest 快取。
+     *
+     * @param symbol          標的代號
+     * @param previousClose   前收
+     * @param previousCloseAt 前收列時間（須早於最新價所屬交易日的起點）
+     * @param latest          最新價
+     * @param latestAt        最新價時間
+     */
+    private void seedPricesAt(String symbol, BigDecimal previousClose, Instant previousCloseAt, BigDecimal latest,
+        Instant latestAt) {
+        Long assetId = jdbcClient.sql("select id from assets where symbol = :symbol")
+            .param("symbol", symbol)
+            .query(Long.class)
+            .single();
+        redisTemplate.delete("market:latest:" + assetId);
+        jdbcClient.sql("delete from market_prices where asset_id = :assetId")
+            .param("assetId", assetId)
+            .update();
+        insertPriceAt(assetId, previousClose, previousCloseAt);
+        insertPriceAt(assetId, latest, latestAt);
+    }
+
+    private void insertPriceAt(Long assetId, BigDecimal price, Instant time) {
+        jdbcClient.sql("""
+                insert into market_prices(asset_id, time, price, volume)
+                values (:assetId, :time, :price, 1000)
+                """)
+            .param("assetId", assetId)
+            .param("time", OffsetDateTime.ofInstant(time, ZoneOffset.UTC))
+            .param("price", price)
+            .update();
+    }
+
+    /**
+     * 記一筆拆股 / 合股（bearer + 冪等鍵）。
+     *
+     * @param tokens        使用者憑證
+     * @param symbol        標的代號
+     * @param ratioNew      比例新股數
+     * @param ratioOld      比例舊股數
+     * @param effectiveDate 除權日（該市場的交易日）
+     * @throws Exception MockMvc 失敗時
+     */
+    private void split(AuthTokens tokens, String symbol, int ratioNew, int ratioOld, LocalDate effectiveDate)
+        throws Exception {
+        mockMvc.perform(post("/api/v1/portfolio/share-adjustments")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + tokens.accessToken())
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .content("""
+                    {"symbol":"%s","type":"SPLIT","ratioNew":%d,"ratioOld":%d,"effectiveDate":"%s"}
+                    """.formatted(symbol, ratioNew, ratioOld, effectiveDate)))
+            .andExpect(status().isOk());
+    }
+
+    /**
+     * 交易日起點所屬的美股交易日（日曆日），以 {@link TradingDay} 的時區與換日點換算。
+     *
+     * @param dayStart 交易日起點
+     * @return 交易日
+     */
+    private LocalDate tradingDate(Instant dayStart) {
+        return dayStart.atZone(US.zone()).toLocalDateTime().minus(US.startOffset()).toLocalDate();
+    }
+
+    private Instant max(Instant first, Instant second) {
+        return first.isAfter(second) ? first : second;
+    }
+
+    private JsonNode getData(AuthTokens tokens, String path) throws Exception {
+        return objectMapper.readTree(mockMvc.perform(get(path)
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString()).get("data");
     }
 
     private void insertPrice(Long assetId, BigDecimal price, String ago) {
