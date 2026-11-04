@@ -27,6 +27,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -42,11 +43,12 @@ import java.util.UUID;
  * （RESEARCH Q2.2、Pitfall 1）。配股的 ΔQ 就是實領股數。兩者共用「股數變、總成本不變」的
  * {@link HoldingCalculator#applyShareAdjustment}。</p>
  *
- * <p>payload 比對（409 {@code SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED}）、沖銷流程與稽核由 04.2-08 補上；
- * 本版的冪等命中一律回既有那筆。</p>
+ * <p>沖銷（請求帶 {@code reversalOfId}，04.2-08）<strong>撤銷原列已記錄的 ΔQ、不重算比例</strong>，而且只能沖銷該標的
+ * 最晚一筆未沖銷調整（同一除權日依記錄順序倒著沖）：較晚調整的 ΔQ 是以「含較早調整」的持股算出的，
+ * 沖銷中間一筆會讓之後的基準失真（RESEARCH Q2.4）。</p>
  *
  * @author Yuan
- * @version 1.0
+ * @version 1.1
  */
 @Service
 public class ShareAdjustmentService {
@@ -59,6 +61,8 @@ public class ShareAdjustmentService {
     private static final String SYMBOL_FIELD = "symbol";
     private static final String EFFECTIVE_DATE_FIELD = "effectiveDate";
     private static final String RATIO_FIELD = "ratio";
+    private static final String REVERSAL_FIELD = "reversalOfId";
+    private static final String MUST_MATCH_ORIGINAL = "must match the original adjustment";
 
     /**
      * 生效瞬間可超前伺服器現在的容忍量，吸收客戶端與伺服器的時鐘偏差（同 {@code EXECUTED_AT_FUTURE_TOLERANCE}）。
@@ -128,7 +132,8 @@ public class ShareAdjustmentService {
     }
 
     /**
-     * 記一筆配股或拆股 / 合股並改寫目前持倉；同一使用者的同一把冪等鍵只會寫入一列。
+     * 記一筆配股或拆股 / 合股並改寫目前持倉，或（帶 {@code reversalOfId}）沖銷最晚一筆調整；
+     * 同一使用者的同一把冪等鍵只會寫入一列。
      *
      * <p>順序：零 I/O 的驗證先行（冪等鍵、type、依 type 的形狀）→ 解析標的 → 換算生效瞬間並擋超前 →
      * 冪等快路徑（命中不鎖、不改、不失效）→ <strong>先鎖持倉</strong>再做時序規則、{@code Q_asOf}、持倉檢查與計算
@@ -145,7 +150,10 @@ public class ShareAdjustmentService {
      *                           標的不存在或不可交易（404 {@code ASSET_NOT_FOUND}）、除權日起點或目前無持倉、
      *                           調整後持股 ≤ 0（409 {@code TRADE_INSUFFICIENT_HOLDING}）、
      *                           insert 落空且以 key 重讀也落空（409 {@code DUPLICATE_RESOURCE}）、
-     *                           持倉併發更新衝突（409 {@code TRADE_CONFLICT}）
+     *                           持倉併發更新衝突（409 {@code TRADE_CONFLICT}）；沖銷時另有 reversalOfId 格式錯或
+     *                           值與原列不符（400）、原列不存在或屬於他人（404 {@code SHARE_ADJUSTMENT_NOT_FOUND}）、
+     *                           已被沖銷（409 {@code SHARE_ADJUSTMENT_ALREADY_REVERSED}）、
+     *                           原列是沖銷或不是最晚一筆（409 {@code SHARE_ADJUSTMENT_NOT_REVERSIBLE}）
      */
     @Transactional
     public ShareAdjustmentDto create(Long userId, CreateShareAdjustmentRequest request, String idempotencyKey) {
@@ -155,6 +163,7 @@ public class ShareAdjustmentService {
         validateIdempotencyKey(idempotencyKey);
         ShareAdjustmentType type = ShareAdjustmentType.fromApiValue(request.type());
         validateShape(type, request);
+        UUID reversalUuid = parseReversalOfId(request.reversalOfId());
         OffsetDateTime now = OffsetDateTime.now(clock);
         // Facade 往返 1/2：解析標的（只有 active + tradeable 可記），同時取得換算生效瞬間所需的市場屬性。
         AssetSummary asset = resolveTradeableAsset(request.symbol());
@@ -167,10 +176,18 @@ public class ShareAdjustmentService {
                 Map.of(EFFECTIVE_DATE_FIELD, "must not be in the future"));
         }
 
+        // 沖銷對象以使用者範圍解析（查無即 404，別人的與不存在的無法區分），而且必須排在冪等快路徑之前：
+        // 快路徑的 payload 比對需要原列的內部 id。
+        ShareAdjustmentEntry original = resolveOriginal(userId, reversalUuid);
+        // 冪等快路徑必須排在「已沖銷」判斷之前：沖銷成功後以同一把 key 重送，原列已是「已沖銷」，
+        // 若先被擋下，使用者會看到假性 409，而實際上他的沖銷早已成功。
         Optional<ShareAdjustmentEntry> known = repository.findByIdempotencyKey(userId, idempotencyKey);
         if (known.isPresent()) {
-            // 快路徑：資料完全沒有變動，不鎖持倉、不失效快取（payload 比對由 04.2-08 補上）。
+            // 快路徑：資料完全沒有變動，不鎖持倉、不失效快取。
             return toDto(known.get(), repository.isReversed(known.get().id()));
+        }
+        if (original != null) {
+            return reverse(userId, request, idempotencyKey, asset, original, now);
         }
 
         // 先鎖持倉：ΔQ 依持倉與帳本計算，鎖住後同標的的交易寫入才不會在計算與更新之間交錯（T-04.2-15）。
@@ -222,6 +239,163 @@ public class ShareAdjustmentService {
         // 只有實際新建了列才失效：持倉股數 / 均價與 summary 都已改變。失效排在 COMMIT 之後（PortfolioCache 實作）。
         portfolioCache.invalidateAfterTrade(userId, asset.id());
         return toDto(inserted.get(), false);
+    }
+
+    /**
+     * 沖銷該標的最晚一筆未沖銷調整：撤銷原列已記錄的 {@code quantityDelta}（不重算比例、不算 {@code Q_asOf}、
+     * 不檢查時序），持倉回到調整前股數、總成本不變。
+     *
+     * <p>順序：先鎖持倉（與 {@link #create} 一般路徑同一把鎖，同標的的交易、調整、沖銷因此序列化）→ 已沖銷 →
+     * 原列是沖銷或不是最晚一筆 → 值與原列相同 → 計算下一個持倉（≤ 0 由計算器 409）→ insert-first →
+     * 更新持倉 → commit 後失效。沖銷列的 type / ratio / quantity_delta / effective_date / effective_at
+     * 一律取自原列（V17 的 {@code validate_share_adjustment_reversal} trigger 逐欄比對）。</p>
+     *
+     * @param userId         擁有者
+     * @param request        沖銷請求
+     * @param idempotencyKey 冪等鍵
+     * @param asset          請求 symbol 解析出的標的
+     * @param original       已以使用者範圍解析的原列
+     * @param now            本次請求的伺服器現在
+     * @return 新建立的沖銷列
+     * @throws BusinessException 已被沖銷或 insert 落空且以 key 重讀落空（409 {@code SHARE_ADJUSTMENT_ALREADY_REVERSED}）、
+     *                           原列是沖銷或不是最晚一筆（409 {@code SHARE_ADJUSTMENT_NOT_REVERSIBLE}）、
+     *                           值與原列不同（400 {@code VALIDATION_FAILED}，fields 指名）、
+     *                           沖銷後持股 ≤ 0 或無持倉（409 {@code TRADE_INSUFFICIENT_HOLDING}）
+     */
+    private ShareAdjustmentDto reverse(Long userId, CreateShareAdjustmentRequest request, String idempotencyKey,
+                                       AssetSummary asset, ShareAdjustmentEntry original, OffsetDateTime now) {
+        Optional<Holding> current = tradingRepository.findHoldingForUpdate(userId, original.assetId());
+        if (repository.isReversed(original.id())) {
+            throw new BusinessException(ErrorCode.SHARE_ADJUSTMENT_ALREADY_REVERSED,
+                ErrorCode.SHARE_ADJUSTMENT_ALREADY_REVERSED.defaultMessage());
+        }
+        if (original.reversalOfId() != null || !isLatestActive(userId, original)) {
+            throw new BusinessException(ErrorCode.SHARE_ADJUSTMENT_NOT_REVERSIBLE,
+                ErrorCode.SHARE_ADJUSTMENT_NOT_REVERSIBLE.defaultMessage());
+        }
+        validateMirrorsOriginal(original, asset.id(), request);
+        // 撤銷已記錄的 ΔQ（不是以今天的持股重算比例）：調整後才發生的買賣不影響撤銷量。
+        Holding next = calculator.applyShareAdjustment(current.orElse(null), original.quantityDelta().negate(), now);
+
+        Optional<ShareAdjustmentEntry> inserted = repository.insertIfAbsent(new ShareAdjustmentEntry(
+            null,
+            UUID.randomUUID(),
+            userId,
+            original.assetId(),
+            original.type(),
+            original.ratioNew(),
+            original.ratioOld(),
+            original.quantityDelta(),
+            original.effectiveDate(),
+            original.effectiveAt(),
+            StringUtils.trimToNull(request.note()),
+            null,
+            idempotencyKey,
+            original.id()
+        ));
+        if (inserted.isEmpty()) {
+            // 同一把 key 的另一個請求搶先 → 重讀命中；另一把 key 的沖銷搶先沖了同一筆
+            // （uk_share_adjustments_reversal_of）→ 重讀落空。兩者持倉都尚未改動。
+            Optional<ShareAdjustmentEntry> concurrent = repository.findByIdempotencyKey(userId, idempotencyKey);
+            if (concurrent.isPresent()) {
+                return toDto(concurrent.get(), repository.isReversed(concurrent.get().id()));
+            }
+            throw new BusinessException(ErrorCode.SHARE_ADJUSTMENT_ALREADY_REVERSED,
+                ErrorCode.SHARE_ADJUSTMENT_ALREADY_REVERSED.defaultMessage());
+        }
+        tradingRepository.updateHolding(next);
+        portfolioCache.invalidateAfterTrade(userId, original.assetId());
+        return toDto(inserted.get(), false);
+    }
+
+    /**
+     * 原列是否為該標的最晚一筆「非沖銷列且未被沖銷」的調整；最晚依 (effective_at DESC, id DESC)，
+     * 同一除權日的多筆依記錄順序（id 為 BIGSERIAL）由後往前。
+     *
+     * @param userId   擁有者
+     * @param original 原列
+     * @return 是最晚一筆時為 true
+     */
+    private boolean isLatestActive(Long userId, ShareAdjustmentEntry original) {
+        return repository.findLatestActive(userId, original.assetId())
+            .map(latest -> latest.id().equals(original.id()))
+            .orElse(false);
+    }
+
+    /**
+     * 沖銷請求的值必須與原列相同（symbol / type / 配股 quantity 或拆股 ratioNew + ratioOld / effectiveDate）；
+     * 不同的欄位全部列在 fields 中。配股的 quantity 以 compareTo 比較（scale 不同、數值相等視為相同）。
+     *
+     * @param original 原列
+     * @param assetId  請求 symbol 解析出的標的主鍵
+     * @param request  沖銷請求（形狀已驗證）
+     * @throws FieldValidationException 任一欄位不同時
+     */
+    private void validateMirrorsOriginal(ShareAdjustmentEntry original, Long assetId,
+                                         CreateShareAdjustmentRequest request) {
+        Map<String, String> mismatches = new LinkedHashMap<>();
+        ShareAdjustmentType requestedType = ShareAdjustmentType.fromApiValue(request.type());
+        if (!original.assetId().equals(assetId)) {
+            mismatches.put(SYMBOL_FIELD, MUST_MATCH_ORIGINAL);
+        }
+        if (requestedType != original.type()) {
+            mismatches.put("type", MUST_MATCH_ORIGINAL);
+        } else if (original.type() == ShareAdjustmentType.STOCK_DIVIDEND) {
+            if (request.quantity().compareTo(original.quantityDelta()) != 0) {
+                mismatches.put("quantity", MUST_MATCH_ORIGINAL);
+            }
+        } else {
+            if (!request.ratioNew().equals(original.ratioNew())) {
+                mismatches.put("ratioNew", MUST_MATCH_ORIGINAL);
+            }
+            if (!request.ratioOld().equals(original.ratioOld())) {
+                mismatches.put("ratioOld", MUST_MATCH_ORIGINAL);
+            }
+        }
+        if (!request.effectiveDate().equals(original.effectiveDate())) {
+            mismatches.put(EFFECTIVE_DATE_FIELD, MUST_MATCH_ORIGINAL);
+        }
+        if (!mismatches.isEmpty()) {
+            throw new FieldValidationException("Reversal must match the original adjustment", mismatches);
+        }
+    }
+
+    /**
+     * 解析請求的 {@code reversalOfId}；未帶（null）代表一般紀錄。
+     *
+     * <p>非 null 但為空白或不是 UUID 一律視為格式錯誤，而不是當作「沒帶」——否則本意是沖銷、卻帶了空字串的請求
+     * 會默默變成一筆新的調整。錯誤訊息為靜態字串，不回射輸入。</p>
+     *
+     * @param value 請求中的原始字串
+     * @return 解析出的 UUID；未帶時為 null
+     * @throws FieldValidationException 格式錯誤時，fields 指名 {@code reversalOfId}
+     */
+    private UUID parseReversalOfId(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value.trim());
+        } catch (IllegalArgumentException exception) {
+            throw new FieldValidationException("Invalid reversalOfId", Map.of(REVERSAL_FIELD, "invalid format"));
+        }
+    }
+
+    /**
+     * 以使用者範圍解析沖銷的原列。
+     *
+     * @param userId       目前登入者
+     * @param reversalUuid 請求指定的原列 UUID；null 代表不是沖銷
+     * @return 原列；不是沖銷時為 null
+     * @throws BusinessException 查無（含屬於他人）時 {@code SHARE_ADJUSTMENT_NOT_FOUND}，訊息不含 UUID
+     */
+    private ShareAdjustmentEntry resolveOriginal(Long userId, UUID reversalUuid) {
+        if (reversalUuid == null) {
+            return null;
+        }
+        return repository.findByUuid(userId, reversalUuid)
+            .orElseThrow(() -> new BusinessException(ErrorCode.SHARE_ADJUSTMENT_NOT_FOUND,
+                ErrorCode.SHARE_ADJUSTMENT_NOT_FOUND.defaultMessage()));
     }
 
     /**
