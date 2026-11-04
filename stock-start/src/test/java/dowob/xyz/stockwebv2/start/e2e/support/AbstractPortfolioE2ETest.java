@@ -1,5 +1,8 @@
 package dowob.xyz.stockwebv2.start.e2e.support;
 
+import dowob.xyz.stockwebv2.common.model.AssetType;
+import dowob.xyz.stockwebv2.common.model.TradingDay;
+
 import org.junit.jupiter.api.AfterEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -10,6 +13,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -40,6 +44,9 @@ public abstract class AbstractPortfolioE2ETest extends AbstractStockE2ETest {
 
     /** 測試使用者共用的合法密碼。 */
     protected static final String PASSWORD = "Password1";
+
+    /** 美股交易日規則（交易所時區與換日點），用來算除權日與今日起點，不寫死時區。 */
+    protected static final TradingDay US_STOCK = TradingDay.of(AssetType.STOCK, "US");
 
     @Autowired
     protected AuthE2EHelper auth;
@@ -164,6 +171,22 @@ public abstract class AbstractPortfolioE2ETest extends AbstractStockE2ETest {
     }
 
     // ── 交易 ───────────────────────────────────────────────────────────────────
+
+    /**
+     * 送出一筆交易請求（{@code POST /api/v1/trades}，新的冪等鍵），不預設結果。
+     *
+     * @param token access token
+     * @param body  JSON 請求本文
+     * @return 回應
+     * @throws Exception MockMvc 失敗時
+     */
+    protected ResultActions postTrade(String token, String body) throws Exception {
+        return mockMvc.perform(post("/api/v1/trades")
+            .contentType(MediaType.APPLICATION_JSON)
+            .with(bearerToken(token))
+            .header("Idempotency-Key", UUID.randomUUID().toString())
+            .content(body));
+    }
 
     /**
      * 送出一筆已成交的手動交易（手續費 0）並要求成功。
@@ -368,6 +391,17 @@ public abstract class AbstractPortfolioE2ETest extends AbstractStockE2ETest {
      */
     protected JsonNode dataOf(ResultActions result) throws Exception {
         return objectMapper.readTree(result.andReturn().getResponse().getContentAsString()).get("data");
+    }
+
+    /**
+     * 某一瞬間所屬的美股交易日（日曆日），以 {@link #US_STOCK} 的時區與換日點換算。
+     *
+     * @param time 任一瞬間
+     * @return 該瞬間所屬的交易日
+     */
+    protected static LocalDate usTradingDate(Instant time) {
+        Instant dayStart = US_STOCK.dayStart(time);
+        return dayStart.atZone(US_STOCK.zone()).toLocalDateTime().minus(US_STOCK.startOffset()).toLocalDate();
     }
 
     // ── 行情 ───────────────────────────────────────────────────────────────────
