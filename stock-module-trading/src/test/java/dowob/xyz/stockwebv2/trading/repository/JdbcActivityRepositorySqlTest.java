@@ -47,6 +47,15 @@ class JdbcActivityRepositorySqlTest {
     }
 
     @Test
+    @DisplayName("交易列 amount = quantity × price 捨入至 scale 8（與其他金額欄位一致，不輸出 scale 16）")
+    void tradeAmountIsRoundedToMoneyScale() {
+        Statement list = JdbcActivityRepository.listStatement(USER_ID, query(Optional.of(ActivityTypeFilter.BUY)));
+
+        assertThat(list.sql()).contains("round(t.quantity * t.price, 8) as amount");
+        assertThat(list.sql()).doesNotContain("t.quantity * t.price as amount");
+    }
+
+    @Test
     @DisplayName("type=DIVIDEND → 只拼接 cash_dividends 分支")
     void dividendFilterUsesOnlyDividendBranch() {
         Statement list = JdbcActivityRepository.listStatement(USER_ID, query(Optional.of(ActivityTypeFilter.DIVIDEND)));
