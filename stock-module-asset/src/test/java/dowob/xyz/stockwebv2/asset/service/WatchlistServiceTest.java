@@ -318,4 +318,154 @@ class WatchlistServiceTest {
 
         verify(repository).delete(4L, USER_ID);
     }
+
+    // ── 加入項目 ──────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("加入：先鎖清單列、鎖後另起 countItems 計數、再 insertItemAtEnd；symbol strip 後解析；回 DTO 尾端為 AAPL")
+    void addItem_locksThenCountsThenAppends() {
+        Watchlist list = watchlist(1L, "我的自選");
+        Asset tsla = asset(20L, "TSLA", AssetType.STOCK, "US");
+        Asset msft = asset(21L, "MSFT", AssetType.STOCK, "US");
+        Asset aapl = asset(10L, "AAPL", AssetType.STOCK, "US");
+        when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
+        when(repository.findActiveAssetIdBySymbol("AAPL")).thenReturn(Optional.of(10L));
+        when(repository.containsItem(1L, 10L)).thenReturn(false);
+        when(repository.countItems(1L)).thenReturn(2);
+        when(repository.insertItemAtEnd(1L, 10L)).thenReturn(true);
+        when(repository.itemsByWatchlist(List.of(1L))).thenReturn(Map.of(1L, List.of(tsla, msft, aapl)));
+        when(marketData.findDailyQuotes(any())).thenReturn(Map.of());
+
+        WatchlistDto dto = service.addItem(USER_ID, list.uuid(), "  AAPL ");
+
+        InOrder order = inOrder(repository);
+        order.verify(repository).findByUuidForUpdate(USER_ID, list.uuid());
+        order.verify(repository).countItems(1L);
+        order.verify(repository).insertItemAtEnd(1L, 10L);
+        order.verify(repository).itemsByWatchlist(List.of(1L));
+        assertThat(dto).isNotNull();
+        assertThat(dto.id()).isEqualTo(list.uuid());
+        assertThat(dto.items()).extracting(AssetDto::symbol).containsExactly("TSLA", "MSFT", "AAPL");
+        verify(marketData, times(1)).findDailyQuotes(anyMap());
+    }
+
+    @Test
+    @DisplayName("加入：已在清單中 → 原樣回傳，不計數、不 insert、不報錯（清單已滿 100 也一樣）")
+    void addItem_alreadyPresent_returnsUnchanged() {
+        Watchlist list = watchlist(1L, "我的自選");
+        Asset aapl = asset(10L, "AAPL", AssetType.STOCK, "US");
+        when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
+        when(repository.findActiveAssetIdBySymbol("AAPL")).thenReturn(Optional.of(10L));
+        when(repository.containsItem(1L, 10L)).thenReturn(true);
+        when(repository.countItems(1L)).thenReturn(WatchlistService.MAX_ITEMS);
+        when(repository.itemsByWatchlist(List.of(1L))).thenReturn(Map.of(1L, List.of(aapl)));
+        when(marketData.findDailyQuotes(any())).thenReturn(Map.of());
+
+        WatchlistDto dto = service.addItem(USER_ID, list.uuid(), "AAPL");
+
+        verify(repository, never()).insertItemAtEnd(anyLong(), anyLong());
+        assertThat(dto).isNotNull();
+        assertThat(dto.items()).extracting(AssetDto::symbol).containsExactly("AAPL");
+    }
+
+    @Test
+    @DisplayName("加入：active 但不可交易的 USD/TWD 可加入（D-18 不要求 tradeable），無行情時報價欄位為 null")
+    void addItem_nonTradeableFx_accepted() {
+        Watchlist list = watchlist(1L, "我的自選");
+        Asset usdTwd = new Asset(12L, UUID.randomUUID(), "USD/TWD", "美元/新台幣", AssetType.FX, "FX",
+            CurrencyCode.TWD, null, false, true);
+        when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
+        when(repository.findActiveAssetIdBySymbol("USD/TWD")).thenReturn(Optional.of(12L));
+        when(repository.countItems(1L)).thenReturn(0);
+        when(repository.insertItemAtEnd(1L, 12L)).thenReturn(true);
+        when(repository.itemsByWatchlist(List.of(1L))).thenReturn(Map.of(1L, List.of(usdTwd)));
+        when(marketData.findDailyQuotes(any())).thenReturn(Map.of());
+
+        WatchlistDto dto = service.addItem(USER_ID, list.uuid(), "USD/TWD");
+
+        verify(repository).insertItemAtEnd(1L, 12L);
+        assertThat(dto).isNotNull();
+        AssetDto item = dto.items().get(0);
+        assertThat(item.symbol()).isEqualTo("USD/TWD");
+        assertThat(item.tradeable()).isFalse();
+        assertThat(item.latestPrice()).isNull();
+    }
+
+    @Test
+    @DisplayName("加入：資產不存在或 inactive → 404 ASSET_NOT_FOUND fields.symbol，訊息不回射 symbol，不計數、不 insert")
+    void addItem_unknownOrInactiveSymbol_assetNotFound() {
+        Watchlist list = watchlist(1L, "我的自選");
+        when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
+        when(repository.findActiveAssetIdBySymbol("NOPE")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.addItem(USER_ID, list.uuid(), "NOPE"))
+            .isInstanceOf(BusinessException.class)
+            .satisfies(error -> {
+                BusinessException exception = (BusinessException) error;
+                assertThat(exception.errorCode()).isEqualTo(ErrorCode.ASSET_NOT_FOUND);
+                assertThat(exception.fields()).containsOnlyKeys("symbol");
+                assertThat(exception.getMessage()).doesNotContain("NOPE");
+            });
+        verify(repository, never()).countItems(anyLong());
+        verify(repository, never()).insertItemAtEnd(anyLong(), anyLong());
+    }
+
+    @Test
+    @DisplayName("加入：他人或不存在的清單 → 404 WATCHLIST_NOT_FOUND，不解析 symbol")
+    void addItem_otherUsersList_watchlistNotFound() {
+        UUID uuid = UUID.randomUUID();
+        when(repository.findByUuidForUpdate(USER_ID, uuid)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.addItem(USER_ID, uuid, "AAPL"))
+            .isInstanceOf(BusinessException.class)
+            .satisfies(error -> {
+                BusinessException exception = (BusinessException) error;
+                assertThat(exception.errorCode()).isEqualTo(ErrorCode.WATCHLIST_NOT_FOUND);
+                assertThat(exception.getMessage()).doesNotContain(uuid.toString());
+            });
+        verify(repository, never()).findActiveAssetIdBySymbol(anyString());
+        verify(repository, never()).insertItemAtEnd(anyLong(), anyLong());
+    }
+
+    @Test
+    @DisplayName("加入：已有 99 檔 → 第 100 檔成功；已有 100 檔 → 第 101 檔 400 VALIDATION_FAILED fields.items，不 insert")
+    void addItem_hundredthAcceptedHundredFirstRejected() {
+        Watchlist list = watchlist(1L, "我的自選");
+        when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
+        when(repository.findActiveAssetIdBySymbol("AAPL")).thenReturn(Optional.of(10L));
+        when(repository.itemsByWatchlist(List.of(1L))).thenReturn(Map.of());
+        when(repository.countItems(1L)).thenReturn(WatchlistService.MAX_ITEMS - 1);
+        when(repository.insertItemAtEnd(1L, 10L)).thenReturn(true);
+
+        assertThat(service.addItem(USER_ID, list.uuid(), "AAPL")).isNotNull();
+        verify(repository).insertItemAtEnd(1L, 10L);
+
+        when(repository.countItems(1L)).thenReturn(WatchlistService.MAX_ITEMS);
+        assertThatThrownBy(() -> service.addItem(USER_ID, list.uuid(), "AAPL"))
+            .isInstanceOf(BusinessException.class)
+            .satisfies(error -> {
+                BusinessException exception = (BusinessException) error;
+                assertThat(exception.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                assertThat(exception.fields()).containsOnlyKeys("items");
+            });
+        verify(repository, times(1)).insertItemAtEnd(1L, 10L);
+    }
+
+    @Test
+    @DisplayName("加入：上限計數只採用鎖後的 countItems（不依賴鎖查詢的結果，避免 READ COMMITTED 快照過時而超過 100）")
+    void addItem_capUsesCountTakenAfterLock() {
+        Watchlist list = watchlist(1L, "我的自選");
+        when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
+        when(repository.findActiveAssetIdBySymbol("AAPL")).thenReturn(Optional.of(10L));
+        when(repository.countItems(1L)).thenReturn(WatchlistService.MAX_ITEMS);
+
+        assertThatThrownBy(() -> service.addItem(USER_ID, list.uuid(), "AAPL"))
+            .isInstanceOf(BusinessException.class)
+            .satisfies(error -> assertThat(((BusinessException) error).fields()).containsOnlyKeys("items"));
+
+        InOrder order = inOrder(repository);
+        order.verify(repository).findByUuidForUpdate(USER_ID, list.uuid());
+        order.verify(repository).countItems(1L);
+        verify(repository, never()).insertItemAtEnd(anyLong(), anyLong());
+    }
 }

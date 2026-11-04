@@ -40,6 +40,9 @@ public class WatchlistService {
     /** 每位使用者的清單上限（D-17）。 */
     public static final int MAX_WATCHLISTS = 20;
 
+    /** 每份清單的項目上限（D-17）。 */
+    public static final int MAX_ITEMS = 100;
+
     /** 清單名稱 trim 後的長度上限（以 code point 計，與 PostgreSQL VARCHAR(30) 的字元計數一致）。 */
     static final int MAX_NAME_LENGTH = 30;
 
@@ -125,6 +128,19 @@ public class WatchlistService {
         Watchlist existing = watchlistRepository.findByUuidForUpdate(userId, uuid)
             .orElseThrow(WatchlistService::notFound);
         watchlistRepository.delete(existing.id(), userId);
+    }
+
+    /**
+     * RED skeleton（04.2-12）：GREEN 實作。
+     *
+     * @param userId        擁有者
+     * @param watchlistUuid 清單 UUID
+     * @param symbol        資產代號
+     * @return 加入後的清單
+     */
+    @Transactional
+    public WatchlistDto addItem(Long userId, UUID watchlistUuid, String symbol) {
+        return null;
     }
 
     /**

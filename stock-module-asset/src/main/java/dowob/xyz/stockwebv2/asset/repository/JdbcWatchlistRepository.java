@@ -165,6 +165,26 @@ public class JdbcWatchlistRepository implements WatchlistRepository {
             .update();
     }
 
+    @Override
+    public Optional<Long> findActiveAssetIdBySymbol(String symbol) {
+        throw new UnsupportedOperationException("04.2-12 RED skeleton");
+    }
+
+    @Override
+    public boolean containsItem(Long watchlistId, Long assetId) {
+        throw new UnsupportedOperationException("04.2-12 RED skeleton");
+    }
+
+    @Override
+    public int countItems(Long watchlistId) {
+        throw new UnsupportedOperationException("04.2-12 RED skeleton");
+    }
+
+    @Override
+    public boolean insertItemAtEnd(Long watchlistId, Long assetId) {
+        throw new UnsupportedOperationException("04.2-12 RED skeleton");
+    }
+
     /**
      * {@inheritDoc}
      *

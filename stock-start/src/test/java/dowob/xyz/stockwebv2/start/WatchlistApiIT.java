@@ -40,8 +40,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * 觀察清單 API（WATCH-01；D-14、D-15、D-17、D-19）的端到端驗收：預設清單、報價形狀、
- * 建立 / 改名 / 刪除、上限、擁有者隔離與 CSRF。
+ * 觀察清單 API（WATCH-01 / WATCH-02；D-14 ~ D-19）的端到端驗收：預設清單、報價形狀、
+ * 建立 / 改名 / 刪除、項目加入 / 移除 / 重排、上限（含併發）、擁有者隔離與 CSRF。
  *
  * <p>需要 Docker（Testcontainers），僅能在 CI Integration job 執行。</p>
  *
@@ -310,6 +310,166 @@ class WatchlistApiIT extends ContainerIT {
             .query(Integer.class)
             .single();
         assertThat(rows).isEqualTo(2);
+    }
+
+    // ── 項目（WATCH-02，04.2-12）──────────────────────────────────────────
+
+    @Test
+    @DisplayName("IT 10：加入 AAPL 出現在尾端；USD/TWD（不可交易）可加入且報價為 null；重複加入 AAPL 原樣回")
+    void addItemAppendsAtEndAndIsIdempotent() throws Exception {
+        String token = registerAndLogin("watch-add@example.com", "watchadd");
+        String id = getWatchlists(token).get(0).get("id").asText();
+
+        addItem(token, id, "AAPL")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.id", equalTo(id)))
+            .andExpect(jsonPath("$.data.items.length()", equalTo(1)))
+            .andExpect(jsonPath("$.data.items[-1].symbol", equalTo("AAPL")));
+
+        JsonNode afterFx = data(addItem(token, id, "USD/TWD").andExpect(status().isOk()));
+        assertThat(symbols(afterFx.get("items"))).containsExactly("AAPL", "USD/TWD");
+        JsonNode fx = afterFx.get("items").get(1);
+        assertThat(fx.get("tradeable").asBoolean()).isFalse();
+        assertThat(fx.get("latestPrice").isNull()).isTrue();
+
+        JsonNode again = data(addItem(token, id, "AAPL").andExpect(status().isOk()));
+        assertThat(symbols(again.get("items"))).containsExactly("AAPL", "USD/TWD");
+
+        addItem(token, id, "NO-SUCH-SYMBOL")
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code", equalTo("ASSET_NOT_FOUND")))
+            .andExpect(jsonPath("$.error.fields.symbol").exists());
+        assertThat(symbols(getWatchlists(token).get(0).get("items"))).containsExactly("AAPL", "USD/TWD");
+    }
+
+    @Test
+    @DisplayName("IT 13：以 SQL 種 99 檔 → 第 100 檔成功；第 101 檔 → 400 VALIDATION_FAILED fields.items")
+    void hundredFirstItemIsRejected() throws Exception {
+        String token = registerAndLogin("watch-cap@example.com", "watchcap");
+        String id = getWatchlists(token).get(0).get("id").asText();
+        Long watchlistId = watchlistId(id);
+        try {
+            createTempAssets("WLCAP-", 101);
+            seedTempItems(watchlistId, "WLCAP-", 99);
+
+            addItem(token, id, "WLCAP-100")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()", equalTo(100)))
+                .andExpect(jsonPath("$.data.items[-1].symbol", equalTo("WLCAP-100")));
+
+            addItem(token, id, "WLCAP-101")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+                .andExpect(jsonPath("$.error.fields.items").exists());
+            assertThat(itemCount(watchlistId)).isEqualTo(100);
+        } finally {
+            dropTempAssets("WLCAP-");
+        }
+    }
+
+    @Test
+    @DisplayName("IT 13b：已有 99 檔時兩個並發加入不同資產 → 恰一個 200、一個 400 fields.items，最終 100 檔（鎖後另起計數）")
+    void concurrentAddsNeverExceedHundred() throws Exception {
+        String token = registerAndLogin("watch-cap-race@example.com", "watchcaprace");
+        String id = getWatchlists(token).get(0).get("id").asText();
+        Long watchlistId = watchlistId(id);
+        try {
+            createTempAssets("WLRACE-", 101);
+            seedTempItems(watchlistId, "WLRACE-", 99);
+            CountDownLatch start = new CountDownLatch(1);
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            List<Integer> statuses = new ArrayList<>();
+            try {
+                List<Future<Integer>> futures = new ArrayList<>();
+                for (String symbol : List.of("WLRACE-100", "WLRACE-101")) {
+                    futures.add(pool.submit(() -> {
+                        start.await();
+                        return addItem(token, id, symbol).andReturn().getResponse().getStatus();
+                    }));
+                }
+                start.countDown();
+                for (Future<Integer> future : futures) {
+                    statuses.add(future.get(30, TimeUnit.SECONDS));
+                }
+            } finally {
+                pool.shutdownNow();
+            }
+            assertThat(statuses).containsExactlyInAnyOrder(200, 400);
+            assertThat(itemCount(watchlistId)).isEqualTo(100);
+        } finally {
+            dropTempAssets("WLRACE-");
+        }
+    }
+
+    private ResultActions addItem(String token, String id, String symbol) throws Exception {
+        return mockMvc.perform(post("/api/v1/watchlists/" + id + "/items")
+            .header("Authorization", "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(Map.of("symbol", symbol))));
+    }
+
+    private JsonNode data(ResultActions result) throws Exception {
+        return objectMapper.readTree(result.andReturn().getResponse().getContentAsString()).get("data");
+    }
+
+    private static List<String> symbols(JsonNode items) {
+        List<String> symbols = new ArrayList<>();
+        items.forEach(item -> symbols.add(item.get("symbol").asText()));
+        return symbols;
+    }
+
+    private Long watchlistId(String uuid) {
+        return jdbcClient.sql("select id from watchlists where uuid = :uuid")
+            .param("uuid", UUID.fromString(uuid))
+            .query(Long.class)
+            .single();
+    }
+
+    private int itemCount(Long watchlistId) {
+        return jdbcClient.sql("select count(*) from watchlist_items where watchlist_id = :id")
+            .param("id", watchlistId)
+            .query(Integer.class)
+            .single();
+    }
+
+    /**
+     * 種子只有 19 檔資產，上限測試需要 101 檔：建立暫時的 active、不可交易資產（不會被 ingestor 輪詢），
+     * 測試結束以 {@link #dropTempAssets} 清除（{@code FoundationMigrationIT} 斷言資產總數為 19）。
+     */
+    private void createTempAssets(String prefix, int count) {
+        jdbcClient.sql("""
+                insert into assets (symbol, name, asset_type, market, currency, tradeable, active)
+                select :prefix || lpad(g::text, 3, '0'), 'Watchlist temp ' || g, 'STOCK', 'US', 'USD', false, true
+                from generate_series(1, :count) g
+                """)
+            .param("prefix", prefix)
+            .param("count", count)
+            .update();
+    }
+
+    private void seedTempItems(Long watchlistId, String prefix, int count) {
+        jdbcClient.sql("""
+                insert into watchlist_items (watchlist_id, asset_id, position)
+                select :watchlistId, a.id, row_number() over (order by a.symbol)
+                from assets a
+                where a.symbol like :prefix || '%' and a.symbol <= :prefix || lpad(cast(:count as text), 3, '0')
+                """)
+            .param("watchlistId", watchlistId)
+            .param("prefix", prefix)
+            .param("count", count)
+            .update();
+    }
+
+    private void dropTempAssets(String prefix) {
+        jdbcClient.sql("""
+                delete from watchlist_items
+                where asset_id in (select id from assets where symbol like :prefix || '%')
+                """)
+            .param("prefix", prefix)
+            .update();
+        jdbcClient.sql("delete from assets where symbol like :prefix || '%'")
+            .param("prefix", prefix)
+            .update();
     }
 
     private ResultActions createWatchlist(String token, String name) throws Exception {

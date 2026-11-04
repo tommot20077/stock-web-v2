@@ -93,4 +93,41 @@ public interface WatchlistRepository {
      * @param userId 擁有者
      */
     void delete(Long id, Long userId);
+
+    /**
+     * 以 symbol 解析可加入觀察清單的資產：只要求 {@code active = true}，<strong>不</strong>要求 tradeable（D-18，
+     * FX 與債券皆可加入）。
+     *
+     * @param symbol 已 strip 的資產代號（大小寫須完全相符）
+     * @return 資產內部 id；不存在或 inactive 時為 empty
+     */
+    Optional<Long> findActiveAssetIdBySymbol(String symbol);
+
+    /**
+     * @param watchlistId 清單 id
+     * @param assetId     資產 id
+     * @return 該資產已在清單中時為 true
+     */
+    boolean containsItem(Long watchlistId, Long assetId);
+
+    /**
+     * 計算清單目前的項目列數（含已 inactive 的資產，上限以實際儲存的列計）。
+     *
+     * <p>100 檔上限的計數來源：呼叫端必須先以 {@link #findByUuidForUpdate} 鎖住清單列，<strong>之後</strong>
+     * 再呼叫本方法——READ COMMITTED 下每個語句各自取快照，鎖後的這個獨立查詢才看得到前一個持鎖交易剛 commit 的項目。</p>
+     *
+     * @param watchlistId 清單 id
+     * @return 項目列數
+     */
+    int countItems(Long watchlistId);
+
+    /**
+     * 把資產加到清單尾端（{@code position = coalesce(max(position), 0) + 1}），
+     * 以 {@code ON CONFLICT (watchlist_id, asset_id) DO NOTHING} 吸收重複。
+     *
+     * @param watchlistId 清單 id（呼叫端已鎖列）
+     * @param assetId     資產 id
+     * @return 實際新增一列時為 true；已存在時為 false
+     */
+    boolean insertItemAtEnd(Long watchlistId, Long assetId);
 }
