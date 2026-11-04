@@ -526,7 +526,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | `quantity` | number \| null | 交易數量 / 配股股數 / 拆股 ΔQ（帶號）；股利為 `null` |
 | `price` | number \| null | 僅交易 |
 | `fee` | number \| null | 僅交易 |
-| `amount` | number \| null | 交易為 `quantity × price`；股利為實領總額；股數調整為 `null` |
+| `amount` | number \| null | 交易為 `quantity × price`（捨入至 scale 8）；股利為實領總額；股數調整為 `null` |
 | `withholdingTax` | number \| null | 僅股利 |
 | `ratioNew` / `ratioOld` | integer \| null | 僅拆股 |
 | `note` | string \| null | |

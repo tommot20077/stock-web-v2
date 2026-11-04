@@ -34,7 +34,7 @@ import java.util.UUID;
  * <p>三個分支輸出同一組欄位（契約〈各 kind 欄位適用表〉），不適用的欄位以帶型別的 null 補齊，讓 UNION 的型別
  * 解析不依賴字面值推斷：</p>
  * <ul>
- *   <li>交易：{@code amount = quantity × price}（與 {@code TradeSortKey.TOTAL} 同一運算式，不含手續費）；
+ *   <li>交易：{@code amount = quantity × price}，捨入至 scale 8（與其他金額欄位一致；不含手續費）；
  *       交易沒有沖銷機制，{@code reversed} / {@code reversible} 恆 false。</li>
  *   <li>現金股利：沖銷列以自我 left join 取原列的 UUID 與入帳時間；{@code reversible} = 非沖銷列且未被沖銷。</li>
  *   <li>股數調整：沖銷列也輸出原值（不反號，前端以 {@code reversalOfId} 判斷）；{@code reversible} 另須為該標的
@@ -54,7 +54,7 @@ public class JdbcActivityRepository implements ActivityRepository {
     private static final String TRADE_BRANCH = """
         select t.uuid as id, t.type::varchar as kind, t.asset_id, t.executed_at as occurred_at,
                null::date as effective_date, t.created_at, t.quantity, t.price, t.fee,
-               t.quantity * t.price as amount, null::numeric as withholding_tax,
+               round(t.quantity * t.price, 8) as amount, null::numeric as withholding_tax,
                null::integer as ratio_new, null::integer as ratio_old, t.note,
                null::uuid as reversal_of_id, null::timestamptz as reversal_of_occurred_at,
                null::date as reversal_of_effective_date, false as reversed, false as reversible
