@@ -22,12 +22,12 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 觀察清單的 HTTP 端點（WATCH-01）。契約見 {@code ai-docs/watchlist-contract.md}。
+ * 觀察清單的 HTTP 端點（WATCH-01 / WATCH-02）。契約見 {@code ai-docs/watchlist-contract.md}。
  *
  * <p>路徑一律以清單 UUID 定位、不放 symbol（FX 代號含「/」）。本 controller 只取出已驗證身分的 userId
  * 轉交 {@link WatchlistService}；擁有權檢查在 service / repository 層（查詢一律綁 user_id）。
  * 非 UUID 格式的 {@code {id}} 由 {@code GlobalExceptionHandler} 的型別錯誤處理回 400 {@code VALIDATION_FAILED}。
- * unsafe method（POST / PATCH / DELETE）在 cookie 路徑由 {@code BrowserCsrfFilter} 強制 CSRF header。</p>
+ * unsafe method（POST / PUT / PATCH / DELETE）在 cookie 路徑由 {@code BrowserCsrfFilter} 強制 CSRF header。</p>
  *
  * @author Yuan
  * @version 1.0
@@ -105,5 +105,25 @@ public class WatchlistController {
     public ApiResponse<Void> delete(@PathVariable UUID id, Authentication authentication) {
         watchlistService.delete(AuthenticatedUserResolver.resolve(authentication), id);
         return ApiResponse.success(null, ApiMetaFactory.current());
+    }
+
+    /**
+     * 把資產加到清單尾端；已在清單中則原樣回傳（冪等）。
+     *
+     * @param id             清單 UUID
+     * @param request        資產代號（任何 active 資產，含 FX 與債券）
+     * @param authentication 已驗證的身分，name 即 userId
+     * @return 加入後的清單（含項目與報價）
+     */
+    @PostMapping("/{id}/items")
+    @PreAuthorize("hasAuthority('WATCHLIST_MANAGE')")
+    public ApiResponse<WatchlistDto> addItem(
+        @PathVariable UUID id,
+        @Valid @RequestBody AddWatchlistItemRequest request,
+        Authentication authentication
+    ) {
+        return ApiResponse.success(
+            watchlistService.addItem(AuthenticatedUserResolver.resolve(authentication), id, request.symbol()),
+            ApiMetaFactory.current());
     }
 }

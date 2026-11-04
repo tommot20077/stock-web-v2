@@ -17,10 +17,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
- * 觀察清單（WATCH-01；D-14、D-15、D-17、D-19）。契約見 {@code ai-docs/watchlist-contract.md}。
+ * 觀察清單（WATCH-01 / WATCH-02；D-14 ~ D-19）。契約見 {@code ai-docs/watchlist-contract.md}。
  *
  * <p>回傳的每檔項目都經 {@link AssetQuoteMapper}——與 {@code GET /api/v1/assets} 同一段程式計算漲跌與量縮寫；
  * 每次回應只呼叫一次 {@link MarketDataFacade#findDailyQuotes}（以 distinct 資產批次）。</p>
@@ -131,16 +132,39 @@ public class WatchlistService {
     }
 
     /**
-     * RED skeleton（04.2-12）：GREEN 實作。
+     * 把資產加到清單尾端（D-15、D-17、D-18）。
+     *
+     * <p>順序：{@code findByUuidForUpdate} 鎖清單列 → 解析 symbol（只要求 active，不要求 tradeable）→
+     * 已在清單中則原樣回傳 → 以<strong>鎖後另起</strong>的 {@code countItems} 檢查 100 檔上限 → 插入尾端。
+     * 計數不能沿用鎖查詢本身的結果：READ COMMITTED 下鎖查詢的快照在等鎖前取得，看不到前一個持鎖交易剛
+     * commit 的項目，會讓並發加入超過上限。</p>
      *
      * @param userId        擁有者
      * @param watchlistUuid 清單 UUID
-     * @param symbol        資產代號
-     * @return 加入後的清單
+     * @param symbol        資產代號（前後空白會被去除）
+     * @return 加入後的清單（含項目與報價）；已在清單中時為原樣
+     * @throws BusinessException 清單不存在或屬於他人（404 {@code WATCHLIST_NOT_FOUND}）、資產不存在或 inactive
+     *                           （404 {@code ASSET_NOT_FOUND}，{@code fields.symbol}）、清單已有 100 檔
+     *                           （400 {@code VALIDATION_FAILED}，{@code fields.items}）
      */
     @Transactional
     public WatchlistDto addItem(Long userId, UUID watchlistUuid, String symbol) {
-        return null;
+        Watchlist watchlist = watchlistRepository.findByUuidForUpdate(userId, watchlistUuid)
+            .orElseThrow(WatchlistService::notFound);
+        Long assetId = Optional.ofNullable(symbol)
+            .map(String::strip)
+            .filter(normalized -> !normalized.isEmpty())
+            .flatMap(watchlistRepository::findActiveAssetIdBySymbol)
+            .orElseThrow(WatchlistService::assetNotFound);
+        if (watchlistRepository.containsItem(watchlist.id(), assetId)) {
+            return toDto(watchlist);
+        }
+        // 必須是鎖之後的另一個查詢：READ COMMITTED 下鎖查詢的快照在等鎖前取得，看不到剛 commit 的項目。
+        if (watchlistRepository.countItems(watchlist.id()) >= MAX_ITEMS) {
+            throw new FieldValidationException("Watchlist item limit reached", Map.of("items", "at most 100 items"));
+        }
+        watchlistRepository.insertItemAtEnd(watchlist.id(), assetId);
+        return toDto(watchlist);
     }
 
     /**
@@ -164,8 +188,17 @@ public class WatchlistService {
             Map.of("name", "already exists"));
     }
 
+    private static BusinessException assetNotFound() {
+        return new BusinessException(ErrorCode.ASSET_NOT_FOUND, ErrorCode.ASSET_NOT_FOUND.defaultMessage(),
+            Map.of("symbol", "not found"));
+    }
+
     private static BusinessException notFound() {
         return new BusinessException(ErrorCode.WATCHLIST_NOT_FOUND, ErrorCode.WATCHLIST_NOT_FOUND.defaultMessage());
+    }
+
+    private WatchlistDto toDto(Watchlist watchlist) {
+        return toDtos(List.of(watchlist)).get(0);
     }
 
     private List<WatchlistDto> toDtos(List<Watchlist> watchlists) {

@@ -167,22 +167,51 @@ public class JdbcWatchlistRepository implements WatchlistRepository {
 
     @Override
     public Optional<Long> findActiveAssetIdBySymbol(String symbol) {
-        throw new UnsupportedOperationException("04.2-12 RED skeleton");
+        return jdbcClient.sql("select id from assets where symbol = :symbol and active = true")
+            .param("symbol", symbol)
+            .query(Long.class)
+            .optional();
     }
 
     @Override
     public boolean containsItem(Long watchlistId, Long assetId) {
-        throw new UnsupportedOperationException("04.2-12 RED skeleton");
+        return jdbcClient.sql("""
+                select exists (
+                    select 1 from watchlist_items where watchlist_id = :watchlistId and asset_id = :assetId
+                )
+                """)
+            .param("watchlistId", watchlistId)
+            .param("assetId", assetId)
+            .query(Boolean.class)
+            .single();
     }
 
     @Override
     public int countItems(Long watchlistId) {
-        throw new UnsupportedOperationException("04.2-12 RED skeleton");
+        return jdbcClient.sql("select count(*) from watchlist_items where watchlist_id = :watchlistId")
+            .param("watchlistId", watchlistId)
+            .query(Integer.class)
+            .single();
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>聚合子查詢恆回一列（空清單時 {@code max} 為 NULL → position 1）。呼叫端已鎖住清單列，
+     * 同清單的並發加入已序列化，{@code max + 1} 不會被另一個交易搶走。</p>
+     */
     @Override
     public boolean insertItemAtEnd(Long watchlistId, Long assetId) {
-        throw new UnsupportedOperationException("04.2-12 RED skeleton");
+        return jdbcClient.sql("""
+                insert into watchlist_items (watchlist_id, asset_id, position)
+                select :watchlistId, :assetId, coalesce(max(position), 0) + 1
+                from watchlist_items
+                where watchlist_id = :watchlistId
+                on conflict (watchlist_id, asset_id) do nothing
+                """)
+            .param("watchlistId", watchlistId)
+            .param("assetId", assetId)
+            .update() == 1;
     }
 
     /**
