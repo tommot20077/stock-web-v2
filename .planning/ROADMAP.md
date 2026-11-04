@@ -193,7 +193,7 @@ Plans:
   6. 後端 unit + CI Integration / E2E、前端雙模式 + build + lint + Playwright、跨 repo 驗證(judgment §8)全綠,Yuan 完成走查。
 
 **Insertion note**(2026-09-28):04.1 discuss 時範圍擴大(現金帳、基準幣、股利三種事件、多清單 watchlist),Yuan 決定拆成 04.1 / 04.2;決策見 `.planning/phases/04.2-dividends-share-adjustments-watchlist/04.2-CONTEXT.md`。
-**Plans**: 13/26 plans executed(8 waves;後端 13 + 前端 12 + 收尾閘門 1)。04.2-02 含 `checkpoint:decision`(資料模型 / roi / POST /trades 守門),股利、股數調整、watchlist 後端 stream 皆在其後;本環境無 Docker,`*IT` / `*E2E` / Browser E2E 以 CI 為證。
+**Plans**: 14/26 plans executed(8 waves;後端 13 + 前端 12 + 收尾閘門 1)。04.2-02 含 `checkpoint:decision`(資料模型 / roi / POST /trades 守門),股利、股數調整、watchlist 後端 stream 皆在其後;本環境無 Docker,`*IT` / `*E2E` / Browser E2E 以 CI 為證。
 Plans:
 - [x] `04.2-01-PLAN.md` — WATCH-05:WS tick 訂閱上限 100 / kline 10、WELCOME 新欄位、security.md WS 章節改寫(D-22、D-25)(wave 1,backend)
 - [x] `04.2-02-PLAN.md` — 決策閘門(資料模型 / roi / POST /trades 守門)+ 十條需求註冊 + 錯誤碼與契約凍結(wave 1,backend,checkpoint)
@@ -204,7 +204,7 @@ Plans:
 - [x] `04.2-11-PLAN.md` — WATCH-01:V18 watchlists、預設清單、清單 CRUD 與 20 上限、AssetQuoteMapper 抽出(wave 2,backend)
 - [x] `04.2-15-PLAN.md` — 前端:fmtSignedQuantity + Phase 04.2 全部 i18n 鍵 + 選擇器前綴(wave 2,frontend)
 - [x] `04.2-16-PLAN.md` — 前端:holdingEventApi 三件組、listActivities、DTO 型別、重讀 cause(wave 2,frontend)
-- [ ] `04.2-04-PLAN.md` — DIV-01:一鍵沖銷、冪等 409、欄位驗證、稽核(wave 3,backend)
+- [x] `04.2-04-PLAN.md` — DIV-01:一鍵沖銷、冪等 409、欄位驗證、稽核(wave 3,backend)
 - [ ] `04.2-05-PLAN.md` — DIV-02:summary 股利現金 / dividendIncome / totalPnl、快取 v3(wave 3,backend)
 - [x] `04.2-08-PLAN.md` — ADJ-01:沖銷最晚一筆、冪等與併發、稽核、POST /trades 守門(wave 3,backend)
 - [ ] `04.2-10-PLAN.md` — PORT-13:GET /portfolio/activities UNION、篩選 / 排序 NULLS LAST(wave 3,backend)
@@ -251,5 +251,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 4.1 -> 4.2 -> 5
 | 3. Portfolio Read API Mode | 5/5 | Completed | 2026-07-26 |
 | 4. Manual Trade Creation, Idempotency & Post-Trade Refetch | 13/13 | Completed | 2026-09-04 |
 | 04.1 Backend Data Gap Backfill (INSERTED) | 32/32 | Completed | 2026-10-31 |
-| 04.2 Dividends, Share Adjustments & Watchlist (INSERTED) | 13/26 | In Progress | - |
+| 04.2 Dividends, Share Adjustments & Watchlist (INSERTED) | 14/26 | In Progress | - |
 | 5. Cross-Repo Browser Flow Verification & Contract Hardening | 0/TBD | Not started | - |
