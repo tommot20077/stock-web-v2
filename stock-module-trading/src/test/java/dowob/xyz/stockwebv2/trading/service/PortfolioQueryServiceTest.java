@@ -23,6 +23,8 @@ import dowob.xyz.stockwebv2.trading.domain.TradeType;
 import dowob.xyz.stockwebv2.trading.repository.CashLedgerRepository;
 import dowob.xyz.stockwebv2.trading.repository.DividendRepository;
 import dowob.xyz.stockwebv2.trading.repository.DividendRepository.DividendTotals;
+import dowob.xyz.stockwebv2.trading.repository.ShareAdjustmentRepository;
+import dowob.xyz.stockwebv2.trading.repository.ShareAdjustmentRepository.DayAdjustment;
 import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +35,7 @@ import org.mockito.ArgumentCaptor;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -72,6 +75,7 @@ class PortfolioQueryServiceTest {
     private TradingRepository repository;
     private CashLedgerRepository cashLedgerRepository;
     private DividendRepository dividendRepository;
+    private ShareAdjustmentRepository shareAdjustmentRepository;
     private MarketDataFacade marketDataFacade;
     private PortfolioCache portfolioCache;
     private UserPreferenceFacade userPreferenceFacade;
@@ -84,14 +88,15 @@ class PortfolioQueryServiceTest {
         repository = mock(TradingRepository.class);
         cashLedgerRepository = mock(CashLedgerRepository.class);
         dividendRepository = mock(DividendRepository.class);
+        shareAdjustmentRepository = mock(ShareAdjustmentRepository.class);
         marketDataFacade = mock(MarketDataFacade.class);
         portfolioCache = mock(PortfolioCache.class);
         userPreferenceFacade = mock(UserPreferenceFacade.class);
         assetFacade = mock(AssetFacade.class);
         fxRateFacade = mock(FxRateFacade.class);
         service = new PortfolioQueryService(
-            repository, cashLedgerRepository, dividendRepository, marketDataFacade, portfolioCache, userPreferenceFacade,
-            assetFacade, fxRateFacade);
+            repository, cashLedgerRepository, dividendRepository, shareAdjustmentRepository, marketDataFacade,
+            portfolioCache, userPreferenceFacade, assetFacade, fxRateFacade);
         // 預設：基準幣 TWD、V2 seed 匯率、任何被查的標的都是 USD 的 STOCK；個別測試再覆寫。
         when(userPreferenceFacade.findBaseCurrency(7L)).thenReturn(CurrencyCode.TWD);
         when(fxRateFacade.currentRates()).thenReturn(seedRates());
@@ -958,6 +963,182 @@ class PortfolioQueryServiceTest {
     }
 
     @Test
+    @DisplayName("拆股 4:1 當日的持倉：Q1 400、當日調整 +300、拆前前收 400、最新價 101 → dayPricePnl 400，不是假性暴跌（D-10）")
+    void splitDayHoldingSubtractsTodaysAdjustment() {
+        HoldingPosition aapl = position(1L, 42L, "AAPL", new BigDecimal("400"), new BigDecimal("25"));
+        givenMissingHolding(aapl);
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(42L, quote("101", "400")));
+        when(shareAdjustmentRepository.listSince(eq(7L), any(OffsetDateTime.class))).thenReturn(List.of(
+            new DayAdjustment(42L, new BigDecimal("300"), usDayStart())));
+
+        HoldingDto dto = service.listHoldings(7L).getFirst();
+
+        // Q0 = 400 − 300 = 100：400×101 − 100×400 = 400；未扣調整時會是 −119600。
+        assertThat(dto.dayPricePnl()).isEqualByComparingTo("400");
+        assertThat(dto.dayPnlBasis()).isEqualByComparingTo("40000");
+        assertThat(dto.dayPricePnlRatio()).isEqualByComparingTo("0.01");
+        // previousClose 維持原值（拆前前收），不另算調整後前收。
+        assertThat(dto.previousClose()).isEqualByComparingTo("400");
+        assertThat(dto.marketValue()).isEqualByComparingTo("40400");
+    }
+
+    @Test
+    @DisplayName("配股當日的持倉：1050 股、當日調整 +50、前收 100、最新價 96 → dayPricePnl 800（D-10）")
+    void stockDividendDayHoldingSubtractsTodaysAdjustment() {
+        HoldingPosition tsla = position(1L, 42L, "TSLA", new BigDecimal("1050"), new BigDecimal("95.238"));
+        givenMissingHolding(tsla);
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(42L, quote("96", "100")));
+        when(shareAdjustmentRepository.listSince(eq(7L), any(OffsetDateTime.class))).thenReturn(List.of(
+            new DayAdjustment(42L, new BigDecimal("50"), usDayStart())));
+
+        HoldingDto dto = service.listHoldings(7L).getFirst();
+
+        assertThat(dto.dayPricePnl()).isEqualByComparingTo("800");
+        assertThat(dto.dayPnlBasis()).isEqualByComparingTo("100000");
+    }
+
+    @Test
+    @DisplayName("今天先拆股再賣光的平倉候選也扣除當日調整；summary 總額 = 持倉 + 平倉候選逐檔加總")
+    void soldAllAfterSplitTodayIsAdjustedAndSummaryMatchesPerAssetSum() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        HoldingPosition held = position(1L, 41L, "AAPL", new BigDecimal("400"), new BigDecimal("25"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(held));
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of(
+            snapshot(41L, new BigDecimal("400"), new BigDecimal("25"), BigDecimal.ZERO),
+            closedSnapshot(42L, OffsetDateTime.now().minusHours(1))));
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(
+            41L, quote("101", "400"),
+            42L, quote("101", "400")));
+        when(repository.listFillsSince(eq(7L), any(OffsetDateTime.class))).thenReturn(List.of(
+            fill(42L, TradeType.SELL, "400", "102", "2026-09-04T09:30:00-04:00")));
+        when(shareAdjustmentRepository.listSince(eq(7L), any(OffsetDateTime.class))).thenReturn(List.of(
+            new DayAdjustment(41L, new BigDecimal("300"), usDayStart()),
+            new DayAdjustment(42L, new BigDecimal("300"), usDayStart())));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        // 持倉 41：400 USD（分母 40000）；平倉候選 42：Q0 = 0 + 400 − 300 = 100 → 400×102 − 100×400 = 800 USD（分母 40000）。
+        // 未扣調整時平倉候選會是 400×102 − 400×400 = −119200。合計 1200 USD × 32.418。
+        assertThat(dto.dayPricePnl()).isEqualByComparingTo("38901.6");
+        assertThat(dto.dayPricePnlRatio()).isEqualByComparingTo("0.015");
+        assertThat(dto.dayPnlExcludedCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("行情最新時間早於調整生效時間（行情尚未反映拆股）：該檔今日欄位為 null 並計入 dayPnlExcludedCount（Q4.4）")
+    void adjustmentNotYetPricedYieldsNullAndIsExcluded() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        HoldingPosition aapl = position(1L, 42L, "AAPL", new BigDecimal("400"), new BigDecimal("25"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(aapl));
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of(
+            snapshot(42L, new BigDecimal("400"), new BigDecimal("25"), BigDecimal.ZERO)));
+        // 最新一筆仍是昨日（拆前價 400）；Q1 已是拆後 400 股。
+        OffsetDateTime yesterday = OffsetDateTime.parse("2026-09-03T15:59:00-04:00");
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(
+            42L, quote(new BigDecimal("400"), new BigDecimal("390"), yesterday)));
+        when(shareAdjustmentRepository.listSince(eq(7L), any(OffsetDateTime.class))).thenReturn(List.of(
+            new DayAdjustment(42L, new BigDecimal("300"), usDayStart())));
+
+        HoldingDto dto = service.listHoldings(7L).getFirst();
+        PortfolioSummaryDto summary = service.summary(7L);
+
+        assertThat(dto.dayPricePnl()).isNull();
+        assertThat(dto.dayPricePnlRatio()).isNull();
+        assertThat(dto.dayPnlBasis()).isNull();
+        assertThat(dto.previousClose()).isEqualByComparingTo("390");
+        assertThat(summary.dayPricePnl()).isNull();
+        assertThat(summary.dayPnlExcludedCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("同日原列 +300 與沖銷列 −300：當日調整淨額 0，結果與無調整相同")
+    void sameDayReversalNetsAdjustmentToZero() {
+        HoldingPosition msft = position(1L, 42L, "MSFT", new BigDecimal("100"), new BigDecimal("160"));
+        givenMissingHolding(msft);
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(42L, quote("200", "190")));
+        when(shareAdjustmentRepository.listSince(eq(7L), any(OffsetDateTime.class))).thenReturn(List.of(
+            new DayAdjustment(42L, new BigDecimal("300"), usDayStart()),
+            new DayAdjustment(42L, new BigDecimal("-300"), usDayStart())));
+
+        HoldingDto dto = service.listHoldings(7L).getFirst();
+
+        // 100 × (200 − 190)
+        assertThat(dto.dayPricePnl()).isEqualByComparingTo("1000");
+        assertThat(dto.dayPnlBasis()).isEqualByComparingTo("19000");
+    }
+
+    @Test
+    @DisplayName("同一除權日兩筆拆股依記錄順序疊加：100 股兩次 2:1（+100、+200）→ 400 股，今日損益仍以 100 股拆前前收計算")
+    void sameDayStackedAdjustmentsAreAllSubtracted() {
+        HoldingPosition aapl = position(1L, 42L, "AAPL", new BigDecimal("400"), new BigDecimal("25"));
+        givenMissingHolding(aapl);
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(42L, quote("101", "400")));
+        when(shareAdjustmentRepository.listSince(eq(7L), any(OffsetDateTime.class))).thenReturn(List.of(
+            new DayAdjustment(42L, new BigDecimal("100"), usDayStart()),
+            new DayAdjustment(42L, new BigDecimal("200"), usDayStart())));
+
+        HoldingDto dto = service.listHoldings(7L).getFirst();
+
+        assertThat(dto.dayPricePnl()).isEqualByComparingTo("400");
+        assertThat(dto.dayPnlBasis()).isEqualByComparingTo("40000");
+    }
+
+    @Test
+    @DisplayName("早於該資產交易日起點的調整已在期初持股內，不計入當日調整（以各資產自己的起點過濾）")
+    void adjustmentsBeforeAssetDayStartAreNotCounted() {
+        HoldingPosition aapl = position(1L, 42L, "AAPL", new BigDecimal("400"), new BigDecimal("25"));
+        givenMissingHolding(aapl);
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(42L, quote("101", "100")));
+        // 昨天生效的拆股：昨日收盤 100 已是拆後價，今天 Q0 = 400。
+        when(shareAdjustmentRepository.listSince(eq(7L), any(OffsetDateTime.class))).thenReturn(List.of(
+            new DayAdjustment(42L, new BigDecimal("300"), usDayStart().minusDays(1))));
+
+        HoldingDto dto = service.listHoldings(7L).getFirst();
+
+        // 400 × (101 − 100)
+        assertThat(dto.dayPricePnl()).isEqualByComparingTo("400");
+        assertThat(dto.dayPnlBasis()).isEqualByComparingTo("40000");
+    }
+
+    @Test
+    @DisplayName("一次 summary 只查一次當日股數調整，since 與今日成交查詢相同且綁本人 userId")
+    void shareAdjustmentsAreFetchedOnceWithSameSinceAsFills() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        HoldingPosition aapl = position(1L, 41L, "AAPL", new BigDecimal("10"), new BigDecimal("100"));
+        HoldingPosition tsmc = position(2L, 43L, "2330.TW", new BigDecimal("2"), new BigDecimal("900"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(aapl, tsmc));
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of(
+            snapshot(41L, new BigDecimal("10"), new BigDecimal("100"), BigDecimal.ZERO),
+            snapshot(43L, new BigDecimal("2"), new BigDecimal("900"), BigDecimal.ZERO),
+            closedSnapshot(44L, OffsetDateTime.now().minusHours(1))));
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(
+            41L, quote("200", "190"),
+            43L, quote(new BigDecimal("1000"), new BigDecimal("990"), OffsetDateTime.parse("2026-09-04T10:00:00+08:00")),
+            44L, quote("125", "110")));
+
+        service.summary(7L);
+
+        ArgumentCaptor<OffsetDateTime> fillsSince = ArgumentCaptor.forClass(OffsetDateTime.class);
+        ArgumentCaptor<OffsetDateTime> adjustmentsSince = ArgumentCaptor.forClass(OffsetDateTime.class);
+        verify(repository, times(1)).listFillsSince(eq(7L), fillsSince.capture());
+        verify(shareAdjustmentRepository, times(1)).listSince(eq(7L), adjustmentsSince.capture());
+        assertThat(adjustmentsSince.getValue()).isEqualTo(fillsSince.getValue());
+        verifyNoMoreInteractions(shareAdjustmentRepository);
+    }
+
+    @Test
+    @DisplayName("無行情也無平倉候選時不查當日股數調整（與今日成交同一個短路）")
+    void noQuoteDoesNotQueryShareAdjustments() {
+        HoldingPosition aapl = position(1L, 42L, "AAPL", new BigDecimal("10"), new BigDecimal("100"));
+        givenMissingHolding(aapl);
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of());
+
+        service.listHoldings(7L);
+
+        verifyNoInteractions(shareAdjustmentRepository);
+    }
+
+    @Test
     @DisplayName("allocation 含類別與正現金、sectorAllocation 不含現金：以基準幣市值與目前匯率折算（D-18 ~ D-21）")
     void allocationAndSectorsAreBuiltFromConvertedHoldingsAndPositiveCash() {
         givenBase(CurrencyCode.TWD, seedRates());
@@ -1103,6 +1284,16 @@ class PortfolioQueryServiceTest {
      */
     private HoldingSnapshot closedSnapshot(Long assetId, OffsetDateTime lastUpdated) {
         return new HoldingSnapshot(assetId, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, lastUpdated);
+    }
+
+    /**
+     * {@link #PRICE_TIME} 所在美股交易日的起點（股數調整的生效瞬間），以與 market-data 相同的公式計算。
+     *
+     * @return 交易日起點
+     */
+    private OffsetDateTime usDayStart() {
+        return OffsetDateTime.ofInstant(
+            TradingDay.of(AssetType.STOCK, "US").dayStart(PRICE_TIME.toInstant()), ZoneOffset.UTC);
     }
 
     /**
