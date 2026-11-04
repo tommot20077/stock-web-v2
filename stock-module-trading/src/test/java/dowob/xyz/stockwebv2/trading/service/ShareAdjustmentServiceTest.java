@@ -51,7 +51,8 @@ import static org.mockito.Mockito.when;
  * <p>鎖住寫入主路徑的每一個決策點：配股的 ΔQ = 實領股數（D-05）、拆股的 ΔQ 以<strong>除權日起點持股</strong>
  * 換算而非目前持股（D-08，Pitfall 1）、除權日起點或目前無持倉回 409（D-06 / D-09）、生效時間超前或早於
  * 最晚未沖銷調整回 400、形狀驗證、冪等快路徑與 insert 落空重讀都不動持倉也不失效快取，以及「先鎖持倉再計算」的順序。
- * payload 比對（409）與沖銷流程由 04.2-08 補上。</p>
+ * 04.2-08 補上沖銷流程：只能沖銷該標的最晚一筆未沖銷調整（同一除權日依記錄順序倒著沖）、撤銷已記錄的 ΔQ、
+ * 冪等優先於「已沖銷」。</p>
  *
  * @author Yuan
  * @version 1.0
@@ -74,6 +75,13 @@ class ShareAdjustmentServiceTest {
      * 美股 2026-10-30 交易日起點 = 紐約午夜（EDT，UTC−4）。
      */
     private static final OffsetDateTime TODAY_START_US = OffsetDateTime.parse("2026-10-30T04:00:00Z");
+
+    private static final LocalDate YESTERDAY = LocalDate.parse("2026-10-29");
+
+    /**
+     * 美股 2026-10-29 交易日起點（EDT，UTC−4）。
+     */
+    private static final OffsetDateTime YESTERDAY_START_US = OffsetDateTime.parse("2026-10-29T04:00:00Z");
 
     private ShareAdjustmentRepository repository;
     private TradingRepository tradingRepository;
@@ -108,7 +116,7 @@ class ShareAdjustmentServiceTest {
 
         ShareAdjustmentDto dto = service.create(USER_ID,
             new CreateShareAdjustmentRequest(" aapl ", "STOCK_DIVIDEND", new BigDecimal("50"), null, null, TODAY,
-                " 配股 "),
+                " 配股 ", null),
             "k1");
 
         ArgumentCaptor<ShareAdjustmentEntry> written = ArgumentCaptor.forClass(ShareAdjustmentEntry.class);
@@ -161,7 +169,7 @@ class ShareAdjustmentServiceTest {
         when(repository.quantityAsOf(USER_ID, AAPL_ID, TODAY_START_US)).thenReturn(new BigDecimal("100"));
 
         ShareAdjustmentDto dto = service.create(USER_ID,
-            new CreateShareAdjustmentRequest("AAPL", "split", null, 4, 1, TODAY, null), "k-split");
+            new CreateShareAdjustmentRequest("AAPL", "split", null, 4, 1, TODAY, null, null), "k-split");
 
         ArgumentCaptor<ShareAdjustmentEntry> written = ArgumentCaptor.forClass(ShareAdjustmentEntry.class);
         verify(repository).insertIfAbsent(written.capture());
@@ -185,7 +193,7 @@ class ShareAdjustmentServiceTest {
         holding("105", "10");
         when(repository.quantityAsOf(USER_ID, AAPL_ID, TODAY_START_US)).thenReturn(new BigDecimal("105"));
 
-        service.create(USER_ID, new CreateShareAdjustmentRequest("AAPL", "SPLIT", null, 1, 10, TODAY, null), "k-rs");
+        service.create(USER_ID, new CreateShareAdjustmentRequest("AAPL", "SPLIT", null, 1, 10, TODAY, null, null), "k-rs");
 
         ArgumentCaptor<ShareAdjustmentEntry> written = ArgumentCaptor.forClass(ShareAdjustmentEntry.class);
         verify(repository).insertIfAbsent(written.capture());
@@ -202,7 +210,7 @@ class ShareAdjustmentServiceTest {
         when(repository.quantityAsOf(USER_ID, AAPL_ID, TODAY_START_US)).thenReturn(BigDecimal.ZERO);
 
         assertInsufficientHolding(() -> service.create(USER_ID,
-            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null),
+            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null, null),
             "k-none-asof"));
         verifyNothingWritten();
     }
@@ -214,7 +222,7 @@ class ShareAdjustmentServiceTest {
         when(repository.quantityAsOf(USER_ID, AAPL_ID, TODAY_START_US)).thenReturn(new BigDecimal("100"));
 
         assertInsufficientHolding(() -> service.create(USER_ID,
-            new CreateShareAdjustmentRequest("AAPL", "SPLIT", null, 2, 1, TODAY, null), "k-none-now"));
+            new CreateShareAdjustmentRequest("AAPL", "SPLIT", null, 2, 1, TODAY, null, null), "k-none-now"));
         verifyNothingWritten();
     }
 
@@ -225,7 +233,7 @@ class ShareAdjustmentServiceTest {
         when(repository.quantityAsOf(USER_ID, AAPL_ID, TODAY_START_US)).thenReturn(new BigDecimal("100"));
 
         assertInsufficientHolding(() -> service.create(USER_ID,
-            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null),
+            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null, null),
             "k-zero-now"));
         verifyNothingWritten();
     }
@@ -235,7 +243,7 @@ class ShareAdjustmentServiceTest {
     void futureEffectiveDateIsRejected() {
         assertThatThrownBy(() -> service.create(USER_ID,
             new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null,
-                TODAY.plusDays(1), null), "k-future"))
+                TODAY.plusDays(1), null, null), "k-future"))
             .isInstanceOfSatisfying(BusinessException.class, ex -> {
                 assertThat(ex.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
                 assertThat(ex.fields()).containsKey("effectiveDate");
@@ -252,7 +260,7 @@ class ShareAdjustmentServiceTest {
 
         assertThatThrownBy(() -> service.create(USER_ID,
             new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null,
-                TODAY.minusDays(1), null), "k-earlier"))
+                TODAY.minusDays(1), null, null), "k-earlier"))
             .isInstanceOfSatisfying(BusinessException.class, ex -> {
                 assertThat(ex.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
                 assertThat(ex.fields()).containsKey("effectiveDate");
@@ -269,7 +277,7 @@ class ShareAdjustmentServiceTest {
         when(repository.quantityAsOf(USER_ID, AAPL_ID, TODAY_START_US)).thenReturn(new BigDecimal("100"));
 
         service.create(USER_ID,
-            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null),
+            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null, null),
             "k-same-day");
 
         verify(repository).insertIfAbsent(any(ShareAdjustmentEntry.class));
@@ -279,25 +287,25 @@ class ShareAdjustmentServiceTest {
     @DisplayName("type 白名單外 → 400 fields.type，任何 I/O 之前擋下")
     void unsupportedTypeIsRejected() {
         assertFieldRejected(new CreateShareAdjustmentRequest("AAPL", "DIVIDEND", new BigDecimal("5"), null, null,
-            TODAY, null), "type");
+            TODAY, null, null), "type");
         assertFieldRejected(new CreateShareAdjustmentRequest("AAPL", " ", new BigDecimal("5"), null, null,
-            TODAY, null), "type");
+            TODAY, null, null), "type");
     }
 
     @Test
     @DisplayName("SPLIT 缺 ratioNew / ratioOld → fields.ratioNew / fields.ratioOld；兩者相等 → fields.ratio")
     void splitShapeIsValidated() {
-        assertFieldRejected(new CreateShareAdjustmentRequest("AAPL", "SPLIT", null, null, 1, TODAY, null),
+        assertFieldRejected(new CreateShareAdjustmentRequest("AAPL", "SPLIT", null, null, 1, TODAY, null, null),
             "ratioNew");
-        assertFieldRejected(new CreateShareAdjustmentRequest("AAPL", "SPLIT", null, 4, null, TODAY, null),
+        assertFieldRejected(new CreateShareAdjustmentRequest("AAPL", "SPLIT", null, 4, null, TODAY, null, null),
             "ratioOld");
-        assertFieldRejected(new CreateShareAdjustmentRequest("AAPL", "SPLIT", null, 3, 3, TODAY, null), "ratio");
+        assertFieldRejected(new CreateShareAdjustmentRequest("AAPL", "SPLIT", null, 3, 3, TODAY, null, null), "ratio");
     }
 
     @Test
     @DisplayName("STOCK_DIVIDEND 缺 quantity → fields.quantity")
     void stockDividendRequiresQuantity() {
-        assertFieldRejected(new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", null, null, null, TODAY, null),
+        assertFieldRejected(new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", null, null, null, TODAY, null, null),
             "quantity");
     }
 
@@ -308,7 +316,7 @@ class ShareAdjustmentServiceTest {
         when(repository.quantityAsOf(USER_ID, AAPL_ID, TODAY_START_US)).thenReturn(new BigDecimal("0.00000001"));
 
         assertThatThrownBy(() -> service.create(USER_ID,
-            new CreateShareAdjustmentRequest("AAPL", "SPLIT", null, 1000, 999, TODAY, null), "k-zero-delta"))
+            new CreateShareAdjustmentRequest("AAPL", "SPLIT", null, 1000, 999, TODAY, null, null), "k-zero-delta"))
             .isInstanceOfSatisfying(BusinessException.class, ex -> {
                 assertThat(ex.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
                 assertThat(ex.fields()).containsKey("ratio");
@@ -320,7 +328,7 @@ class ShareAdjustmentServiceTest {
     @DisplayName("冪等鍵空白或超過 128 字 → 400 fields.Idempotency-Key，任何 I/O 之前擋下")
     void invalidIdempotencyKeyIsRejectedBeforeAnyIo() {
         CreateShareAdjustmentRequest request = new CreateShareAdjustmentRequest(
-            "AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null);
+            "AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null, null);
         for (String key : new String[] {" ", "k".repeat(129)}) {
             assertThatThrownBy(() -> service.create(USER_ID, request, key))
                 .isInstanceOfSatisfying(BusinessException.class, ex -> {
@@ -338,7 +346,7 @@ class ShareAdjustmentServiceTest {
             new AssetSummary(AAPL_ID, "AAPL", "Apple Inc.", AssetType.STOCK, "US", false, true)));
 
         assertThatThrownBy(() -> service.create(USER_ID,
-            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null),
+            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null, null),
             "k-untradeable"))
             .isInstanceOfSatisfying(BusinessException.class, ex -> {
                 assertThat(ex.errorCode()).isEqualTo(ErrorCode.ASSET_NOT_FOUND);
@@ -355,7 +363,7 @@ class ShareAdjustmentServiceTest {
         when(repository.isReversed(77L)).thenReturn(true);
 
         ShareAdjustmentDto dto = service.create(USER_ID,
-            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null),
+            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null, null),
             "k-known");
 
         assertThat(dto.id()).isEqualTo(known.uuid().toString());
@@ -378,7 +386,7 @@ class ShareAdjustmentServiceTest {
         when(repository.insertIfAbsent(any(ShareAdjustmentEntry.class))).thenReturn(Optional.empty());
 
         ShareAdjustmentDto dto = service.create(USER_ID,
-            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null),
+            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null, null),
             "k-race");
 
         assertThat(dto.id()).isEqualTo(concurrent.uuid().toString());
@@ -394,10 +402,256 @@ class ShareAdjustmentServiceTest {
         when(repository.insertIfAbsent(any(ShareAdjustmentEntry.class))).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.create(USER_ID,
-            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null),
+            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null, null),
             "k-dup"))
             .isInstanceOfSatisfying(BusinessException.class, ex ->
                 assertThat(ex.errorCode()).isEqualTo(ErrorCode.DUPLICATE_RESOURCE));
+        verify(tradingRepository, never()).updateHolding(any());
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("沖銷最晚一筆拆股 4:1（ΔQ +300）：寫入值取自原列的沖銷列、持倉 400 → 100（總成本不變）、失效一次、不算 Q_asOf")
+    void reversingLatestSplitRestoresHoldingWithoutRecomputingRatio() {
+        holding("400", "25");
+        ShareAdjustmentEntry original = split(90L, "300", YESTERDAY, YESTERDAY_START_US, null);
+        stubOriginal(original);
+        when(repository.findLatestActive(USER_ID, AAPL_ID)).thenReturn(Optional.of(original));
+
+        ShareAdjustmentDto dto = service.create(USER_ID,
+            reverseSplitRequest(4, 1, YESTERDAY, original.uuid(), " 記錯了 "), "k-reverse");
+
+        ArgumentCaptor<ShareAdjustmentEntry> written = ArgumentCaptor.forClass(ShareAdjustmentEntry.class);
+        verify(repository).insertIfAbsent(written.capture());
+        ShareAdjustmentEntry entry = written.getValue();
+        assertThat(entry.reversalOfId()).isEqualTo(90L);
+        assertThat(entry.assetId()).isEqualTo(AAPL_ID);
+        assertThat(entry.type()).isEqualTo(ShareAdjustmentType.SPLIT);
+        assertThat(entry.ratioNew()).isEqualTo(4);
+        assertThat(entry.ratioOld()).isEqualTo(1);
+        assertThat(entry.quantityDelta()).isEqualByComparingTo("300");
+        assertThat(entry.effectiveDate()).isEqualTo(YESTERDAY);
+        assertThat(entry.effectiveAt()).isEqualTo(YESTERDAY_START_US);
+        assertThat(entry.idempotencyKey()).isEqualTo("k-reverse");
+        assertThat(entry.note()).isEqualTo("記錯了");
+
+        ArgumentCaptor<Holding> updated = ArgumentCaptor.forClass(Holding.class);
+        verify(tradingRepository).updateHolding(updated.capture());
+        assertThat(updated.getValue().totalQuantity()).isEqualByComparingTo("100");
+        assertThat(updated.getValue().avgCost()).isEqualByComparingTo("100");
+        verify(portfolioCache, times(1)).invalidateAfterTrade(USER_ID, AAPL_ID);
+        verify(repository, never()).quantityAsOf(any(), any(), any());
+
+        InOrder order = inOrder(tradingRepository, repository);
+        order.verify(tradingRepository).findHoldingForUpdate(USER_ID, AAPL_ID);
+        order.verify(repository).insertIfAbsent(any(ShareAdjustmentEntry.class));
+        order.verify(tradingRepository).updateHolding(any(Holding.class));
+
+        assertThat(dto.reversalOfId()).isEqualTo(original.uuid().toString());
+        assertThat(dto.reversed()).isFalse();
+    }
+
+    @Test
+    @DisplayName("沖銷合股 1:10（ΔQ −94.5）：撤銷後持倉 10.5 → 105")
+    void reversingReverseSplitAddsSharesBack() {
+        holding("10.5", "100");
+        ShareAdjustmentEntry original = split(90L, "-94.5", TODAY, TODAY_START_US, null, 1, 10);
+        stubOriginal(original);
+        when(repository.findLatestActive(USER_ID, AAPL_ID)).thenReturn(Optional.of(original));
+
+        service.create(USER_ID, reverseSplitRequest(1, 10, TODAY, original.uuid(), null), "k-reverse-rs");
+
+        ArgumentCaptor<Holding> updated = ArgumentCaptor.forClass(Holding.class);
+        verify(tradingRepository).updateHolding(updated.capture());
+        assertThat(updated.getValue().totalQuantity()).isEqualByComparingTo("105");
+    }
+
+    @Test
+    @DisplayName("沖銷對象不是該標的最晚一筆未沖銷調整 → 409 SHARE_ADJUSTMENT_NOT_REVERSIBLE，不寫入")
+    void reversingNonLatestAdjustmentIsNotReversible() {
+        holding("400", "25");
+        ShareAdjustmentEntry original = split(90L, "300", YESTERDAY, YESTERDAY_START_US, null);
+        stubOriginal(original);
+        when(repository.findLatestActive(USER_ID, AAPL_ID)).thenReturn(Optional.of(
+            split(91L, "400", TODAY, TODAY_START_US, null)));
+
+        assertErrorCode(() -> service.create(USER_ID,
+            reverseSplitRequest(4, 1, YESTERDAY, original.uuid(), null), "k-not-latest"),
+            ErrorCode.SHARE_ADJUSTMENT_NOT_REVERSIBLE);
+        verifyNothingWritten();
+    }
+
+    @Test
+    @DisplayName("沖銷對象本身是沖銷列 → 409 SHARE_ADJUSTMENT_NOT_REVERSIBLE，不寫入")
+    void reversingAReversalRowIsNotReversible() {
+        holding("100", "100");
+        ShareAdjustmentEntry reversalRow = split(92L, "300", YESTERDAY, YESTERDAY_START_US, 90L);
+        stubOriginal(reversalRow);
+
+        assertErrorCode(() -> service.create(USER_ID,
+            reverseSplitRequest(4, 1, YESTERDAY, reversalRow.uuid(), null), "k-reverse-reversal"),
+            ErrorCode.SHARE_ADJUSTMENT_NOT_REVERSIBLE);
+        verifyNothingWritten();
+    }
+
+    @Test
+    @DisplayName("沖銷對象已被沖銷 → 409 SHARE_ADJUSTMENT_ALREADY_REVERSED，不寫入")
+    void reversingAlreadyReversedAdjustmentIsRejected() {
+        holding("100", "100");
+        ShareAdjustmentEntry original = split(90L, "300", YESTERDAY, YESTERDAY_START_US, null);
+        stubOriginal(original);
+        when(repository.isReversed(90L)).thenReturn(true);
+
+        assertErrorCode(() -> service.create(USER_ID,
+            reverseSplitRequest(4, 1, YESTERDAY, original.uuid(), null), "k-twice"),
+            ErrorCode.SHARE_ADJUSTMENT_ALREADY_REVERSED);
+        verifyNothingWritten();
+    }
+
+    @Test
+    @DisplayName("沖銷對象不存在或屬於他人 → 404 SHARE_ADJUSTMENT_NOT_FOUND，不鎖持倉、不寫入、訊息不含 UUID")
+    void reversingUnknownAdjustmentIsNotFound() {
+        UUID unknown = UUID.randomUUID();
+        when(repository.findByUuid(USER_ID, unknown)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.create(USER_ID,
+            reverseSplitRequest(4, 1, YESTERDAY, unknown, null), "k-unknown"))
+            .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                assertThat(ex.errorCode()).isEqualTo(ErrorCode.SHARE_ADJUSTMENT_NOT_FOUND);
+                assertThat(ex.getMessage()).doesNotContain(unknown.toString());
+            });
+        verifyNoInteractions(tradingRepository, portfolioCache);
+        verify(repository, never()).insertIfAbsent(any());
+    }
+
+    @Test
+    @DisplayName("reversalOfId 不是 UUID → 400 fields.reversalOfId，不碰帳本與持倉")
+    void malformedReversalOfIdIsRejected() {
+        for (String malformed : new String[] {"not-a-uuid", " "}) {
+            assertThatThrownBy(() -> service.create(USER_ID,
+                new CreateShareAdjustmentRequest("AAPL", "SPLIT", null, 4, 1, YESTERDAY, null, malformed),
+                "k-malformed"))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                    assertThat(ex.fields()).containsKey("reversalOfId");
+                });
+        }
+        verifyNoInteractions(repository, tradingRepository, portfolioCache);
+    }
+
+    @Test
+    @DisplayName("沖銷後持股 ≤ 0（持倉 50、撤銷 +300）→ 409 TRADE_INSUFFICIENT_HOLDING，不寫入、不更新持倉")
+    void reversalThatWouldLeaveNoSharesIsRejected() {
+        holding("50", "100");
+        ShareAdjustmentEntry original = split(90L, "300", YESTERDAY, YESTERDAY_START_US, null);
+        stubOriginal(original);
+        when(repository.findLatestActive(USER_ID, AAPL_ID)).thenReturn(Optional.of(original));
+
+        assertErrorCode(() -> service.create(USER_ID,
+            reverseSplitRequest(4, 1, YESTERDAY, original.uuid(), null), "k-too-few"),
+            ErrorCode.TRADE_INSUFFICIENT_HOLDING);
+        verifyNothingWritten();
+    }
+
+    @Test
+    @DisplayName("沖銷請求的 symbol / type / ratio / quantity / effectiveDate 與原列不同 → 400，fields 指名不符欄位")
+    void reversalValuesMustMatchOriginal() {
+        holding("400", "25");
+        ShareAdjustmentEntry original = split(90L, "300", YESTERDAY, YESTERDAY_START_US, null);
+        stubOriginal(original);
+        when(repository.findLatestActive(USER_ID, AAPL_ID)).thenReturn(Optional.of(original));
+        when(assetFacade.findBySymbol("TSLA")).thenReturn(Optional.of(
+            new AssetSummary(2L, "TSLA", "Tesla", AssetType.STOCK, "US", true, true)));
+
+        assertFieldRejectedOnReversal(reverseSplitRequest(4, 2, YESTERDAY, original.uuid(), null), "ratioOld");
+        assertFieldRejectedOnReversal(reverseSplitRequest(2, 1, YESTERDAY, original.uuid(), null), "ratioNew");
+        assertFieldRejectedOnReversal(reverseSplitRequest(4, 1, TODAY, original.uuid(), null), "effectiveDate");
+        assertFieldRejectedOnReversal(new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("300"),
+            null, null, YESTERDAY, null, original.uuid().toString()), "type");
+        assertFieldRejectedOnReversal(new CreateShareAdjustmentRequest("TSLA", "SPLIT", null, 4, 1, YESTERDAY, null,
+            original.uuid().toString()), "symbol");
+        verifyNothingWritten();
+    }
+
+    @Test
+    @DisplayName("沖銷配股：quantity 必須等於原列實領股數（scale 不同但數值相等視為相同）")
+    void stockDividendReversalComparesQuantity() {
+        holding("1050", "95.23809524");
+        ShareAdjustmentEntry original = new ShareAdjustmentEntry(90L, UUID.randomUUID(), USER_ID, AAPL_ID,
+            ShareAdjustmentType.STOCK_DIVIDEND, null, null, new BigDecimal("50.00000000"), YESTERDAY,
+            YESTERDAY_START_US, null, OffsetDateTime.parse("2026-10-29T10:00:00Z"), "k-orig", null);
+        stubOriginal(original);
+        when(repository.findLatestActive(USER_ID, AAPL_ID)).thenReturn(Optional.of(original));
+
+        assertFieldRejectedOnReversal(new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("49"),
+            null, null, YESTERDAY, null, original.uuid().toString()), "quantity");
+        verify(repository, never()).insertIfAbsent(any());
+
+        service.create(USER_ID, new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("50"),
+            null, null, YESTERDAY, null, original.uuid().toString()), "k-div-reverse");
+
+        ArgumentCaptor<Holding> updated = ArgumentCaptor.forClass(Holding.class);
+        verify(tradingRepository).updateHolding(updated.capture());
+        assertThat(updated.getValue().totalQuantity()).isEqualByComparingTo("1000");
+    }
+
+    @Test
+    @DisplayName("同一除權日兩筆調整：依記錄順序倒著沖銷——先沖較早記錄者 409 NOT_REVERSIBLE，沖最後記錄者成功")
+    void sameDayAdjustmentsAreReversedInRecordOrder() {
+        holding("400", "25");
+        ShareAdjustmentEntry first = split(90L, "100", TODAY, TODAY_START_US, null, 2, 1);
+        ShareAdjustmentEntry second = split(91L, "200", TODAY, TODAY_START_US, null, 2, 1);
+        stubOriginal(first);
+        stubOriginal(second);
+        /* findLatestActive 依 (effective_at DESC, id DESC) 排序：同一瞬間時 id 較大（較晚記錄）者為最晚。 */
+        when(repository.findLatestActive(USER_ID, AAPL_ID)).thenReturn(Optional.of(second));
+
+        assertErrorCode(() -> service.create(USER_ID,
+            reverseSplitRequest(2, 1, TODAY, first.uuid(), null), "k-first"),
+            ErrorCode.SHARE_ADJUSTMENT_NOT_REVERSIBLE);
+        verify(repository, never()).insertIfAbsent(any());
+
+        service.create(USER_ID, reverseSplitRequest(2, 1, TODAY, second.uuid(), null), "k-second");
+
+        ArgumentCaptor<ShareAdjustmentEntry> written = ArgumentCaptor.forClass(ShareAdjustmentEntry.class);
+        verify(repository).insertIfAbsent(written.capture());
+        assertThat(written.getValue().reversalOfId()).isEqualTo(91L);
+        ArgumentCaptor<Holding> updated = ArgumentCaptor.forClass(Holding.class);
+        verify(tradingRepository).updateHolding(updated.capture());
+        assertThat(updated.getValue().totalQuantity()).isEqualByComparingTo("200");
+    }
+
+    @Test
+    @DisplayName("沖銷成功後以同一把 key 重送：冪等優先於「已沖銷」，回同一筆沖銷列，不鎖持倉、不寫入")
+    void reversalRetryWithSameKeyReturnsTheReversalRow() {
+        ShareAdjustmentEntry original = split(90L, "300", YESTERDAY, YESTERDAY_START_US, null);
+        stubOriginal(original);
+        when(repository.isReversed(90L)).thenReturn(true);
+        ShareAdjustmentEntry reversalRow = split(93L, "300", YESTERDAY, YESTERDAY_START_US, 90L);
+        when(repository.findByIdempotencyKey(USER_ID, "k-reverse")).thenReturn(Optional.of(reversalRow));
+
+        ShareAdjustmentDto dto = service.create(USER_ID,
+            reverseSplitRequest(4, 1, YESTERDAY, original.uuid(), null), "k-reverse");
+
+        assertThat(dto.id()).isEqualTo(reversalRow.uuid().toString());
+        assertThat(dto.reversalOfId()).isEqualTo(original.uuid().toString());
+        verify(tradingRepository, never()).findHoldingForUpdate(anyLong(), anyLong());
+        verify(repository, never()).insertIfAbsent(any());
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("沖銷 insert 落空且以 key 重讀落空（另一把 key 的沖銷搶先）→ 409 SHARE_ADJUSTMENT_ALREADY_REVERSED，不更新持倉")
+    void reversalLostToAnotherKeyIsAlreadyReversed() {
+        holding("400", "25");
+        ShareAdjustmentEntry original = split(90L, "300", YESTERDAY, YESTERDAY_START_US, null);
+        stubOriginal(original);
+        when(repository.findLatestActive(USER_ID, AAPL_ID)).thenReturn(Optional.of(original));
+        when(repository.insertIfAbsent(any(ShareAdjustmentEntry.class))).thenReturn(Optional.empty());
+
+        assertErrorCode(() -> service.create(USER_ID,
+            reverseSplitRequest(4, 1, YESTERDAY, original.uuid(), null), "k-lost"),
+            ErrorCode.SHARE_ADJUSTMENT_ALREADY_REVERSED);
         verify(tradingRepository, never()).updateHolding(any());
         verifyNoInteractions(portfolioCache);
     }
@@ -437,6 +691,43 @@ class ShareAdjustmentServiceTest {
         verify(repository, never()).insertIfAbsent(any());
         verify(tradingRepository, never()).updateHolding(any());
         verifyNoInteractions(portfolioCache);
+    }
+
+    private void stubOriginal(ShareAdjustmentEntry original) {
+        when(repository.findByUuid(USER_ID, original.uuid())).thenReturn(Optional.of(original));
+        when(repository.uuidOf(original.id())).thenReturn(Optional.of(original.uuid()));
+    }
+
+    private static CreateShareAdjustmentRequest reverseSplitRequest(
+        int ratioNew, int ratioOld, LocalDate effectiveDate, UUID reversalOf, String note) {
+        return new CreateShareAdjustmentRequest("AAPL", "SPLIT", null, ratioNew, ratioOld, effectiveDate, note,
+            reversalOf.toString());
+    }
+
+    private void assertErrorCode(Runnable call, ErrorCode expected) {
+        assertThatThrownBy(call::run)
+            .isInstanceOfSatisfying(BusinessException.class, ex -> assertThat(ex.errorCode()).isEqualTo(expected));
+    }
+
+    private void assertFieldRejectedOnReversal(CreateShareAdjustmentRequest request, String field) {
+        assertThatThrownBy(() -> service.create(USER_ID, request, "k-mismatch-" + field))
+            .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                assertThat(ex.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                assertThat(ex.fields()).containsKey(field);
+            });
+    }
+
+    private static ShareAdjustmentEntry split(Long id, String delta, LocalDate effectiveDate,
+                                              OffsetDateTime effectiveAt, Long reversalOfId) {
+        return split(id, delta, effectiveDate, effectiveAt, reversalOfId, 4, 1);
+    }
+
+    private static ShareAdjustmentEntry split(Long id, String delta, LocalDate effectiveDate,
+                                              OffsetDateTime effectiveAt, Long reversalOfId,
+                                              int ratioNew, int ratioOld) {
+        return new ShareAdjustmentEntry(id, UUID.randomUUID(), USER_ID, AAPL_ID, ShareAdjustmentType.SPLIT,
+            ratioNew, ratioOld, new BigDecimal(delta), effectiveDate, effectiveAt, null,
+            OffsetDateTime.parse("2026-10-29T10:00:00Z"), "k-orig-" + id, reversalOfId);
     }
 
     private static ShareAdjustmentEntry existing(Long id, LocalDate effectiveDate, OffsetDateTime effectiveAt) {

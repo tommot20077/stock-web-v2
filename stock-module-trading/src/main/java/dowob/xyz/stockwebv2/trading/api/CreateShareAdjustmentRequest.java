@@ -19,8 +19,8 @@ import java.time.LocalDate;
  * 在 service 層驗證，這裡只鎖範圍。另一種 type 的欄位若有送出會被忽略（不寫入、不納入冪等比對）。
  * {@code quantityDelta} 由後端計算，<strong>不在請求中</strong>。</p>
  *
- * <p>本版<strong>刻意不含 {@code reversalOfId}</strong>：沖銷由 04.2-08 一次加入請求欄位與完整流程，
- * 避免出現「收得到參數卻不處理」的半套行為。</p>
+ * <p>帶 {@code reversalOfId} 時為沖銷（04.2-08）：其餘欄位必須與原列相同（symbol / type / quantity 或
+ * ratioNew + ratioOld / effectiveDate），後端撤銷原列已記錄的 {@code quantityDelta}，不重算比例。</p>
  *
  * @param symbol        標的代號，大小寫不敏感；須為 active 且 tradeable 的標的
  * @param type          {@code STOCK_DIVIDEND} 或 {@code SPLIT}，大小寫不敏感
@@ -29,8 +29,9 @@ import java.time.LocalDate;
  * @param ratioOld      比例分母 old（{@code SPLIT} 必填）：1 ~ 1000，不得等於 ratioNew
  * @param effectiveDate 除權日（該標的市場的日曆日，{@code yyyy-MM-dd}）
  * @param note          備註，選填，最長 500 字元；不納入冪等 payload 比對
+ * @param reversalOfId  要沖銷的原列 UUID，選填，最長 36 字元；只能沖銷該標的最晚一筆未沖銷調整
  * @author Yuan
- * @version 1.0
+ * @version 1.1
  */
 public record CreateShareAdjustmentRequest(
     @NotBlank @Size(max = 32) String symbol,
@@ -40,6 +41,7 @@ public record CreateShareAdjustmentRequest(
     @Min(1) @Max(1000) Integer ratioNew,
     @Min(1) @Max(1000) Integer ratioOld,
     @NotNull LocalDate effectiveDate,
-    @Size(max = 500) String note
+    @Size(max = 500) String note,
+    @Size(max = 36) String reversalOfId
 ) {
 }
