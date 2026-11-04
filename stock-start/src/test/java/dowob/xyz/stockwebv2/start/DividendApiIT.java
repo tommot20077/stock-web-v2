@@ -13,7 +13,14 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
@@ -32,7 +39,7 @@ import tools.jackson.databind.ObjectMapper;
  * <p>鎖三條主線：沒有任何持倉的新使用者也能記一筆現金股利，回 DTO（幣別取自標的、不含冪等鍵）且
  * {@code cash_dividends} 恰一列、{@code holdings} 不受影響（D-01 / D-03）；同 key 同 body 重送回同一筆、
  * 列數不變（D-13 冪等）；cookie 登入未帶 CSRF header 被擋（T-04.2-08）。
- * payload 比對 409、沖銷、欄位驗證由 04.2-04 的 IT 補上。</p>
+ * 04.2-04 起另鎖沖銷（原列變 reversed、重複沖銷 / 沖銷「沖銷列」409、跨使用者 404、不同 key 併發沖銷只有一筆成功）。</p>
  *
  * @author Yuan
  * @version 1.0
@@ -115,6 +122,119 @@ class DividendApiIT extends ContainerIT {
             .andExpect(jsonPath("$.error.code", equalTo("AUTH_CSRF_TOKEN_INVALID")));
 
         assertThat(dividendRows(email)).isZero();
+    }
+
+    @Test
+    @DisplayName("記一筆 → 新 key 沖銷：200、reversalOfId 指回原列；原 key 重送看到 reversed = true；第三把 key 再沖 → 409 DIVIDEND_ALREADY_REVERSED；沖銷「沖銷列」→ 409 DIVIDEND_NOT_REVERSIBLE")
+    void reversalMarksOriginalAsReversed() throws Exception {
+        String email = "div-rev-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "divrev" + UUID.randomUUID().toString().substring(0, 8));
+        String originalKey = "div-" + UUID.randomUUID();
+        String originalId = dividendIdOf(postDividend(accessToken, originalKey, AAPL_DIVIDEND)
+            .andExpect(status().isOk()));
+
+        String reversalId = dividendIdOf(postDividend(accessToken, UUID.randomUUID().toString(),
+                reversalBody(originalId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.reversalOfId", equalTo(originalId)))
+            .andExpect(jsonPath("$.data.reversed", equalTo(false)))
+            .andExpect(jsonPath("$.data.amount", equalTo(120.00000000)))
+            .andExpect(jsonPath("$.data.withholdingTax", equalTo(30.00000000))));
+
+        /* 原 key 同 body 重送走冪等命中，DTO 的 reversed 讀自帳本：此時原列已被沖銷。 */
+        postDividend(accessToken, originalKey, AAPL_DIVIDEND)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.id", equalTo(originalId)))
+            .andExpect(jsonPath("$.data.reversed", equalTo(true)));
+
+        postDividend(accessToken, UUID.randomUUID().toString(), reversalBody(originalId))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code", equalTo("DIVIDEND_ALREADY_REVERSED")));
+
+        postDividend(accessToken, UUID.randomUUID().toString(), reversalBody(reversalId))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code", equalTo("DIVIDEND_NOT_REVERSIBLE")));
+
+        assertThat(dividendRows(email)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("使用者 B 沖銷 A 的股利：404 DIVIDEND_NOT_FOUND，回應不含 A 的 uuid 與金額；A 的帳本不變、B 無列")
+    void otherUsersDividendCannotBeReversed() throws Exception {
+        String ownerEmail = "div-owner-" + UUID.randomUUID() + "@example.com";
+        String ownerToken = register(ownerEmail, "divowner" + UUID.randomUUID().toString().substring(0, 8));
+        String ownerDividend = dividendIdOf(postDividend(ownerToken, UUID.randomUUID().toString(), """
+                {"symbol":"AAPL","amount":987.65,"withholdingTax":12.34}
+                """)
+            .andExpect(status().isOk()));
+
+        String intruderEmail = "div-intruder-" + UUID.randomUUID() + "@example.com";
+        String intruderToken = register(intruderEmail, "divintr" + UUID.randomUUID().toString().substring(0, 8));
+        String body = postDividend(intruderToken, UUID.randomUUID().toString(), """
+                {"symbol":"AAPL","amount":987.65,"withholdingTax":12.34,"reversalOfId":"%s"}
+                """.formatted(ownerDividend))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error.code", equalTo("DIVIDEND_NOT_FOUND")))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        assertThat(body).doesNotContain(ownerDividend).doesNotContain("987.65").doesNotContain("12.34");
+
+        assertThat(dividendRows(ownerEmail)).isEqualTo(1);
+        assertThat(dividendRows(intruderEmail)).isZero();
+    }
+
+    @Test
+    @DisplayName("8 條併發、各自不同 key 沖銷同一筆股利：恰一條 200，其餘 409 DIVIDEND_ALREADY_REVERSED；cash_dividends 恰兩列")
+    void concurrentReversalsWithDifferentKeysCreateExactlyOne() throws Exception {
+        String email = "div-race-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "divrace" + UUID.randomUUID().toString().substring(0, 8));
+        String originalId = dividendIdOf(postDividend(accessToken, UUID.randomUUID().toString(), AAPL_DIVIDEND)
+            .andExpect(status().isOk()));
+        String body = reversalBody(originalId);
+
+        int threads = 8;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch go = new CountDownLatch(1);
+        List<Future<String>> responses = new ArrayList<>();
+        try {
+            for (int i = 0; i < threads; i++) {
+                responses.add(pool.submit(() -> {
+                    ready.countDown();
+                    go.await();
+                    var response = postDividend(accessToken, UUID.randomUUID().toString(), body)
+                        .andReturn().getResponse();
+                    return response.getStatus() + " " + response.getContentAsString();
+                }));
+            }
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            go.countDown();
+
+            int succeeded = 0;
+            for (Future<String> response : responses) {
+                String raw = response.get(30, TimeUnit.SECONDS);
+                if (raw.startsWith("200 ")) {
+                    succeeded++;
+                } else {
+                    /* 落敗者不論是在 isReversed 檢查被擋，或 insert 被 uk_cash_dividends_reversal_of 吸收，都必須是同一個 code。 */
+                    assertThat(raw).startsWith("409 ");
+                    assertThat(objectMapper.readTree(raw.substring(4)).get("error").get("code").asText())
+                        .isEqualTo("DIVIDEND_ALREADY_REVERSED");
+                }
+            }
+            assertThat(succeeded).isEqualTo(1);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(dividendRows(email)).isEqualTo(2);
+    }
+
+    private static String reversalBody(String reversalOfId) {
+        return """
+            {"symbol":"AAPL","amount":120,"withholdingTax":30,"reversalOfId":"%s"}
+            """.formatted(reversalOfId);
     }
 
     private String dividendIdOf(ResultActions result) throws Exception {

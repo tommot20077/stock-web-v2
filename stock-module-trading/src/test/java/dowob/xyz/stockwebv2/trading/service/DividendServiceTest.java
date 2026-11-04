@@ -36,6 +36,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -49,7 +50,7 @@ import static org.mockito.Mockito.when;
  * <p>涵蓋 happy path 的正規化（預扣稅預設 0、入帳時間預設注入時鐘的現在並截到微秒、幣別取自標的）、
  * 冪等快路徑與「insert 落空後以 key 重讀」兩處皆不失效快取、標的不可交易 / 不存在回 {@code ASSET_NOT_FOUND}、
  * 冪等鍵不合法在任何 I/O 之前擋下，以及股利寫入路徑完全不碰持倉（D-01 / D-03）。
- * payload 比對（409）與沖銷流程由 04.2-04 補上。</p>
+ * 04.2-04 起另涵蓋沖銷：值相同才可沖銷、四種沖銷錯誤碼與「沖銷落敗於併發」回 {@code DIVIDEND_ALREADY_REVERSED}。</p>
  *
  * @author Yuan
  * @version 1.0
@@ -59,6 +60,10 @@ class DividendServiceTest {
 
     private static final Long USER_ID = 7L;
     private static final Long AAPL_ID = 1L;
+    private static final Long MSFT_ID = 2L;
+    private static final Long ORIGINAL_ID = 31L;
+    private static final UUID ORIGINAL_UUID = UUID.fromString("33333333-3333-3333-3333-333333333333");
+    private static final OffsetDateTime ORIGINAL_PAID_AT = OffsetDateTime.parse("2026-10-01T09:00:00+08:00");
 
     /**
      * 帶奈秒尾數的固定時鐘：用來證明預設入帳時間取自注入的時鐘，且被截到微秒。
@@ -92,7 +97,7 @@ class DividendServiceTest {
         });
 
         DividendDto dto = service.createDividend(
-            USER_ID, new CreateDividendRequest(" aapl ", new BigDecimal("120"), null, null, " Q3 "), "k1");
+            USER_ID, new CreateDividendRequest(" aapl ", new BigDecimal("120"), null, null, " Q3 ", null), "k1");
 
         ArgumentCaptor<CashDividend> captor = ArgumentCaptor.forClass(CashDividend.class);
         verify(repository).insertIfAbsent(captor.capture());
@@ -127,7 +132,7 @@ class DividendServiceTest {
             Optional.of(persisted(invocation.getArgument(0), 12L)));
 
         service.createDividend(USER_ID,
-            new CreateDividendRequest("AAPL", new BigDecimal("120"), new BigDecimal("30"), paidAt, null),
+            new CreateDividendRequest("AAPL", new BigDecimal("120"), new BigDecimal("30"), paidAt, null, null),
             "k-explicit");
 
         ArgumentCaptor<CashDividend> captor = ArgumentCaptor.forClass(CashDividend.class);
@@ -144,7 +149,7 @@ class DividendServiceTest {
         when(repository.findByIdempotencyKey(USER_ID, "k1")).thenReturn(Optional.of(existing));
 
         DividendDto dto = service.createDividend(
-            USER_ID, new CreateDividendRequest("AAPL", new BigDecimal("120"), null, null, null), "k1");
+            USER_ID, new CreateDividendRequest("AAPL", new BigDecimal("120"), null, null, null, null), "k1");
 
         assertThat(dto.id()).isEqualTo(existing.uuid().toString());
         assertThat(dto.currency()).isEqualTo("USD");
@@ -162,7 +167,7 @@ class DividendServiceTest {
         when(repository.insertIfAbsent(any(CashDividend.class))).thenReturn(Optional.empty());
 
         DividendDto dto = service.createDividend(
-            USER_ID, new CreateDividendRequest("AAPL", new BigDecimal("120"), null, null, null), "k-race");
+            USER_ID, new CreateDividendRequest("AAPL", new BigDecimal("120"), null, null, null, null), "k-race");
 
         assertThat(dto.id()).isEqualTo(winner.uuid().toString());
         verify(repository, times(2)).findByIdempotencyKey(USER_ID, "k-race");
@@ -176,7 +181,7 @@ class DividendServiceTest {
         when(repository.insertIfAbsent(any(CashDividend.class))).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.createDividend(
-            USER_ID, new CreateDividendRequest("AAPL", new BigDecimal("120"), null, null, null), "k-ghost"))
+            USER_ID, new CreateDividendRequest("AAPL", new BigDecimal("120"), null, null, null, null), "k-ghost"))
             .isInstanceOf(BusinessException.class)
             .extracting(exception -> ((BusinessException) exception).errorCode())
             .isEqualTo(ErrorCode.DUPLICATE_RESOURCE);
@@ -191,7 +196,7 @@ class DividendServiceTest {
 
         assertBusinessError(
             () -> service.createDividend(USER_ID,
-                new CreateDividendRequest("HALT", new BigDecimal("1"), null, null, null), "k-halt"),
+                new CreateDividendRequest("HALT", new BigDecimal("1"), null, null, null, null), "k-halt"),
             ErrorCode.ASSET_NOT_FOUND, "symbol");
         verifyNoInteractions(repository);
     }
@@ -204,7 +209,7 @@ class DividendServiceTest {
 
         assertBusinessError(
             () -> service.createDividend(USER_ID,
-                new CreateDividendRequest("GONE", new BigDecimal("1"), null, null, null), "k-gone"),
+                new CreateDividendRequest("GONE", new BigDecimal("1"), null, null, null, null), "k-gone"),
             ErrorCode.ASSET_NOT_FOUND, "symbol");
         verifyNoInteractions(repository);
     }
@@ -216,7 +221,7 @@ class DividendServiceTest {
 
         assertBusinessError(
             () -> service.createDividend(USER_ID,
-                new CreateDividendRequest("NOPE", new BigDecimal("1"), null, null, null), "k-nope"),
+                new CreateDividendRequest("NOPE", new BigDecimal("1"), null, null, null, null), "k-nope"),
             ErrorCode.ASSET_NOT_FOUND, "symbol");
         verifyNoInteractions(repository);
     }
@@ -226,7 +231,7 @@ class DividendServiceTest {
     void blankIdempotencyKeyIsRejectedBeforeAnyIo() {
         assertBusinessError(
             () -> service.createDividend(USER_ID,
-                new CreateDividendRequest("AAPL", new BigDecimal("1"), null, null, null), "   "),
+                new CreateDividendRequest("AAPL", new BigDecimal("1"), null, null, null, null), "   "),
             ErrorCode.VALIDATION_FAILED, "Idempotency-Key");
         verifyNoInteractions(repository, portfolioCache);
         verify(assetFacade, never()).findBySymbol(any());
@@ -237,7 +242,7 @@ class DividendServiceTest {
     void oversizedIdempotencyKeyIsRejectedBeforeAnyIo() {
         assertBusinessError(
             () -> service.createDividend(USER_ID,
-                new CreateDividendRequest("AAPL", new BigDecimal("1"), null, null, null), "k".repeat(129)),
+                new CreateDividendRequest("AAPL", new BigDecimal("1"), null, null, null, null), "k".repeat(129)),
             ErrorCode.VALIDATION_FAILED, "Idempotency-Key");
         verifyNoInteractions(repository, portfolioCache);
         verify(assetFacade, never()).findBySymbol(any());
@@ -252,7 +257,7 @@ class DividendServiceTest {
             Optional.of(persisted(invocation.getArgument(0), 13L)));
 
         DividendDto dto = service.createDividend(
-            USER_ID, new CreateDividendRequest("AAPL", new BigDecimal("1"), null, null, null), key);
+            USER_ID, new CreateDividendRequest("AAPL", new BigDecimal("1"), null, null, null, null), key);
 
         assertThat(dto.symbol()).isEqualTo("AAPL");
     }
@@ -264,7 +269,7 @@ class DividendServiceTest {
 
         assertBusinessError(
             () -> service.createDividend(USER_ID,
-                new CreateDividendRequest("AAPL", new BigDecimal("1"), null, future, null), "k-future"),
+                new CreateDividendRequest("AAPL", new BigDecimal("1"), null, future, null, null), "k-future"),
             ErrorCode.VALIDATION_FAILED, "paidAt");
         verifyNoInteractions(repository);
     }
@@ -278,7 +283,7 @@ class DividendServiceTest {
             Optional.of(persisted(invocation.getArgument(0), 14L)));
 
         DividendDto dto = service.createDividend(USER_ID,
-            new CreateDividendRequest("AAPL", new BigDecimal("1"), null, nearFuture, null), "k-near");
+            new CreateDividendRequest("AAPL", new BigDecimal("1"), null, nearFuture, null, null), "k-near");
 
         assertThat(dto.paidAt()).isEqualTo(nearFuture.truncatedTo(ChronoUnit.MICROS));
     }
@@ -306,7 +311,7 @@ class DividendServiceTest {
             Optional.of(persisted(invocation.getArgument(0), 15L)));
 
         DividendDto dto = service.createDividend(
-            99L, new CreateDividendRequest("AAPL", new BigDecimal("5"), null, null, null), "k-fresh");
+            99L, new CreateDividendRequest("AAPL", new BigDecimal("5"), null, null, null, null), "k-fresh");
 
         assertThat(dto.reversed()).isFalse();
         verify(portfolioCache).invalidateSummaryAfterCommit(99L);
@@ -319,6 +324,190 @@ class DividendServiceTest {
             "createDividend", Long.class, CreateDividendRequest.class, String.class);
 
         assertThat(method.getAnnotation(Transactional.class)).isNotNull();
+    }
+
+    @Test
+    @DisplayName("沖銷：值與原列相同 → insert 的列 reversalOfId = 原列 id、paidAt = 時鐘現在；DTO reversalOfId = 原列 uuid，並失效 summary")
+    void reversalIsInsertedWithOriginalIdAndMappedBackToUuid() {
+        stubOriginal(originalDividend(null));
+        when(repository.findByIdempotencyKey(USER_ID, "k-rev")).thenReturn(Optional.empty());
+        when(repository.isReversed(ORIGINAL_ID)).thenReturn(false);
+        when(repository.insertIfAbsent(any(CashDividend.class))).thenAnswer(invocation ->
+            Optional.of(persisted(invocation.getArgument(0), 32L)));
+        when(repository.uuidOf(ORIGINAL_ID)).thenReturn(Optional.of(ORIGINAL_UUID));
+
+        DividendDto dto = service.createDividend(USER_ID,
+            reversalRequest("aapl", "120", "30", ORIGINAL_UUID.toString()), "k-rev");
+
+        ArgumentCaptor<CashDividend> captor = ArgumentCaptor.forClass(CashDividend.class);
+        verify(repository).insertIfAbsent(captor.capture());
+        CashDividend written = captor.getValue();
+        assertThat(written.reversalOfId()).isEqualTo(ORIGINAL_ID);
+        assertThat(written.assetId()).isEqualTo(AAPL_ID);
+        assertThat(written.amount()).isEqualByComparingTo("120");
+        assertThat(written.withholdingTax()).isEqualByComparingTo("30");
+        assertThat(written.paidAt().toInstant()).isEqualTo(NOW.truncatedTo(ChronoUnit.MICROS));
+        assertThat(written.idempotencyKey()).isEqualTo("k-rev");
+
+        assertThat(dto.id()).isEqualTo(written.uuid().toString());
+        assertThat(dto.reversalOfId()).isEqualTo(ORIGINAL_UUID.toString());
+        assertThat(dto.reversed()).isFalse();
+        verify(portfolioCache).invalidateSummaryAfterCommit(USER_ID);
+    }
+
+    @Test
+    @DisplayName("沖銷：原列預扣稅 0、請求省略預扣稅 → 視為相同（省略視為 0），可沖銷")
+    void reversalWithOmittedTaxMatchesZeroTaxOriginal() {
+        stubOriginal(new CashDividend(ORIGINAL_ID, ORIGINAL_UUID, USER_ID, AAPL_ID, new BigDecimal("120.00000000"),
+            new BigDecimal("0.00000000"), null, ORIGINAL_PAID_AT, ORIGINAL_PAID_AT, "k-orig", null));
+        when(repository.findByIdempotencyKey(USER_ID, "k-rev0")).thenReturn(Optional.empty());
+        when(repository.insertIfAbsent(any(CashDividend.class))).thenAnswer(invocation ->
+            Optional.of(persisted(invocation.getArgument(0), 33L)));
+        when(repository.uuidOf(ORIGINAL_ID)).thenReturn(Optional.of(ORIGINAL_UUID));
+
+        DividendDto dto = service.createDividend(USER_ID,
+            reversalRequest("AAPL", "120", null, ORIGINAL_UUID.toString()), "k-rev0");
+
+        assertThat(dto.reversalOfId()).isEqualTo(ORIGINAL_UUID.toString());
+    }
+
+    @Test
+    @DisplayName("reversalOfId 不是 UUID（含空白字串）：VALIDATION_FAILED fields.reversalOfId，未查帳本")
+    void malformedReversalOfIdIsRejectedWithField() {
+        for (String malformed : new String[] {"not-a-uuid", "   "}) {
+            assertBusinessError(
+                () -> service.createDividend(USER_ID, reversalRequest("AAPL", "120", "30", malformed), "k-bad"),
+                ErrorCode.VALIDATION_FAILED, "reversalOfId");
+        }
+        verifyNoInteractions(repository, portfolioCache);
+    }
+
+    @Test
+    @DisplayName("沖銷對象查無（含他人的）：DIVIDEND_NOT_FOUND，訊息不含 UUID，未寫入")
+    void reversalOfUnknownDividendIsNotFound() {
+        when(repository.findByUuid(USER_ID, ORIGINAL_UUID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.createDividend(USER_ID,
+            reversalRequest("AAPL", "120", "30", ORIGINAL_UUID.toString()), "k-404"))
+            .isInstanceOf(BusinessException.class)
+            .hasMessageNotContaining(ORIGINAL_UUID.toString())
+            .extracting(exception -> ((BusinessException) exception).errorCode())
+            .isEqualTo(ErrorCode.DIVIDEND_NOT_FOUND);
+        verify(repository, never()).insertIfAbsent(any());
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("沖銷對象已被沖銷：DIVIDEND_ALREADY_REVERSED，未寫入、不失效")
+    void reversalOfAlreadyReversedDividendIsRejected() {
+        stubOriginal(originalDividend(null));
+        when(repository.findByIdempotencyKey(USER_ID, "k-twice")).thenReturn(Optional.empty());
+        when(repository.isReversed(ORIGINAL_ID)).thenReturn(true);
+
+        assertBusinessCode(() -> service.createDividend(USER_ID,
+            reversalRequest("AAPL", "120", "30", ORIGINAL_UUID.toString()), "k-twice"),
+            ErrorCode.DIVIDEND_ALREADY_REVERSED);
+        verify(repository, never()).insertIfAbsent(any());
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("沖銷對象本身是沖銷列：DIVIDEND_NOT_REVERSIBLE，未寫入、不失效")
+    void reversalOfReversalIsNotReversible() {
+        stubOriginal(originalDividend(5L));
+        when(repository.findByIdempotencyKey(USER_ID, "k-chain")).thenReturn(Optional.empty());
+
+        assertBusinessCode(() -> service.createDividend(USER_ID,
+            reversalRequest("AAPL", "120", "30", ORIGINAL_UUID.toString()), "k-chain"),
+            ErrorCode.DIVIDEND_NOT_REVERSIBLE);
+        verify(repository, never()).insertIfAbsent(any());
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("沖銷值與原列不符：amount / withholdingTax / symbol 分別指名對應 fields，訊息不回射輸入，未寫入")
+    void reversalValueMismatchNamesTheField() {
+        stubOriginal(originalDividend(null));
+        when(repository.findByIdempotencyKey(eq(USER_ID), any())).thenReturn(Optional.empty());
+        when(assetFacade.findBySymbol("MSFT")).thenReturn(Optional.of(
+            new AssetSummary(MSFT_ID, "MSFT", "Microsoft", AssetType.STOCK, "US", true, true)));
+
+        assertMismatch(reversalRequest("AAPL", "121", "30", ORIGINAL_UUID.toString()), "amount");
+        assertMismatch(reversalRequest("AAPL", "120", "31", ORIGINAL_UUID.toString()), "withholdingTax");
+        assertMismatch(reversalRequest("MSFT", "120", "30", ORIGINAL_UUID.toString()), "symbol");
+        verify(repository, never()).insertIfAbsent(any());
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("沖銷成功後以同一把 key 重送：快路徑回既有沖銷列，不因原列已沖銷而假性 409、不寫入、不失效")
+    void replayedReversalReturnsExistingRowInsteadOfAlreadyReversed() {
+        stubOriginal(originalDividend(null));
+        CashDividend reversal = new CashDividend(34L, UUID.randomUUID(), USER_ID, AAPL_ID,
+            new BigDecimal("120.00000000"), new BigDecimal("30.00000000"), null, ORIGINAL_PAID_AT.plusDays(1),
+            ORIGINAL_PAID_AT.plusDays(1), "k-replay", ORIGINAL_ID);
+        when(repository.findByIdempotencyKey(USER_ID, "k-replay")).thenReturn(Optional.of(reversal));
+        when(repository.isReversed(ORIGINAL_ID)).thenReturn(true);
+        when(repository.isReversed(34L)).thenReturn(false);
+        when(repository.uuidOf(ORIGINAL_ID)).thenReturn(Optional.of(ORIGINAL_UUID));
+
+        DividendDto dto = service.createDividend(USER_ID,
+            reversalRequest("AAPL", "120", "30", ORIGINAL_UUID.toString()), "k-replay");
+
+        assertThat(dto.id()).isEqualTo(reversal.uuid().toString());
+        assertThat(dto.reversalOfId()).isEqualTo(ORIGINAL_UUID.toString());
+        verify(repository, never()).insertIfAbsent(any());
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("沖銷 insert 落空且以 key 重讀也落空（另一把 key 的沖銷搶先，uk_cash_dividends_reversal_of）：DIVIDEND_ALREADY_REVERSED")
+    void reversalLosingTheRaceIsAlreadyReversed() {
+        stubOriginal(originalDividend(null));
+        when(repository.findByIdempotencyKey(USER_ID, "k-lost")).thenReturn(Optional.empty());
+        when(repository.isReversed(ORIGINAL_ID)).thenReturn(false);
+        when(repository.insertIfAbsent(any(CashDividend.class))).thenReturn(Optional.empty());
+
+        assertBusinessCode(() -> service.createDividend(USER_ID,
+            reversalRequest("AAPL", "120", "30", ORIGINAL_UUID.toString()), "k-lost"),
+            ErrorCode.DIVIDEND_ALREADY_REVERSED);
+        verify(repository, times(2)).findByIdempotencyKey(USER_ID, "k-lost");
+        verifyNoInteractions(portfolioCache);
+    }
+
+    private void assertMismatch(CreateDividendRequest request, String field) {
+        assertThatThrownBy(() -> service.createDividend(USER_ID, request, "k-mismatch-" + field))
+            .isInstanceOf(BusinessException.class)
+            .hasMessageNotContaining("121")
+            .hasMessageNotContaining("31")
+            .hasMessageNotContaining("MSFT")
+            .satisfies(exception -> {
+                BusinessException business = (BusinessException) exception;
+                assertThat(business.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                assertThat(business.fields()).containsOnlyKeys(field);
+            });
+    }
+
+    private void assertBusinessCode(Runnable call, ErrorCode code) {
+        assertThatThrownBy(call::run)
+            .isInstanceOf(BusinessException.class)
+            .extracting(exception -> ((BusinessException) exception).errorCode())
+            .isEqualTo(code);
+    }
+
+    private void stubOriginal(CashDividend original) {
+        when(repository.findByUuid(USER_ID, ORIGINAL_UUID)).thenReturn(Optional.of(original));
+    }
+
+    private static CashDividend originalDividend(Long reversalOfId) {
+        return new CashDividend(ORIGINAL_ID, ORIGINAL_UUID, USER_ID, AAPL_ID, new BigDecimal("120.00000000"),
+            new BigDecimal("30.00000000"), "Q3", ORIGINAL_PAID_AT, ORIGINAL_PAID_AT, "k-orig", reversalOfId);
+    }
+
+    private static CreateDividendRequest reversalRequest(String symbol, String amount, String withholdingTax,
+                                                         String reversalOfId) {
+        return new CreateDividendRequest(symbol, new BigDecimal(amount),
+            withholdingTax == null ? null : new BigDecimal(withholdingTax), null, null, reversalOfId);
     }
 
     private void assertBusinessError(Runnable call, ErrorCode code, String field) {
