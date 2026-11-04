@@ -21,6 +21,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -37,11 +38,13 @@ import java.util.UUID;
  * <p>新建紀錄後讓該使用者的 summary 快取在 commit 之後失效（summary 含可用現金與股利收入）；持倉快取鍵不動，
  * 因為持倉估值與股利無關。冪等命中與被拒的請求沒有寫入，不失效。</p>
  *
- * <p>payload 比對（409 {@code DIVIDEND_IDEMPOTENCY_KEY_REUSED}）、沖銷流程與稽核由 04.2-04 補上；
- * 本版的冪等命中一律回既有那筆。</p>
+ * <p>更正的唯一方式是<strong>沖銷</strong>（請求帶 {@code reversalOfId}，04.2-04）：沖銷列存與原列相同的正值、
+ * 指回原列，聚合時以 {@code reversal_of_id IS NOT NULL} 反號。規則與 {@code CashLedgerService} 的沖銷一致，
+ * 錯誤碼換成股利專屬的 {@code DIVIDEND_*}；V16 的 {@code validate_cash_dividend_reversal} trigger 與
+ * {@code uk_cash_dividends_reversal_of} 是繞過應用層時的最後防線。</p>
  *
  * @author Yuan
- * @version 1.0
+ * @version 1.1
  */
 @Service
 public class DividendService {
@@ -53,6 +56,8 @@ public class DividendService {
     private static final int MAX_IDEMPOTENCY_KEY_LENGTH = 128;
     private static final String IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
     private static final String SYMBOL_FIELD = "symbol";
+    private static final String REVERSAL_FIELD = "reversalOfId";
+    private static final String MUST_MATCH_ORIGINAL = "must match the original dividend";
 
     /**
      * 入帳時間可超前伺服器現在的容忍量，吸收客戶端與伺服器的時鐘偏差（同 {@code CashLedgerService}）。
@@ -118,13 +123,21 @@ public class DividendService {
      * <p>每請求的 Facade 往返為 2 次（{@code findBySymbol} 解析標的、{@code findProfiles} 取幣別），
      * 在 ≤ 3 的預算內；持倉相關的資料存取一次都沒有（D-01 / D-03）。</p>
      *
+     * <p>沖銷（{@code reversalOfId} 非 null）：原列以使用者範圍解析，且<strong>排在冪等快路徑之前</strong>
+     * （快路徑的比對需要原列的內部 id）；沖銷規則則<strong>排在快路徑之後</strong>——沖銷成功後以同一把 key 重送時
+     * 原列已是「已沖銷」，若先檢查規則，使用者會看到假性 409，而他的沖銷其實早已成功。</p>
+     *
      * @param userId         紀錄擁有者 id，一律由 controller 自已驗證的身分取得
      * @param request        建立請求，已通過 bean validation
      * @param idempotencyKey 冪等鍵，由 {@code Idempotency-Key} header 原樣傳入
      * @return 新建立的紀錄；重送時為既有紀錄
-     * @throws BusinessException 請求為 null、冪等鍵空白或過長、入帳時間在未來（400）、
-     *                           標的不存在 / inactive / 不可交易（404 {@code ASSET_NOT_FOUND}），
-     *                           或 insert 落空而以 key 重讀也落空（409 {@code DUPLICATE_RESOURCE}）
+     * @throws BusinessException 請求為 null、冪等鍵空白或過長、入帳時間在未來、reversalOfId 格式錯、
+     *                           沖銷值與原列不符（400 {@code VALIDATION_FAILED}，fields 指名）、
+     *                           標的不存在 / inactive / 不可交易（404 {@code ASSET_NOT_FOUND}）、
+     *                           沖銷對象不存在或屬於他人（404 {@code DIVIDEND_NOT_FOUND}）、
+     *                           沖銷對象已被沖銷，含併發沖銷落敗（409 {@code DIVIDEND_ALREADY_REVERSED}）、
+     *                           沖銷對象本身是沖銷（409 {@code DIVIDEND_NOT_REVERSIBLE}），
+     *                           或一般紀錄 insert 落空而以 key 重讀也落空（409 {@code DUPLICATE_RESOURCE}）
      */
     @Transactional
     public DividendDto createDividend(Long userId, CreateDividendRequest request, String idempotencyKey) {
@@ -142,12 +155,18 @@ public class DividendService {
         OffsetDateTime paidAt = Optional.ofNullable(requestedPaidAt)
             .orElseGet(() -> now.truncatedTo(ChronoUnit.MICROS));
         BigDecimal withholdingTax = Optional.ofNullable(request.withholdingTax()).orElse(BigDecimal.ZERO);
+        UUID reversalUuid = parseReversalOfId(request.reversalOfId());
         // Facade 往返 1/2：解析標的（只有 active + tradeable 可記）。
         AssetSummary asset = resolveTradeableAsset(request.symbol());
+        // 沖銷對象以使用者範圍解析（查無即 404，別人的與不存在的無法區分）。
+        CashDividend original = resolveOriginal(userId, reversalUuid);
 
         Optional<CashDividend> known = repository.findByIdempotencyKey(userId, idempotencyKey);
         if (known.isPresent()) {
             return toDto(known.get(), repository.isReversed(known.get().id()));
+        }
+        if (original != null) {
+            validateReversalRules(original, asset.id(), request.amount(), withholdingTax);
         }
         Optional<CashDividend> inserted = repository.insertIfAbsent(new CashDividend(
             null,
@@ -160,21 +179,101 @@ public class DividendService {
             paidAt,
             null,
             idempotencyKey,
-            null
+            original == null ? null : original.id()
         ));
         if (inserted.isEmpty()) {
-            // 衝突被 DO NOTHING 吸收、不會中止本交易，因此重讀是安全的：同一把 key 的另一個請求搶先時重讀命中。
+            // 衝突被 DO NOTHING 吸收、不會中止本交易，因此重讀是安全的。可能的原因有二：同一把 key 的另一個請求搶先
+            // （重讀命中）；或另一把 key 的沖銷搶先沖了同一筆（uk_cash_dividends_reversal_of，重讀落空）。
             Optional<CashDividend> concurrent = repository.findByIdempotencyKey(userId, idempotencyKey);
             if (concurrent.isPresent()) {
                 return toDto(concurrent.get(), repository.isReversed(concurrent.get().id()));
             }
-            throw new BusinessException(ErrorCode.DUPLICATE_RESOURCE, ErrorCode.DUPLICATE_RESOURCE.defaultMessage());
+            ErrorCode lost = original == null ? ErrorCode.DUPLICATE_RESOURCE : ErrorCode.DIVIDEND_ALREADY_REVERSED;
+            throw new BusinessException(lost, lost.defaultMessage());
         }
         // 只有實際新建了列才失效：此時 summary 的現金與股利收入已變；冪等命中（上面兩處）資料未變，不失效。
         // 失效排在本交易 COMMIT 之後，讀者不會在 commit 前重算出記帳前的值再寫回快取。持倉快取鍵不動。
         portfolioCache.invalidateSummaryAfterCommit(userId);
         // 剛寫入的紀錄不可能已被沖銷，不必再查一次。
         return toDto(inserted.get(), false);
+    }
+
+    /**
+     * 解析請求的 {@code reversalOfId}；未帶（null）代表一般紀錄。
+     *
+     * <p>非 null 但為空白或不是 UUID 一律視為格式錯誤，而不是當作「沒帶」——否則本意是沖銷、卻帶了空字串的請求
+     * 會默默變成一筆新的股利收入。錯誤訊息為靜態字串，不回射輸入。</p>
+     *
+     * @param value 請求中的原始字串
+     * @return 解析出的 UUID；未帶時為 null
+     * @throws FieldValidationException 格式錯誤時，fields 指名 {@code reversalOfId}
+     */
+    private UUID parseReversalOfId(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value.trim());
+        } catch (IllegalArgumentException exception) {
+            throw new FieldValidationException("Invalid reversalOfId", Map.of(REVERSAL_FIELD, "invalid format"));
+        }
+    }
+
+    /**
+     * 以使用者範圍解析沖銷的原列。
+     *
+     * @param userId       目前登入者
+     * @param reversalUuid 請求指定的原列 UUID；null 代表不是沖銷
+     * @return 原列；不是沖銷時為 null
+     * @throws BusinessException 查無（含屬於他人）時 {@code DIVIDEND_NOT_FOUND}，訊息不含 UUID
+     */
+    private CashDividend resolveOriginal(Long userId, UUID reversalUuid) {
+        if (reversalUuid == null) {
+            return null;
+        }
+        return repository.findByUuid(userId, reversalUuid)
+            .orElseThrow(() -> new BusinessException(
+                ErrorCode.DIVIDEND_NOT_FOUND, ErrorCode.DIVIDEND_NOT_FOUND.defaultMessage()));
+    }
+
+    /**
+     * 沖銷規則的應用層檢查；與 V16 的 {@code validate_cash_dividend_reversal} trigger 一致，差別是這裡回的是
+     * 前端可分派的錯誤碼，trigger 只是繞過應用層時的最後防線。
+     *
+     * <p>先檢查零 I/O 的「原列是沖銷」，再查「已被沖銷」，最後逐欄比對值（數值以 compareTo，scale 不同視為相同）；
+     * 不符的欄位全部列在 fields 中，訊息為靜態字串、不回射輸入。</p>
+     *
+     * @param original       已解析的原列
+     * @param assetId        本次請求解析出的標的主鍵
+     * @param amount         本次請求的實領金額
+     * @param withholdingTax 本次請求的預扣稅（省略已正規化為 0）
+     * @throws BusinessException        原列本身是沖銷 {@code DIVIDEND_NOT_REVERSIBLE}，
+     *                                  或已被沖銷 {@code DIVIDEND_ALREADY_REVERSED}
+     * @throws FieldValidationException symbol / amount / withholdingTax 與原列不同時，fields 指名不符欄位
+     */
+    private void validateReversalRules(CashDividend original, Long assetId, BigDecimal amount,
+                                       BigDecimal withholdingTax) {
+        if (original.reversalOfId() != null) {
+            throw new BusinessException(
+                ErrorCode.DIVIDEND_NOT_REVERSIBLE, ErrorCode.DIVIDEND_NOT_REVERSIBLE.defaultMessage());
+        }
+        if (repository.isReversed(original.id())) {
+            throw new BusinessException(
+                ErrorCode.DIVIDEND_ALREADY_REVERSED, ErrorCode.DIVIDEND_ALREADY_REVERSED.defaultMessage());
+        }
+        Map<String, String> mismatches = new LinkedHashMap<>();
+        if (!original.assetId().equals(assetId)) {
+            mismatches.put(SYMBOL_FIELD, MUST_MATCH_ORIGINAL);
+        }
+        if (amount.compareTo(original.amount()) != 0) {
+            mismatches.put("amount", MUST_MATCH_ORIGINAL);
+        }
+        if (withholdingTax.compareTo(original.withholdingTax()) != 0) {
+            mismatches.put("withholdingTax", MUST_MATCH_ORIGINAL);
+        }
+        if (!mismatches.isEmpty()) {
+            throw new FieldValidationException("Reversal must match the original dividend", mismatches);
+        }
     }
 
     /**
