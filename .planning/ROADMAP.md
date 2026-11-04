@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Portfolio Read API Mode** - Vue API mode 可以讀取 portfolio summary、holdings/positions、trade history 並呈現 loading/empty/error/retry 狀態。
 - [x] **Phase 4: Manual Trade Creation, Idempotency & Post-Trade Refetch** - API mode order ticket 建立 manual executed trade，後端防重，成功後重新讀取 portfolio 狀態。
 - [x] **Phase 04.1: Backend Data Gap Backfill** *(INSERTED 2026-07-26，非緊急)* - 基準幣與匯率折算、手動現金帳、今日損益、資產配置與產業分組(2026-09-28 discuss 後範圍;股利與 watchlist 移至 04.2)。 (completed 2026-10-31)
-- [ ] **Phase 04.2: Dividends, Share Adjustments & Watchlist** *(INSERTED 2026-09-28)* - 現金股利、配股、拆股 / 合股與多清單 watchlist 的後端 API 與前端 API mode。
+- [x] **Phase 04.2: Dividends, Share Adjustments & Watchlist** *(INSERTED 2026-09-28)* - 現金股利、配股、拆股 / 合股與多清單 watchlist 的後端 API 與前端 API mode。 (completed 2026-11-04)
 - [ ] **Phase 5: Cross-Repo Browser Flow Verification & Contract Hardening** - Backend/frontend 測試與真實瀏覽器 smoke flow 驗證完整整合契約。
 
 ## Phase Details
@@ -193,7 +193,7 @@ Plans:
   6. 後端 unit + CI Integration / E2E、前端雙模式 + build + lint + Playwright、跨 repo 驗證(judgment §8)全綠,Yuan 完成走查。
 
 **Insertion note**(2026-09-28):04.1 discuss 時範圍擴大(現金帳、基準幣、股利三種事件、多清單 watchlist),Yuan 決定拆成 04.1 / 04.2;決策見 `.planning/phases/04.2-dividends-share-adjustments-watchlist/04.2-CONTEXT.md`。
-**Plans**: 26/26 plans executed(8 waves;後端 13 + 前端 12 + 收尾閘門 1)。04.2-02 含 `checkpoint:decision`(資料模型 / roi / POST /trades 守門),股利、股數調整、watchlist 後端 stream 皆在其後;本環境無 Docker,`*IT` / `*E2E` / Browser E2E 以 CI 為證。
+**Plans**: 26/26 plans complete(8 waves;後端 13 + 前端 12 + 收尾閘門 1)。04.2-02 含 `checkpoint:decision`(資料模型 / roi / POST /trades 守門),股利、股數調整、watchlist 後端 stream 皆在其後;本環境無 Docker,`*IT` / `*E2E` / Browser E2E 以 CI 為證。
 Plans:
 - [x] `04.2-01-PLAN.md` — WATCH-05:WS tick 訂閱上限 100 / kline 10、WELCOME 新欄位、security.md WS 章節改寫(D-22、D-25)(wave 1,backend)
 - [x] `04.2-02-PLAN.md` — 決策閘門(資料模型 / roi / POST /trades 守門)+ 十條需求註冊 + 錯誤碼與契約凍結(wave 1,backend,checkpoint)
@@ -221,6 +221,7 @@ Plans:
 - [x] `04.2-24-PLAN.md` — 前端:LiveQuoteStatus、Watchlist / Overview 即時價、新聞卡標示、KPI 股利收入(wave 6,frontend)
 - [x] `04.2-25-PLAN.md` — 前端:Playwright 真後端旅程 ×3 + 版面量測 L11 ~ L16(wave 7,frontend)
 - [x] `04.2-26-PLAN.md` — 收尾閘門:judgment §8 跨 repo 驗證 + CI 證據 + 需求 / 決策稽核 + Yuan 走查(wave 8)
+
 **UI hint**: yes(Positions「股利與股數調整」對話框、Trades 頁籤、Chart / Markets 星號選清單、Watchlist 頁)
 
 ### Phase 5: Cross-Repo Browser Flow Verification & Contract Hardening
@@ -251,5 +252,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 4.1 -> 4.2 -> 5
 | 3. Portfolio Read API Mode | 5/5 | Completed | 2026-07-26 |
 | 4. Manual Trade Creation, Idempotency & Post-Trade Refetch | 13/13 | Completed | 2026-09-04 |
 | 04.1 Backend Data Gap Backfill (INSERTED) | 32/32 | Completed | 2026-10-31 |
-| 04.2 Dividends, Share Adjustments & Watchlist (INSERTED) | 26/26 | In Progress | - |
+| 04.2 Dividends, Share Adjustments & Watchlist (INSERTED) | 26/26 | Complete    | 2026-11-04 |
 | 5. Cross-Repo Browser Flow Verification & Contract Hardening | 0/TBD | Not started | - |

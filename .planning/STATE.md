@@ -1,19 +1,20 @@
 ---
 gsd_state_version: "1.0"
 milestone: v1.0
-current_phase: "04.2"
-current_phase_name: Dividends, Share Adjustments & Watchlist (INSERTED)
+current_phase: 5
+current_phase_name: Cross-Repo Browser Flow Verification & Contract Hardening
 status: Phase 04.2 research + UI-SPEC done (2026-10-31);ready to plan
-stopped_at: Phase 04.2 UI-SPEC approved
-last_updated: "2026-11-01T15:42:24.006Z"
-last_activity: 2026-11-01
-last_activity_desc: Phase 04.2 execution started
-state_head: d9e53cf3dfe8dad340ae302c141c5b7508d7e9a3
+stopped_at: Phase 04.2 complete, ready to plan Phase 5
+last_updated: "2026-11-04T12:26:55.887Z"
+last_activity: 2026-11-04
+last_activity_desc: Phase 04.2 complete, transitioned to Phase 5
+state_head: 223318613642c88af88d85c2b6eca1b76a463925
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 79
-  completed_plans: 60
+  completed_plans: 79
+  percent: 14
 milestone_name: milestone
 ---
 
@@ -28,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-05-30)
 
 ## Current Position
 
-Phase: 04.2 (Dividends, Share Adjustments & Watchlist (INSERTED)) — EXECUTING
-Plan: 2 of 26
+Phase: 5 — Cross-Repo Browser Flow Verification & Contract Hardening
+Plan: Not started
 Next: **Phase 04.2**(Dividends, Share Adjustments & Watchlist)—— CONTEXT 已備,下一步 `/gsd-plan-phase 04.2`;Phase 04.1 已於 2026-10-31 完成並核准(32 份 plan = 25 原定 + 7 份 gap-closure,PR 後端 #50 / 前端 #18 待合併至 develop)。
-Last activity: 2026-11-01 — Phase 04.2 execution started
+Last activity: 2026-11-04 — Phase 04.2 complete, transitioned to Phase 5
 
 > ✅ **Phase 4 已完成（2026-09-04）。** 13 個 plan 全數執行完畢，`04-13` 的 blocking human-verify
 > checkpoint 由 Yuan 親自走完甲／乙／丙三段共 17 步後通過（未提出任何不符項）。
@@ -83,7 +84,7 @@ Progress(plan):28/28 plans executed(Phase 1-4 全部執行完畢;04.1 / 04.2 / 5
 
 **Velocity:**
 
-- Total plans completed: 50
+- Total plans completed: 76
 - Average duration: 23min
 - Total execution time: ~3.1 hours
 
@@ -95,6 +96,7 @@ Progress(plan):28/28 plans executed(Phase 1-4 全部執行完畢;04.1 / 04.2 / 5
 | 03 | 5 | 197min | 39min |
 | 04 | 8 | 未回填 | 未回填 |
 | 04.1 | 32 | - | - |
+| 04.2 | 26 | - | - |
 
 > ⚠️ Phase 04 的耗時未逐 plan 回填(多個 plan 跨 session／跨 worktree 執行,無可信起訖時間)。
 > 上方「Total plans completed: 15」同樣未更新,實際為 23。這些數字僅供趨勢參考,不可當事實引用;
@@ -208,7 +210,7 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-10-31T17:07:25.370Z
-Stopped at: Phase 04.2 UI-SPEC approved
+Stopped at: Phase 04.2 complete, ready to plan Phase 5
 前端契約凍結(見 04-05-SUMMARY 末節)。
 Resume file: .planning/phases/04.2-dividends-share-adjustments-watchlist/04.2-UI-SPEC.md
 Next action: `/gsd-plan-phase 04.2`(RESEARCH、VALIDATION、UI-SPEC 已就緒;PR #50 / #18 已於 2026-10-31 合併)。
