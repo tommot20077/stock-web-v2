@@ -28,6 +28,10 @@ import tools.jackson.databind.ObjectMapper;
  * 舊形狀 JSON 會被新程式讀成缺欄位的 DTO（或反之）。加 {@code v2} 讓新舊程式互不讀取對方寫的 JSON，
  * 舊鍵 60 秒後自然過期（RESEARCH Q8 / A4）。
  *
+ * <p>版本沿革：持倉鍵 {@code portfolio:valuation:v2:}（04.1 起不變）；summary 鍵 {@code v2}（04.1）→
+ * {@code v3}（2026-10-31，Phase 04.2：summary 新增 {@code dividendIncome} / {@code dividendTaxWithheld} 且
+ * {@code totalPnl} 含股利，換前綴使部署前後兩種形狀互不讀取，舊 {@code v2} 鍵 60 秒後自然過期）。
+ *
  * <p>持倉鍵存<strong>原幣</strong>估值，與使用者基準幣無關；summary 鍵則含基準幣
  * （鍵由版本段、userId 與基準幣代碼組成），使用者切換基準幣後直接 miss、立即重算。
  * 鍵含基準幣是因為 user 模組無法（也不應）失效 trading 的快取。交易 commit 後由
@@ -35,18 +39,20 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p>summary 另含由入出金分錄推導的可用現金（CASH-02、D-22），因此現金分錄 commit 後由
  * {@link #invalidateSummaryAfterCommit} 刪四把 summary 鍵（不刪持倉鍵）。現金項放在快取之內、靠寫入端失效，
- * 而不是在快取之外另算：後者會讓命中路徑多兩道聚合 SQL，抵銷快取的意義。
+ * 而不是在快取之外另算：後者會讓命中路徑多兩道聚合 SQL，抵銷快取的意義。現金股利（含沖銷）同樣只影響 summary
+ * （可用現金與 {@code dividendIncome}），寫入後走同一個方法；股數調整（含沖銷）會改持倉，走
+ * {@link #invalidateAfterTrade}。
  * 殘餘競態（讀者在 commit 前讀到舊資料、於失效之後才寫回）最長 60 秒，與交易路徑相同，屬已接受。
  *
  * @author Yuan
- * @version 3.0
+ * @version 4.0
  */
 @Component
 public class PortfolioCache {
     private static final Logger log = LoggerFactory.getLogger(PortfolioCache.class);
     private static final Duration TTL = Duration.ofSeconds(60);
     private static final String VALUATION_PREFIX = "portfolio:valuation:v2:";
-    private static final String SUMMARY_PREFIX = "portfolio:summary:v2:";
+    private static final String SUMMARY_PREFIX = "portfolio:summary:v3:";
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -144,7 +150,8 @@ public class PortfolioCache {
     }
 
     /**
-     * 只讓該使用者的 summary 快取失效（四把基準幣鍵），<strong>不刪任何持倉鍵</strong>；入出金（含沖銷）寫入後呼叫。
+     * 只讓該使用者的 summary 快取失效（四把基準幣鍵），<strong>不刪任何持倉鍵</strong>；入出金與現金股利（皆含沖銷）
+     * 寫入後呼叫。
      *
      * <p>summary 含可用現金項（CASH-02、D-22），而現金由入出金分錄推導；分錄 commit 後若不失效，
      * 最長 60 秒內重讀 summary 仍是記帳前的現金。持倉估值只取決於持倉、成交與行情，與現金分錄無關，

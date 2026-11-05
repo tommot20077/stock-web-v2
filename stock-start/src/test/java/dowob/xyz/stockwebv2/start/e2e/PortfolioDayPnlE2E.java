@@ -5,9 +5,13 @@ import dowob.xyz.stockwebv2.start.e2e.support.AbstractPortfolioE2ETest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 import tools.jackson.databind.JsonNode;
 
@@ -26,11 +30,18 @@ import tools.jackson.databind.JsonNode;
  * <p>行情以 SQL 種在 {@code market_prices}：前收列在 26 小時前、最新列在 1 分鐘前。三檔皆為 USD，基準幣切為 USD 以免混入匯率。
  * 所有 null 欄位都要求「欄位存在且為 null」（本專案不省略 null 欄位），不只是「沒有值」。</p>
  *
+ * <p>04.2（ADJ-02 / D-10）起另驗拆股當日：今日起點以 {@code TradingDay.of(STOCK, "US")} 計算（不寫死時區），
+ * 前收種在今日起點之前、最新價種在今日起點之後；拆股 4:1 今日生效時，期初持股以「目前股數 − 當日調整」計，
+ * 不會出現以拆後股數乘拆前前收的假性暴跌。</p>
+ *
  * @author Yuan
- * @version 1.0
+ * @version 1.1
  */
 @DisplayName("Portfolio Day PnL E2E")
 class PortfolioDayPnlE2E extends AbstractPortfolioE2ETest {
+
+    /** 比率類欄位的比較容差（scale 8 捨入）。 */
+    private static final BigDecimal TOLERANCE = new BigDecimal("0.000001");
 
     /**
      * 26 小時前的 ISO-8601 時間，作為「昨日成交」的 {@code executedAt}。
@@ -119,5 +130,34 @@ class PortfolioDayPnlE2E extends AbstractPortfolioE2ETest {
         assertThat(summary.get("dayPricePnlRatio").isNull()).isTrue();
         assertThat(summary.get("dayPnlExcludedCount").asInt()).isZero();
         assertThat(holdingsOf(token)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("拆股 4:1 今日生效：昨收 400（拆前）、今價 101（拆後）→ 持倉 400 股、單檔 dayPricePnl 400、summary dayPricePnl 400（不是 −119600 的假性暴跌）")
+    void splitTodayUsesPreSplitOpeningQuantity() throws Exception {
+        var session = auth.register("daypnl-e2e-split@example.com", "daypnle2esplit", PASSWORD);
+        String token = session.accessToken();
+        switchBaseCurrency(token, "USD");
+        recordTrade(token, "NVDA", "BUY", "100", "390", OffsetDateTime.now().minusDays(3).toString());
+        Instant now = Instant.now();
+        Instant todayStart = US_STOCK.dayStart(now);
+        Instant latestAt = now.minusSeconds(60).isAfter(todayStart) ? now.minusSeconds(60) : todayStart.plusSeconds(1);
+        seedPricesAt("NVDA", "400", todayStart.minus(Duration.ofHours(2)), "101", latestAt);
+
+        recordShareAdjustment(token, """
+            {"symbol":"NVDA","type":"SPLIT","ratioNew":4,"ratioOld":1,"effectiveDate":"%s"}
+            """.formatted(usTradingDate(now)));
+
+        JsonNode nvda = holdingOf(holdingsOf(token), "NVDA");
+        assertThat(nvda.get("totalQuantity").decimalValue()).isEqualByComparingTo("400");
+        /* 期初持股 Q0 = 400 − 300 = 100：400 × 101 − 100 × 400 = 400；分母 100 × 400 = 40000。 */
+        assertThat(nvda.get("dayPricePnl").decimalValue()).isCloseTo(new BigDecimal("400"), within(TOLERANCE));
+        assertThat(nvda.get("dayPricePnlRatio").decimalValue()).isCloseTo(new BigDecimal("0.01"), within(TOLERANCE));
+        /* previousClose 維持行情原值（拆前前收），不另算調整後前收。 */
+        assertThat(nvda.get("previousClose").decimalValue()).isEqualByComparingTo("400");
+
+        JsonNode summary = summaryOf(token);
+        assertThat(summary.get("dayPricePnl").decimalValue()).isCloseTo(new BigDecimal("400"), within(TOLERANCE));
+        assertThat(summary.get("dayPnlExcludedCount").asInt()).isZero();
     }
 }

@@ -22,9 +22,14 @@ Users can safely sign in, inspect portfolio state, and record trades through one
 - ✓ Vue 3 application shell with routes, portfolio UI, order ticket, mock portfolio state, and mock/API runtime mode conventions — existing
 - ✓ Portfolio overview, positions/holdings, trade history, and order ticket wired to backend APIs in API mode — Phase 3 (read) + Phase 4 (order ticket)
 - ✓ Post-trade refetch of portfolio summary, holdings/positions, and trade history so the UI reflects backend state — Phase 4
+- ✓ Cash dividends and share adjustments (stock dividend, split / reverse split) as append-only ledgers with one-click reversal, feeding available cash, summary `dividendIncome` / `totalPnl` / `roi` and split-day day-PnL — Phase 04.2
+- ✓ Unified Trades activity list (`GET /portfolio/activities`: trades + dividends + share adjustments) with backend-filtered tabs and same-source CSV — Phase 04.2
+- ✓ Multi-list watchlists backed by the API (create / rename / delete / reorder, Markets & Chart star picker) with live quotes over the market WebSocket — Phase 04.2
 
 ### Active
 
+- [ ] Default ex-date in the dividend / share-adjustment dialog should be "today" in the asset's market timezone, not the browser's (04.2-REVIEW WR-09, deferred; needs a UI-SPEC change).
+- [ ] Reversal and idempotent replay of dividends / share adjustments must keep working after an asset becomes inactive or untradeable, and the activity list must not offer an impossible reversal (04.2-REVIEW WR-01, deferred).
 - [ ] Define and implement a browser-safe auth contract using httpOnly refresh/access cookies, `/auth/refresh`, `/me`, logout, and consistent 401/403 behavior.
 - [ ] Add CSRF protection for cookie-authenticated unsafe browser requests using a double-submit token contract.
 - [ ] Keep bearer-token support available for non-browser/API clients where appropriate, without weakening browser cookie safety.
@@ -74,6 +79,10 @@ The codebase has a dirty worktree with prior implementation changes. Planning co
 | Keep mock/API dual mode in the Vue app | Existing frontend development depends on mock mode, and API mode should be additive | - Pending |
 | Treat `POST /api/v1/trades` as manual executed trade creation | Existing backend contract has no order type, status, or broker lifecycle | - Pending |
 | Store the cross-repo contract in the backend planning/docs area first | Backend owns auth/security semantics, and planning docs can reference frontend follow-up work clearly | - Pending |
+| Phase 04.2 D-13：股利 / 股數調整採新表 cash_dividends / share_adjustments（不擴充 transactions）(2026-11-01 Yuan 於 04.2-02 checkpoint 裁決 option-recommended) | 不碰 Phase 4 凍結的 TradeDto / TradePayloadMatcher / GET /trades；兩張表各自 append-only + reversal_of_id 沖銷，與「股利」「股數調整」頁籤一一對應；代價是 Trades「全部」頁籤需 UNION 端點 GET /portfolio/activities | ✓ Good — 2026-11-04 Yuan 走查回覆「ok」;04.2-26 已核對程式 / 契約 / 前端文案一致(證據見 04.2-26-SUMMARY);Browser E2E 待 PR 觸發 |
+| Phase 04.2：watchlist 歸 asset 模組（watchlists / watchlist_items，整數 position + 整份重排，路徑一律 uuid）(2026-11-01 option-recommended) | 清單項目是資產參照、報價共用 AssetDto mapper；FX 代號含 `/`，路徑不放 symbol | ✓ Good — 2026-11-04 Yuan 走查回覆「ok」;04.2-26 已核對程式 / 契約 / 前端文案一致(證據見 04.2-26-SUMMARY);Browser E2E 待 PR 觸發 |
+| Phase 04.2：roi 公式不變 `totalPnl / totalCostBasis`，因 totalPnl 含股利，roi 亦含股利（語意變更，契約寫明）(2026-11-01 option-recommended) | D-01 鎖定股利計入總損益；Overview KPI 標籤本即「總報酬率」，不另加比率欄位避免混淆 | ✓ Good — 2026-11-04 Yuan 走查回覆「ok」;04.2-26 已核對程式 / 契約 / 前端文案一致(證據見 04.2-26-SUMMARY);Browser E2E 待 PR 觸發 |
+| Phase 04.2：POST /trades 拒絕早於該標的最晚未沖銷股數調整生效起點的 executedAt（400 fields.executedAt）(2026-11-01 option-recommended) | 持倉是物化狀態，拆股後補登拆股前交易會靜默錯帳；代價是 Phase 4 凍結的建立交易行為多一個 400 情境 | ✓ Good — 2026-11-04 Yuan 走查回覆「ok」;04.2-26 已核對程式 / 契約 / 前端文案一致(證據見 04.2-26-SUMMARY);Browser E2E 待 PR 觸發 |
 
 ## Evolution
 
@@ -93,4 +102,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-30 after initialization*
+*Last updated: 2026-11-04 after Phase 04.2*

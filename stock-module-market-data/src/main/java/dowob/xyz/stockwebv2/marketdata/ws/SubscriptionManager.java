@@ -17,7 +17,16 @@ import java.util.concurrent.ConcurrentMap;
  * <p>內部使用 forward map（{@code sessionId → channels}）及
  * reverse map（{@code channel → sessionIds}）雙向維護，確保查詢效率。
  *
- * <p>每個連線最多訂閱 {@link #MAX_CHANNELS_PER_SESSION} 個 channels。
+ * <p>每個連線的訂閱上限依 channel 類型分開計數、互不佔額：
+ * <ul>
+ *   <li>{@code tick.*}：最多 {@link #MAX_TICK_CHANNELS_PER_SESSION} 個。tick 為公開行情、不含使用者資料，
+ *       上限只為防止資源濫用；觀察清單本身已限制 100 檔，故 tick 上限與其對齊，
+ *       讓 Watchlist 頁以單一連線即可接收整份清單的即時價。</li>
+ *   <li>{@code kline.*}：最多 {@link #MAX_KLINE_CHANNELS_PER_SESSION} 個，維持原本的較嚴上限。</li>
+ * </ul>
+ * 前綴判斷大小寫不敏感（與 {@link WsMessageParser} 的 {@code CASE_INSENSITIVE} 一致），
+ * 避免以 {@code TICK.X} 之類寫法繞過計數；非 {@code tick.} 前綴者一律以較嚴的 kline 額度計（fail-closed）。
+ * 超額者以 {@code SUBSCRIPTION_LIMIT_EXCEEDED} 列入 rejected，連線不關閉。
  * 同一 session 重複訂閱已存在的 channel 視為 no-op，不計入 accepted 也不進入 rejected。
  *
  * <p>執行緒安全策略：所有對 forward/reverse map 的複合變更（read-modify-write）
@@ -26,13 +35,19 @@ import java.util.concurrent.ConcurrentMap;
  * 無需鎖定即可安全在 broadcast thread 中使用。
  *
  * @author Yuan
- * @version 1.0.0
+ * @version 1.1.0
  */
 @Component
 public class SubscriptionManager {
 
-    /** 每個 session 最多可訂閱的 channel 數量上限。 */
-    public static final int MAX_CHANNELS_PER_SESSION = 10;
+    /** 每個 session 最多可訂閱的 {@code tick.*} channel 數量上限（與觀察清單 100 檔上限對齊）。 */
+    public static final int MAX_TICK_CHANNELS_PER_SESSION = 100;
+
+    /** 每個 session 最多可訂閱的 {@code kline.*} channel 數量上限。 */
+    public static final int MAX_KLINE_CHANNELS_PER_SESSION = 10;
+
+    /** tick channel 前綴（比對時大小寫不敏感）。 */
+    private static final String TICK_PREFIX = "tick.";
 
     /** forward map：sessionId → 不可變 channel set（snapshot）。 */
     private final ConcurrentMap<String, Set<String>> sessionToChannels = new ConcurrentHashMap<>();
@@ -61,7 +76,9 @@ public class SubscriptionManager {
      * <p>規則：
      * <ol>
      *   <li>已訂閱的 channel 視為 no-op（不計入 accepted，不計入 rejected）</li>
-     *   <li>若加入後總數超過 {@link #MAX_CHANNELS_PER_SESSION}，多餘者進入 rejected</li>
+     *   <li>tick 與 kline 各自計數：tick 超過 {@link #MAX_TICK_CHANNELS_PER_SESSION}、
+     *       kline 超過 {@link #MAX_KLINE_CHANNELS_PER_SESSION} 時，多餘者以
+     *       {@code SUBSCRIPTION_LIMIT_EXCEEDED} 進入 rejected</li>
      * </ol>
      *
      * @param sessionId 目標 WebSocket session ID，不可 null
@@ -79,15 +96,25 @@ public class SubscriptionManager {
         synchronized (writeLock) {
             Set<String> current = sessionToChannels.getOrDefault(sessionId, Set.of());
             Set<String> next = new HashSet<>(current);
+            int tickCount = (int) current.stream().filter(SubscriptionManager::isTickChannel).count();
+            int klineCount = current.size() - tickCount;
 
             for (String ch : channels) {
-                if (current.contains(ch)) {
-                    // 重複訂閱：no-op，不加入 accepted 或 rejected
+                if (next.contains(ch)) {
+                    /* 重複訂閱：no-op，不加入 accepted 或 rejected */
                     continue;
                 }
-                if (next.size() >= MAX_CHANNELS_PER_SESSION) {
+                boolean tick = isTickChannel(ch);
+                int used = tick ? tickCount : klineCount;
+                int limit = tick ? MAX_TICK_CHANNELS_PER_SESSION : MAX_KLINE_CHANNELS_PER_SESSION;
+                if (used >= limit) {
                     rejected.add(new SubscribeResult.RejectedChannel(ch, "SUBSCRIPTION_LIMIT_EXCEEDED"));
                     continue;
+                }
+                if (tick) {
+                    tickCount++;
+                } else {
+                    klineCount++;
                 }
                 next.add(ch);
                 accepted.add(ch);
@@ -181,6 +208,18 @@ public class SubscriptionManager {
                 cleanReverseEntry(ch, sessionId);
             }
         }
+    }
+
+    /**
+     * 判斷 channel 是否為 tick 類型（前綴 {@code tick.}，大小寫不敏感）。
+     *
+     * <p>非 tick 者（kline 或其他）一律以較嚴的 kline 額度計數。
+     *
+     * @param channel channel 名稱
+     * @return 為 tick channel 時回傳 {@code true}
+     */
+    private static boolean isTickChannel(String channel) {
+        return channel != null && channel.regionMatches(true, 0, TICK_PREFIX, 0, TICK_PREFIX.length());
     }
 
     /**

@@ -263,6 +263,86 @@ class ErrorCodeTest {
         assertThat(ErrorCode.CASH_ENTRY_ALREADY_REVERSED).isNotEqualTo(ErrorCode.CASH_ENTRY_NOT_REVERSIBLE);
     }
 
+    // ── Phase 04.2：股利 / 股數調整 / 觀察清單錯誤碼（04.2-02 凍結契約字面，前端 i18n 依 code 分派）─────
+
+    /** Phase 04.2 新增的十個錯誤碼，依契約順序排列。 */
+    private static final ErrorCode[] PHASE_04_2_CODES = {
+        ErrorCode.DIVIDEND_IDEMPOTENCY_KEY_REUSED,
+        ErrorCode.DIVIDEND_NOT_FOUND,
+        ErrorCode.DIVIDEND_ALREADY_REVERSED,
+        ErrorCode.DIVIDEND_NOT_REVERSIBLE,
+        ErrorCode.SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED,
+        ErrorCode.SHARE_ADJUSTMENT_NOT_FOUND,
+        ErrorCode.SHARE_ADJUSTMENT_ALREADY_REVERSED,
+        ErrorCode.SHARE_ADJUSTMENT_NOT_REVERSIBLE,
+        ErrorCode.WATCHLIST_NOT_FOUND,
+        ErrorCode.WATCHLIST_ORDER_CONFLICT
+    };
+
+    @Test
+    @DisplayName("股利錯誤碼的 HTTP 狀態碼與預設訊息為凍結字面")
+    void dividendCodes_httpStatusesAndMessagesAreFrozen() {
+        assertThat(ErrorCode.DIVIDEND_IDEMPOTENCY_KEY_REUSED.httpStatus()).isEqualTo(409);
+        assertThat(ErrorCode.DIVIDEND_IDEMPOTENCY_KEY_REUSED.defaultMessage())
+                .isEqualTo("Idempotency key was reused with a different dividend payload");
+        assertThat(ErrorCode.DIVIDEND_NOT_FOUND.httpStatus()).isEqualTo(404);
+        assertThat(ErrorCode.DIVIDEND_NOT_FOUND.defaultMessage()).isEqualTo("Dividend not found");
+        assertThat(ErrorCode.DIVIDEND_ALREADY_REVERSED.httpStatus()).isEqualTo(409);
+        assertThat(ErrorCode.DIVIDEND_ALREADY_REVERSED.defaultMessage())
+                .isEqualTo("Dividend has already been reversed");
+        assertThat(ErrorCode.DIVIDEND_NOT_REVERSIBLE.httpStatus()).isEqualTo(409);
+        assertThat(ErrorCode.DIVIDEND_NOT_REVERSIBLE.defaultMessage())
+                .isEqualTo("A reversal dividend cannot be reversed");
+    }
+
+    @Test
+    @DisplayName("股數調整錯誤碼的 HTTP 狀態碼與預設訊息為凍結字面")
+    void shareAdjustmentCodes_httpStatusesAndMessagesAreFrozen() {
+        assertThat(ErrorCode.SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED.httpStatus()).isEqualTo(409);
+        assertThat(ErrorCode.SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED.defaultMessage())
+                .isEqualTo("Idempotency key was reused with a different share adjustment payload");
+        assertThat(ErrorCode.SHARE_ADJUSTMENT_NOT_FOUND.httpStatus()).isEqualTo(404);
+        assertThat(ErrorCode.SHARE_ADJUSTMENT_NOT_FOUND.defaultMessage()).isEqualTo("Share adjustment not found");
+        assertThat(ErrorCode.SHARE_ADJUSTMENT_ALREADY_REVERSED.httpStatus()).isEqualTo(409);
+        assertThat(ErrorCode.SHARE_ADJUSTMENT_ALREADY_REVERSED.defaultMessage())
+                .isEqualTo("Share adjustment has already been reversed");
+        assertThat(ErrorCode.SHARE_ADJUSTMENT_NOT_REVERSIBLE.httpStatus()).isEqualTo(409);
+        assertThat(ErrorCode.SHARE_ADJUSTMENT_NOT_REVERSIBLE.defaultMessage())
+                .isEqualTo("Only the latest share adjustment of an asset can be reversed");
+    }
+
+    @Test
+    @DisplayName("觀察清單錯誤碼的 HTTP 狀態碼與預設訊息為凍結字面")
+    void watchlistCodes_httpStatusesAndMessagesAreFrozen() {
+        assertThat(ErrorCode.WATCHLIST_NOT_FOUND.httpStatus()).isEqualTo(404);
+        assertThat(ErrorCode.WATCHLIST_NOT_FOUND.defaultMessage()).isEqualTo("Watchlist not found");
+        assertThat(ErrorCode.WATCHLIST_ORDER_CONFLICT.httpStatus()).isEqualTo(409);
+        assertThat(ErrorCode.WATCHLIST_ORDER_CONFLICT.defaultMessage())
+                .isEqualTo("Watchlist items changed; reload and retry");
+    }
+
+    @Test
+    @DisplayName("Phase 04.2 十個錯誤碼的預設訊息皆為靜態字串（不含佔位符、不回射輸入）且兩兩不同")
+    void phase042Codes_defaultMessagesAreStaticAndDistinct() {
+        for (ErrorCode code : PHASE_04_2_CODES) {
+            assertThat(code.defaultMessage())
+                    .as(code.name())
+                    .isNotBlank()
+                    .doesNotContain("%")
+                    .doesNotContain("{");
+        }
+        assertThat(Arrays.stream(PHASE_04_2_CODES).map(ErrorCode::defaultMessage).collect(Collectors.toSet()))
+                .as("十個 code 的 defaultMessage 必須兩兩不同")
+                .hasSize(PHASE_04_2_CODES.length);
+        assertThat(Arrays.stream(ErrorCode.values()).map(ErrorCode::defaultMessage)
+                        .filter(message -> Arrays.stream(PHASE_04_2_CODES)
+                                .map(ErrorCode::defaultMessage)
+                                .anyMatch(message::equals))
+                        .count())
+                .as("新訊息不得與既有錯誤碼的訊息重複")
+                .isEqualTo(PHASE_04_2_CODES.length);
+    }
+
     @Test
     void existingConstants_httpStatusesUnchanged() {
         assertThat(ErrorCode.VALIDATION_FAILED.httpStatus()).isEqualTo(400);

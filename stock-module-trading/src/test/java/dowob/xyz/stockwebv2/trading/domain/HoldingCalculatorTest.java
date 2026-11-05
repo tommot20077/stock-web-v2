@@ -67,6 +67,102 @@ class HoldingCalculatorTest {
             .isEqualTo(ErrorCode.TRADE_INSUFFICIENT_HOLDING);
     }
 
+    @Test
+    void stockDividendKeepsTotalCostAndDilutesAverageCost() {
+        Holding existing = holding(bd("1000"), bd("100"), bd("12.5"));
+        OffsetDateTime later = OffsetDateTime.parse("2026-10-30T08:00:00Z");
+
+        Holding result = calculator.applyShareAdjustment(existing, bd("50"), later);
+
+        assertThat(result.totalQuantity()).isEqualByComparingTo("1050");
+        assertThat(result.avgCost()).isEqualByComparingTo("95.23809524");
+        assertThat(result.realizedPnl()).isEqualByComparingTo("12.5");
+        assertThat(result.id()).isEqualTo(99L);
+        assertThat(result.userId()).isEqualTo(1L);
+        assertThat(result.assetId()).isEqualTo(10L);
+        assertThat(result.version()).isEqualTo(2);
+        assertThat(result.lastUpdated()).isEqualTo(later);
+    }
+
+    @Test
+    void stockDividendCostBasisDiffersOnlyByScaleEightRounding() {
+        Holding existing = holding(bd("1000"), bd("100"), bd("0"));
+
+        Holding result = calculator.applyShareAdjustment(existing, bd("50"), now());
+
+        BigDecimal costBasis = result.totalQuantity().multiply(result.avgCost());
+        assertThat(costBasis.subtract(bd("100000")).abs()).isLessThan(bd("0.00001"));
+    }
+
+    @Test
+    void forwardSplitMultipliesQuantityAndDividesAverageCost() {
+        Holding existing = holding(bd("100"), bd("400"), bd("0"));
+
+        Holding result = calculator.applyShareAdjustment(existing, bd("300"), now());
+
+        assertThat(result.totalQuantity()).isEqualByComparingTo("400");
+        assertThat(result.avgCost()).isEqualByComparingTo("100.00000000");
+    }
+
+    @Test
+    void reverseSplitKeepsFractionalQuantityAndRaisesAverageCost() {
+        Holding existing = holding(bd("105"), bd("10"), bd("0"));
+
+        Holding result = calculator.applyShareAdjustment(existing, bd("-94.5"), now());
+
+        assertThat(result.totalQuantity()).isEqualByComparingTo("10.5");
+        assertThat(result.avgCost()).isEqualByComparingTo("100.00000000");
+    }
+
+    @Test
+    void reverseSplitOneForThreeUsesTruncatedQuantityForAverageCost() {
+        Holding existing = holding(bd("100"), bd("30"), bd("0"));
+
+        Holding result = calculator.applyShareAdjustment(existing, bd("-66.66666667"), now());
+
+        assertThat(result.totalQuantity()).isEqualByComparingTo("33.33333333");
+        /* 3000 ÷ 33.33333333 = 90.000000009…，scale 8 HALF_UP 為 90.00000001（RESEARCH Q2.1 表誤植為 90.00000009） */
+        assertThat(result.avgCost()).isEqualByComparingTo("90.00000001");
+    }
+
+    @Test
+    void shareAdjustmentWithoutHoldingFails() {
+        assertThatThrownBy(() -> calculator.applyShareAdjustment(null, bd("50"), now()))
+            .isInstanceOf(BusinessException.class)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.TRADE_INSUFFICIENT_HOLDING);
+    }
+
+    @Test
+    void shareAdjustmentOnZeroHoldingFails() {
+        Holding existing = holding(bd("0"), bd("0"), bd("5"));
+
+        assertThatThrownBy(() -> calculator.applyShareAdjustment(existing, bd("50"), now()))
+            .isInstanceOf(BusinessException.class)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.TRADE_INSUFFICIENT_HOLDING);
+    }
+
+    @Test
+    void shareAdjustmentLeavingNegativeHoldingFails() {
+        Holding existing = holding(bd("50"), bd("10"), bd("0"));
+
+        assertThatThrownBy(() -> calculator.applyShareAdjustment(existing, bd("-300"), now()))
+            .isInstanceOf(BusinessException.class)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.TRADE_INSUFFICIENT_HOLDING);
+    }
+
+    @Test
+    void shareAdjustmentLeavingExactlyZeroHoldingFails() {
+        Holding existing = holding(bd("50"), bd("10"), bd("0"));
+
+        assertThatThrownBy(() -> calculator.applyShareAdjustment(existing, bd("-50"), now()))
+            .isInstanceOf(BusinessException.class)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.TRADE_INSUFFICIENT_HOLDING);
+    }
+
     private Holding holding(BigDecimal quantity, BigDecimal avgCost, BigDecimal realizedPnl) {
         return new Holding(99L, 1L, 10L, quantity, avgCost, realizedPnl, 2, now());
     }

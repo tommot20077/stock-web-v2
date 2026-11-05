@@ -47,8 +47,12 @@ import tools.jackson.databind.ObjectMapper;
  * <p>結果是成交後的 refetch 最長一分鐘看不到自己剛記錄的交易 —— 正好打中 Phase 4 的
  * post-trade refetch。失效必須排到 commit 之後。
  *
+ * <p>04.2-05 起 summary 鍵升 {@code v3}（summary 新增 {@code dividendIncome} / {@code dividendTaxWithheld}、
+ * {@code totalPnl} 含股利），持倉鍵維持 {@code v2}；原 v2 summary 斷言改為 v3，另鎖舊 v2 鍵不被讀、
+ * 兩條失效路徑只刪 v3 summary 鍵。
+ *
  * @author Yuan
- * @version 1.0.0
+ * @version 1.1.0
  */
 @DisplayName("portfolio 快取失效時機")
 class PortfolioCacheTest {
@@ -78,16 +82,16 @@ class PortfolioCacheTest {
 
         verify(redisTemplate, never()).delete("portfolio:valuation:v2:7:42");
         for (CurrencyCode base : CurrencyCode.values()) {
-            verify(redisTemplate, never()).delete("portfolio:summary:v2:7:" + base.name());
+            verify(redisTemplate, never()).delete("portfolio:summary:v3:7:" + base.name());
         }
 
         TransactionSynchronizationUtils.triggerAfterCommit();
 
         verify(redisTemplate).delete("portfolio:valuation:v2:7:42");
-        verify(redisTemplate).delete("portfolio:summary:v2:7:USD");
-        verify(redisTemplate).delete("portfolio:summary:v2:7:TWD");
-        verify(redisTemplate).delete("portfolio:summary:v2:7:EUR");
-        verify(redisTemplate).delete("portfolio:summary:v2:7:JPY");
+        verify(redisTemplate).delete("portfolio:summary:v3:7:USD");
+        verify(redisTemplate).delete("portfolio:summary:v3:7:TWD");
+        verify(redisTemplate).delete("portfolio:summary:v3:7:EUR");
+        verify(redisTemplate).delete("portfolio:summary:v3:7:JPY");
     }
 
     @Test
@@ -97,27 +101,70 @@ class PortfolioCacheTest {
 
         verify(redisTemplate).delete("portfolio:valuation:v2:7:42");
         for (CurrencyCode base : CurrencyCode.values()) {
-            verify(redisTemplate).delete("portfolio:summary:v2:7:" + base.name());
+            verify(redisTemplate).delete("portfolio:summary:v3:7:" + base.name());
         }
     }
 
     @Test
-    @DisplayName("summary 快取鍵含版本與基準幣：portfolio:summary:v2:{userId}:{baseCurrency}")
+    @DisplayName("升 v3 後舊 v2 summary 鍵即使存在也不讀（缺 dividendIncome、totalPnl 語意舊，T-04.2-13）")
+    @SuppressWarnings("unchecked")
+    void legacyV2SummaryKeyIsNeverRead() {
+        ValueOperations<String, String> valueOps = mock(ValueOperations.class);
+        when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        when(valueOps.get("portfolio:summary:v2:7:TWD")).thenReturn(
+            "{\"totalMarketValue\":1,\"totalCostBasis\":1,\"realizedPnl\":0,\"unrealizedPnl\":0,\"totalPnl\":0,"
+                + "\"roi\":0,\"holdingCount\":0,\"baseCurrency\":\"TWD\",\"fxExcludedCount\":0,\"dayPnlExcludedCount\":0}");
+        when(valueOps.get("portfolio:summary:v3:7:TWD")).thenReturn(null);
+
+        assertThat(cache.readSummary(7L, CurrencyCode.TWD)).isEmpty();
+        verify(valueOps).get("portfolio:summary:v3:7:TWD");
+        verify(valueOps, never()).get("portfolio:summary:v2:7:TWD");
+    }
+
+    @Test
+    @DisplayName("股利寫入（含沖銷）只失效 summary：刪該使用者全部基準幣的 v3 summary 鍵，不刪 portfolio:valuation:v2:*")
+    void summaryOnlyInvalidationDeletesAllV3SummaryKeysAndNoValuationKey() {
+        cache.invalidateSummaryAfterCommit(7L);
+
+        for (CurrencyCode base : CurrencyCode.values()) {
+            verify(redisTemplate).delete("portfolio:summary:v3:7:" + base.name());
+        }
+        verify(redisTemplate, times(CurrencyCode.values().length)).delete(anyString());
+        verify(redisTemplate, never()).delete(startsWith("portfolio:valuation:v2:"));
+        verify(redisTemplate, never()).delete(startsWith("portfolio:summary:v2:"));
+    }
+
+    @Test
+    @DisplayName("交易失效：刪 portfolio:valuation:v2:{userId}:{assetId} 與全部 v3 summary 鍵（持倉鍵維持 v2）")
+    void tradeInvalidationDeletesV2ValuationKeyAndAllV3SummaryKeys() {
+        cache.invalidateAfterTrade(7L, 42L);
+
+        verify(redisTemplate).delete("portfolio:valuation:v2:7:42");
+        for (CurrencyCode base : CurrencyCode.values()) {
+            verify(redisTemplate).delete("portfolio:summary:v3:7:" + base.name());
+        }
+        verify(redisTemplate, times(CurrencyCode.values().length + 1)).delete(anyString());
+        verify(redisTemplate, never()).delete(startsWith("portfolio:summary:v2:"));
+    }
+
+    @Test
+    @DisplayName("summary 快取鍵含版本與基準幣：portfolio:summary:v3:{userId}:{baseCurrency}")
     @SuppressWarnings("unchecked")
     void summaryKeyIncludesVersionAndBaseCurrency() {
         ValueOperations<String, String> valueOps = mock(ValueOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.get("portfolio:summary:v2:7:TWD")).thenReturn(null);
+        when(valueOps.get("portfolio:summary:v3:7:TWD")).thenReturn(null);
 
         assertThat(cache.readSummary(7L, CurrencyCode.TWD)).isEmpty();
-        verify(valueOps).get("portfolio:summary:v2:7:TWD");
+        verify(valueOps).get("portfolio:summary:v3:7:TWD");
 
         PortfolioSummaryDto dto = new PortfolioSummaryDto(
             BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-            1, "TWD", 0, List.of(), BigDecimal.ZERO, null, 0, BigDecimal.ZERO, BigDecimal.ONE, List.of(), List.of(), List.of());
+            1, "TWD", 0, List.of(), BigDecimal.ZERO, null, 0, BigDecimal.ZERO, BigDecimal.ONE, List.of(), List.of(), List.of(),
+            BigDecimal.ZERO, BigDecimal.ZERO);
         cache.writeSummary(7L, CurrencyCode.TWD, dto);
 
-        verify(valueOps).set(eq("portfolio:summary:v2:7:TWD"), anyString(), eq(Duration.ofSeconds(60)));
+        verify(valueOps).set(eq("portfolio:summary:v3:7:TWD"), anyString(), eq(Duration.ofSeconds(60)));
     }
 
     @Test
@@ -158,15 +205,15 @@ class PortfolioCacheTest {
         cache.invalidateSummaryAfterCommit(7L);
 
         for (CurrencyCode base : CurrencyCode.values()) {
-            verify(redisTemplate, never()).delete("portfolio:summary:v2:7:" + base.name());
+            verify(redisTemplate, never()).delete("portfolio:summary:v3:7:" + base.name());
         }
 
         TransactionSynchronizationUtils.triggerAfterCommit();
 
-        verify(redisTemplate).delete("portfolio:summary:v2:7:USD");
-        verify(redisTemplate).delete("portfolio:summary:v2:7:TWD");
-        verify(redisTemplate).delete("portfolio:summary:v2:7:EUR");
-        verify(redisTemplate).delete("portfolio:summary:v2:7:JPY");
+        verify(redisTemplate).delete("portfolio:summary:v3:7:USD");
+        verify(redisTemplate).delete("portfolio:summary:v3:7:TWD");
+        verify(redisTemplate).delete("portfolio:summary:v3:7:EUR");
+        verify(redisTemplate).delete("portfolio:summary:v3:7:JPY");
         // 分錄不影響持倉估值：持倉鍵一把都不能刪
         verify(redisTemplate, times(CurrencyCode.values().length)).delete(anyString());
         verify(redisTemplate, never()).delete(startsWith("portfolio:valuation:"));
@@ -178,7 +225,7 @@ class PortfolioCacheTest {
         cache.invalidateSummaryAfterCommit(7L);
 
         for (CurrencyCode base : CurrencyCode.values()) {
-            verify(redisTemplate).delete("portfolio:summary:v2:7:" + base.name());
+            verify(redisTemplate).delete("portfolio:summary:v3:7:" + base.name());
         }
         verify(redisTemplate, never()).delete(startsWith("portfolio:valuation:"));
     }

@@ -1,0 +1,1 @@
+No external API integration: 本 phase 只新增 / 修改本專案自有的後端端點（股利、股數調整、活動列表、watchlist、既有 WS 訂閱上限）與前端 API mode 呼叫及既有 WS 協定的 client，無第三方 API / SDK / 外部服務、無新增依賴；偵測命中為「Full API mode」「CI Integration job」「api-adapter-wiring」等第一方用語誤報。

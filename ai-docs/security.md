@@ -140,6 +140,7 @@ public void handleAccessDeniedException(AccessDeniedException e) throws AccessDe
 | GET | `/api/v1/search` | Search (assets only, not users) |
 | GET | `/api/v1/search/suggest` | Search suggestions (assets only) |
 | ANY | Static resources | css, js, images, etc. |
+| ANY | `/ws/v1/market/**` | WebSocket 握手。URL 層 `permitAll`，驗證全在 `MarketHandshakeInterceptor`（一次性 ticket，見 §9）；Origin 白名單同 `stock.cors.allowed-origins` |
 
 **Notes:**
 - `/api/v1/auth/change-password`, `/api/v1/auth/logout`, etc. **require authentication**
@@ -172,45 +173,74 @@ All other endpoints require **authentication** (`authenticated()`).
 
 ## 9. WebSocket Connection Security
 
-WebSocket endpoint: `ws(s)://{host}/ws/v1/market` — login required, no anonymous connections.
+WebSocket endpoint: `ws(s)://{host}/ws/v1/market?ticket={ticket}` — 必須登入，不接受匿名連線。URL 層 `/ws/v1/market/**` 為 `permitAll`，驗證全部在握手攔截器 `MarketHandshakeInterceptor`（見 Public Endpoints 表）。
 
 ### Handshake Authentication (Short-lived Ticket Pattern)
 
-Browser native `WebSocket` API cannot set custom headers — JWT must NOT appear in URL (log/Referrer/proxy leakage risk). Use a one-time ticket instead:
+瀏覽器原生 `WebSocket` API 無法設定自訂 header，而 JWT 不得出現在 URL（log / Referrer / proxy 洩漏風險），因此改用一次性 ticket：
 
-1. **Client calls REST endpoint** `POST /api/v1/auth/ws-ticket` (JWT in `Authorization` header, validated by `JwtAuthFilter`)
-2. **Server generates opaque ticket** (UUID) → stores in Redis `ws:ticket:{ticket}` with `{ userId, tokenVersion, role }`, TTL **30 seconds**
-3. **Client connects** `ws(s)://{host}/ws/v1/market?ticket={uuid}` — URL contains opaque ticket, NOT JWT
-4. **`TicketHandshakeInterceptor`** validates:
-   - Redis GET `ws:ticket:{ticket}` → retrieve user info
-   - Redis DEL `ws:ticket:{ticket}` → **single-use, immediately consumed**
-   - If missing/expired → reject handshake (HTTP 401)
-   - Store `userId`, `tokenVersion`, `role` in `WebSocketSession.attributes`
-   - Check connection limits (account ≤2 / IP ≤5) → FIFO evict if exceeded
+1. **客戶端取 ticket**：`POST /api/v1/market/ws/ticket`（`WsTicketController`，class 層 `@PreAuthorize("isAuthenticated()")`）。
+   - 瀏覽器：HttpOnly access cookie + `X-XSRF-TOKEN`（unsafe request，經 `BrowserCsrfFilter`；缺 / 錯 → 403 `AUTH_CSRF_TOKEN_INVALID`，IT 覆蓋：`WsTicketCookieCsrfIT`）。
+   - 非瀏覽器：`Authorization: Bearer {accessToken}`（豁免 CSRF）。
+   - 回應：`{ ticket, expiresIn: 30, wsUrl: "/ws/v1/market" }`；不回傳任何 access / refresh token。
+2. **伺服器簽發 ticket**（`WsTicketService`）：32 bytes `SecureRandom` 以 URL-safe Base64（無 padding，約 43 字元）編碼 → 存 Redis `ws:ticket:{ticket}`，值為 `{ userId, issuedAt, tokenVersion }`（`TicketPayload`，不含 role），TTL **30 秒**。tokenVersion 讀自 Redis `user:auth:{userId}`；讀不到 → 503 `AUTH_REDIS_UNAVAILABLE`（不簽發一張必然被拒的 ticket）。
+3. **客戶端連線**：`ws(s)://{host}/ws/v1/market?ticket={ticket}` — URL 只含不透明 ticket，不含 JWT。
+4. **`MarketHandshakeInterceptor` 驗證**（依序）：
+   - 缺 ticket → HTTP 401
+   - Redis `GETDEL ws:ticket:{ticket}` 原子取出並刪除（**單次消耗**）；miss / 過期 → HTTP 401
+   - payload 的 tokenVersion 與 Redis 現值不符（含 Redis 讀不到）→ HTTP 401
+   - 全域連線上限 → HTTP 503；每 IP 連線上限 5 → HTTP 429
+   - 通過 → 將 `userId` 等寫入 `WebSocketSession.attributes`
+   - **每帳號上限 2 不在握手擋**：連線建立後由 `WebSocketConnectionManager` 以 FIFO 驅逐最舊連線（先推 `auth_expired` reason `session_replaced`，再以 4002 關閉）
+   - Origin 白名單：與 REST CORS 共用 `stock.cors.allowed-origins`（`WsConfig`）
 
 **Security properties:**
-- JWT never appears in URL — ticket is opaque UUID
-- Ticket is single-use — consumed on handshake, replay impossible
-- Ticket TTL 30 seconds — even if unconsumed, expires quickly
-- JWT validation happens at REST endpoint, not in WebSocket interceptor
+- JWT 不出現在 URL —— ticket 為不透明隨機字串
+- Ticket 單次使用 —— 握手時以 `GETDEL` 消耗，無法重放
+- Ticket TTL 30 秒 —— 未使用也很快過期
+- 身分驗證（JWT / cookie + CSRF）發生在取 ticket 的 REST 端點；握手只驗 ticket 與 tokenVersion
 
 ### Continuous Validation
-1. **Periodic validation**: Server-side Redis token version check every **5 minutes** (via `WebSocketAuthValidator` scheduled task)
-2. **On expiry/revocation**: Push `auth_expired` message → close with status code **4001** (AUTH_EXPIRED)
-3. **On admin suspension**: Proactively notify `WebSocketConnectionManager` to close all connections for that user (fast path). Cross-JVM notification via Kafka `user.status-changed` event.
-4. **userId source**: Obtained entirely from JWT `Authentication.principal` stored during handshake — **request parameters are not accepted**.
+1. **定期驗證**：`WebSocketAuthValidator` 每 **5 分鐘**掃描所有活躍連線，比對 Redis tokenVersion 與使用者狀態。
+2. **過期 / 撤銷 / 停權**：先推 `auth_expired`（reason `token_revoked` / `user_suspended` / `redis_unavailable`）→ 以 **4001** 關閉。
+3. **快速撤銷路徑（Kafka `user.status-changed` 跨 JVM 通知）尚未實作**：撤銷延遲的上界為 5 分鐘掃描週期。
+4. **userId 來源**：完全取自 ticket payload（握手時寫入 session attributes）—— **不接受任何請求參數**。
+
+### Message Format（訊息格式）
+
+伺服器 → 客戶端（`type` 大小寫混用，客戶端須逐字比對）：
+
+| type | 形狀 | 說明 |
+|------|------|------|
+| `WELCOME` | `{"type":"WELCOME","sessionId":"…","maxSubscriptions":10,"maxTickSubscriptions":100,"maxKlineSubscriptions":10}` | 連線建立後第一則；上限讀 `SubscriptionManager` 公開常數。`maxSubscriptions` **deprecated**（固定 = 較嚴的 kline 上限 10，保留給舊客戶端自我節制） |
+| `SUB_ACK` | `{"type":"SUB_ACK","accepted":["tick.AAPL",…],"rejected":[{"channel":"…","reason":"SUBSCRIPTION_LIMIT_EXCEEDED"}]}` | 每則 SUBSCRIBE 回一則；同 session 重複訂閱為 no-op（兩邊皆不列）；訂閱時不推快照，初值由 REST 取得 |
+| `ERROR` | `{"type":"ERROR","code":"WS_MSG_FORMAT_INVALID","detail":"…"}` | 指令格式錯誤（含任一 channel 不合法 → 整則拒絕）；累計 10 次以 4400 關閉 |
+| `PING` | `{"type":"PING"}` | 每 30 秒；客戶端回 `{"type":"PONG"}` |
+| `TICK` | `{"type":"TICK","channel":"tick.AAPL","data":{"symbol":"AAPL","price":"218.4","volume":"1000","time":"2026-10-31T01:23:45.678Z"}}` | `price` / `volume` 為**字串**（`volume` 可為 null，且是單筆 tick 量）；`time` 為 ISO-8601 UTC |
+| `KLINE` | `{"type":"KLINE","channel":"kline.AAPL.1m","data":{symbol,interval,bucket,open,high,low,close,volume}}` | OHLCV 數值為字串 |
+| `auth_expired` | `{"type":"auth_expired","reason":"session_replaced" \| "token_revoked" \| "user_suspended" \| "redis_unavailable"}` | 隨後以 4001 / 4002 關閉 |
+
+客戶端 → 伺服器：`{"type":"SUBSCRIBE","channels":[…]}`、`{"type":"UNSUBSCRIBE","channels":[…]}`、`{"type":"PONG"}`；`channels` 必須為非空字串陣列。
+
+**心跳**：伺服器每 30 秒送 `PING`；90 秒內未收到 `PONG` → 以 4000 關閉。
 
 ### Custom WebSocket Close Status Codes
 | Code | Name | Description |
 |------|------|-------------|
-| 4001 | AUTH_EXPIRED | Token expired/revoked/user suspended |
-| 4002 | SESSION_REPLACED | Replaced by newer connection (FIFO) |
-| 4003 | IDLE_TIMEOUT | 30-minute idle timeout |
-| 4008 | RATE_LIMITED | Command rate exceeded |
+| 4000 | HEARTBEAT_TIMEOUT | 90 秒未收到 PONG（`WsHeartbeat`） |
+| 4001 | AUTH_EXPIRED | Token 過期 / 被撤銷 / 使用者停權 / Redis 不可用；關閉前先推 `auth_expired` |
+| 4002 | SESSION_REPLACED | 每帳號連線上限 2，被較新連線 FIFO 取代；關閉前先推 `auth_expired` reason `session_replaced` |
+| 4003 | IDLE_TIMEOUT | 30 分鐘無活動且零訂閱 |
+| 4008 | COMMAND_RATE_EXCEEDED | 每連線指令超過 10 則 / 秒（含 PONG）；直接關閉，不回 error |
 | 4009 | SERVER_SHUTDOWN | Graceful server shutdown |
+| 4400 | BAD_MESSAGE | 指令格式錯誤累計 10 次 |
+| 4500 | SEND_FAILURE | 廣播送出失敗，或待送訊息 > 256 則（慢消費者，`SessionSendDispatcher`） |
 
 ### Redis Unavailability
-When Redis is unavailable, WebSocket auth validation cannot proceed → existing connections receive `auth_expired` + reason `redis_unavailable` → connections closed. New handshakes fail with 503 (consistent with REST API fail-closed policy, see §5).
+Redis 不可用時無法驗證 WS 身分，一律 fail-closed（與 REST 一致，見 §5）：
+- **既有連線**：下一次定期驗證推 `auth_expired` reason `redis_unavailable` → 以 4001 關閉。
+- **新握手**：tokenVersion 讀不到 → 視為不符，回 HTTP **401**（不是 503）。
+- **取 ticket**：`POST /api/v1/market/ws/ticket` 回 **503 `AUTH_REDIS_UNAVAILABLE`**。
 
 ---
 
@@ -356,22 +386,30 @@ The following MUST be explicitly disabled in all environments:
 
 | Limit | Value | Enforcement | Rationale |
 |-------|-------|-------------|-----------|
-| Max WS connections per account | 2 | FIFO — oldest closed, push `auth_expired` reason `session_replaced` | Multiplexed connection needs fewer than SSE |
+| Max WS connections per account | 2 | 連線建立後 FIFO 驅逐最舊：先推 `auth_expired` reason `session_replaced`，再以 4002 關閉 | Multiplexed connection needs fewer than SSE |
 | Max WS connections per IP | 5 | Reject new handshake (HTTP 429) | Defense against pre-auth connection flooding |
-| Max subscriptions per connection | 10 | Reject + error `SUBSCRIPTION_LIMIT_EXCEEDED` | Covers 4 K-line charts + price panels |
+| Max `tick` subscriptions per connection | 100 | 超額列入 `SUB_ACK.rejected`（reason `SUBSCRIPTION_LIMIT_EXCEEDED`），連線不關閉 | tick 為公開行情、不含使用者資料；上限只防資源濫用，與觀察清單上限 100 檔對齊，讓單一連線即可接收整份清單 |
+| Max `kline` subscriptions per connection | 10 | 同上（與 tick **各自計數、互不佔額**） | Covers 4 K-line charts + price panels |
 | Global max WS connections | 1000 | Reject handshake (HTTP 503) | Prevents thread pool exhaustion |
-| Idle timeout | 30 minutes | Close connections with zero subscriptions | Reclaim resources from abandoned sessions |
-| Command rate limit | 20/sec/connection | Error `RATE_LIMITED` | Prevent subscribe/unsubscribe spam |
+| Idle timeout | 30 minutes | 以「最後活動時間」計、每 5 分鐘掃描；只關閉零訂閱的連線（4003） | Reclaim resources from abandoned sessions |
+| Command rate limit | 10/sec/connection（含 PONG，滑動 1 秒視窗） | 超過直接以 4008 關閉，不回 error | Prevent subscribe/unsubscribe spam |
 | Reconnect backoff | Exponential (1s, 2s, 4s, max 30s) | Client-side enforcement | Prevents reconnect storms |
+
+- 訂閱上限讀 `SubscriptionManager.MAX_TICK_CHANNELS_PER_SESSION` / `MAX_KLINE_CHANNELS_PER_SESSION`，並由 WELCOME 的 `maxTickSubscriptions` / `maxKlineSubscriptions` 告知客戶端；`maxSubscriptions` deprecated（固定 = 10），不得改成總和或移除。
+- 前綴計數大小寫不敏感（`TICK.X` 計入 tick 額度，不可繞過）；非 `tick.` 前綴者一律以較嚴的 kline 額度計。
+- 被拒 reason 字串為 `SUBSCRIPTION_LIMIT_EXCEEDED`（不帶 `WS_` 前綴，對外字面不得改名）。
 
 ### Subscription Channels
 
-| Channel | Data | Params | Push Type |
-|---------|------|--------|-----------|
-| `price` | Real-time price updates | `{ assetId }` | `data.price` |
-| `kline` | K-line OHLCV (supports dynamic interval switching) | `{ assetId, interval }` | `data.kline` / `data.kline.snapshot` |
+| Channel | Data | Push Type |
+|---------|------|-----------|
+| `tick.{symbol}` | Real-time price updates | `TICK` |
+| `kline.{symbol}.{interval}` | K-line OHLCV | `KLINE` |
 
-Allowed K-line intervals: `1m`, `5m`, `15m`, `30m`, `1h`, `4h`, `1d`
+- Channel 為字串，正規式（`WsMessageParser`）**大小寫不敏感**，但訂閱以原字串保存、廣播以 `"tick." + symbol` **精確字串比對** —— `{symbol}` 必須與資產主檔代號完全一致（例：`tick.AAPL`、`tick.2330.TW`），否則會被 accepted 卻永遠收不到推播。
+- 訂閱不查資產是否存在；無行情的標的照樣 accepted，只是不會有推播。
+
+Allowed K-line intervals: `1m`, `5m`, `15m`, `1h`, `1d`
 
 ---
 

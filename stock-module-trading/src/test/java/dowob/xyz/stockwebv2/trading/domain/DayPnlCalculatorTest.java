@@ -153,6 +153,54 @@ class DayPnlCalculatorTest {
     }
 
     @Test
+    @DisplayName("拆股 4:1 當日（D-10）：Q1 400、調整 +300、拆前前收 400、最新價 101 → 損益 400、分母 40000")
+    void splitDayUsesPreSplitOpeningQuantity() {
+        // Q0 = 400 − 300 = 100；400×101 − 100×400 = 400。Q0(拆前股數)×C(拆前前收) 等同「前收依比例調整」。
+        Optional<DayPnl> result = DayPnlCalculator.calculate(
+            bd("400"), bd("101"), bd("400"), List.of(), List.of(new ShareAdjustment(bd("300"))));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().pnl()).isEqualByComparingTo("400");
+        assertThat(result.get().basis()).isEqualByComparingTo("40000");
+        assertThat(result.get().ratio()).isEqualByComparingTo("0.01");
+    }
+
+    @Test
+    @DisplayName("同上但未傳當日調整：算出 −119600 的假性暴跌（D-10 要防的錯）")
+    void splitDayWithoutAdjustmentShowsFalseCrash() {
+        // Q0 誤推為 400：400×101 − 400×400 = −119600。本案例文件化呼叫端漏傳調整時的後果。
+        Optional<DayPnl> result = DayPnlCalculator.calculate(bd("400"), bd("101"), bd("400"), List.of(), List.of());
+
+        assertThat(result).isPresent();
+        assertThat(result.get().pnl()).isEqualByComparingTo("-119600");
+    }
+
+    @Test
+    @DisplayName("配股當日（D-05）：Q1 1050、調整 +50、前收 100、最新價 96 → 損益 800、分母 100000")
+    void stockDividendDayUsesPreDividendOpeningQuantity() {
+        // Q0 = 1050 − 50 = 1000；1050×96 − 1000×100 = 800。
+        Optional<DayPnl> result = DayPnlCalculator.calculate(
+            bd("1050"), bd("96"), bd("100"), List.of(), List.of(new ShareAdjustment(bd("50"))));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().pnl()).isEqualByComparingTo("800");
+        assertThat(result.get().basis()).isEqualByComparingTo("100000");
+    }
+
+    @Test
+    @DisplayName("同一除權日兩筆調整依記錄順序疊加：100 股兩次 2:1（+100、+200）→ Q0 仍為 100")
+    void sameDayAdjustmentsAreSummed() {
+        // Yuan 2026-11-04 裁決「同日依記錄順序疊加」：Q1 400 = 100 + 100 + 200；400×101 − 100×400 = 400。
+        Optional<DayPnl> result = DayPnlCalculator.calculate(
+            bd("400"), bd("101"), bd("400"), List.of(),
+            List.of(new ShareAdjustment(bd("100")), new ShareAdjustment(bd("200"))));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().pnl()).isEqualByComparingTo("400");
+        assertThat(result.get().basis()).isEqualByComparingTo("40000");
+    }
+
+    @Test
     @DisplayName("分母為零：損益為零、比率為 null（不除以零）")
     void zeroBasisHasNullRatio() {
         Optional<DayPnl> result = DayPnlCalculator.calculate(bd("0"), bd("100"), bd("190"), List.of(), List.of());

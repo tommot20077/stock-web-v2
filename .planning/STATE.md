@@ -1,20 +1,20 @@
 ---
 gsd_state_version: "1.0"
 milestone: v1.0
-current_phase: "04.2"
-current_phase_name: Dividends, Share Adjustments & Watchlist
-status: Phase 04.1 complete (2026-10-31);next Phase 04.2
-stopped_at: Phase 04.1 complete, ready to plan Phase 04.2
-last_updated: "2026-10-31T03:32:27.373Z"
-last_activity: 2026-10-31
-last_activity_desc: Phase 04.1 complete, transitioned to Phase 04.2
-state_head: aeddc806ecea2ccf79d488f81d76d01af45ff203
+current_phase: 5
+current_phase_name: Cross-Repo Browser Flow Verification & Contract Hardening
+status: Phase 04.2 research + UI-SPEC done (2026-10-31);ready to plan
+stopped_at: Phase 04.2 complete, ready to plan Phase 5
+last_updated: "2026-11-04T12:26:55.887Z"
+last_activity: 2026-11-04
+last_activity_desc: Phase 04.2 complete, transitioned to Phase 5
+state_head: 223318613642c88af88d85c2b6eca1b76a463925
 progress:
   total_phases: 7
   completed_phases: 5
-  total_plans: 60
-  completed_plans: 60
-  percent: 71
+  total_plans: 79
+  completed_plans: 79
+  percent: 14
 milestone_name: milestone
 ---
 
@@ -22,17 +22,17 @@ milestone_name: milestone
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-30)
+See: .planning/PROJECT.md (updated 2026-11-04)
 
 **Core value:** Users can safely sign in, inspect portfolio state, and record trades through one coherent frontend/backend flow.
-**Current focus:** Phase 04.1 — Backend Data Gap Backfill
+**Current focus:** Phase 5 — Cross-Repo Browser Flow Verification & Contract Hardening
 
 ## Current Position
 
-Phase: 04.2 — Dividends, Share Adjustments & Watchlist
+Phase: 5 — Cross-Repo Browser Flow Verification & Contract Hardening
 Plan: Not started
 Next: **Phase 04.2**(Dividends, Share Adjustments & Watchlist)—— CONTEXT 已備,下一步 `/gsd-plan-phase 04.2`;Phase 04.1 已於 2026-10-31 完成並核准(32 份 plan = 25 原定 + 7 份 gap-closure,PR 後端 #50 / 前端 #18 待合併至 develop)。
-Last activity: 2026-10-31 — Phase 04.1 complete, transitioned to Phase 04.2
+Last activity: 2026-11-04 — Phase 04.2 complete, transitioned to Phase 5
 
 > ✅ **Phase 4 已完成（2026-09-04）。** 13 個 plan 全數執行完畢，`04-13` 的 blocking human-verify
 > checkpoint 由 Yuan 親自走完甲／乙／丙三段共 17 步後通過（未提出任何不符項）。
@@ -73,8 +73,8 @@ Last activity: 2026-10-31 — Phase 04.1 complete, transitioned to Phase 04.2
 | `npm run build` | exit 0（含 `vue-tsc --noEmit`） |
 | `TradingApiIT` 連跑 3 次 | 各 29/29 全綠；`concurrentSameKeyCreatesExactlyOneTrade` 累計 8 次零偶發 |
 
-Progress(milestone v1.0):[███████████░░░░░░░░░] 4/7 phases (57%)
-Progress(plan):28/28 plans executed(Phase 1-4 全部執行完畢;04.1 / 04.2 / 5 尚未 plan)
+Progress(milestone v1.0):[█████████████████░░░] 6/7 phases (86%)(Phase 1-4、04.1、04.2 完成;下一步 Phase 5)
+Progress(plan):Phase 1-4、04.1(32)、04.2(26)全部執行完畢並驗證;Phase 5 尚未 plan
 
 > 57% 是 milestone 真實進度(7 個 phase 完成 4 個;Phase 04.1 於 2026-07-26 插入、04.2 於 2026-09-28 拆出)。
 > Phase 4 收尾時已跑過真實跨 repo 瀏覽器流程(Playwright 18/18 + 人工 17 步),但 **VER-01/02/03 的正式驗收仍屬 Phase 5**
@@ -84,7 +84,7 @@ Progress(plan):28/28 plans executed(Phase 1-4 全部執行完畢;04.1 / 04.2 / 5
 
 **Velocity:**
 
-- Total plans completed: 50
+- Total plans completed: 76
 - Average duration: 23min
 - Total execution time: ~3.1 hours
 
@@ -96,6 +96,7 @@ Progress(plan):28/28 plans executed(Phase 1-4 全部執行完畢;04.1 / 04.2 / 5
 | 03 | 5 | 197min | 39min |
 | 04 | 8 | 未回填 | 未回填 |
 | 04.1 | 32 | - | - |
+| 04.2 | 26 | - | - |
 
 > ⚠️ Phase 04 的耗時未逐 plan 回填(多個 plan 跨 session／跨 worktree 執行,無可信起訖時間)。
 > 上方「Total plans completed: 15」同樣未更新,實際為 23。這些數字僅供趨勢參考,不可當事實引用;
@@ -166,6 +167,11 @@ Recent decisions affecting current work:
 
 - [Phase 4]: DP-1 裁定採 (c):以 develop 為基準,Phase 4 只做冪等,不等 PR #15。executedAt 未來時間驗證與 ApiTimeParser 不屬 Phase 4 範圍,留給 PR #15(仍為 OPEN draft)。理由:PR #15 修改了已在 origin/develop 的 V9 migration,違反 flyway-convention「Never modify an applied migration」,等它合併會把 checksum 債帶進 Phase 4 的時程。同時排除 Docker blocker:實跑 docker info → Server 29.5.3 可用,Testcontainers 路徑可行。
 
+- [Phase 04.2]: 04.2-02 決策閘門 Yuan 回覆「ok」→ option-recommended:股利 / 股數調整新表(append-only + reversal_of_id)、roi 公式不變因而含股利、POST /trades 拒絕早於最晚未沖銷股數調整的 executedAt。
+- [Phase 04.2]: 2026-11-04 Yuan 裁決「同日依記錄順序疊加」:同一除權日可多筆,Q_asOf 含同日先記錄者,最晚一筆依 (effective_at desc, id desc),只能倒序沖銷。
+- [Phase 04.2]: 執行改用「每 repo 一條執行線」(isolation=none,run-scoped 覆寫):plan 為跨 repo 絕對路徑,worktree 不適用;前端 plan 的 SUMMARY 由 orchestrator 提交以避免兩 repo 併發寫入。
+- [Phase 04.2]: code review WR-05/06/07/11(前端 race / 過時回應)已修;WR-09(除權日預設依市場時區,需改 UI-SPEC)與 WR-01(資產下架後無法沖銷)Yuan 同意延後,已列入 PROJECT.md Active。
+
 ### Pending Todos
 
 *(註:原有一條「Phase 2 planning should consume browser-auth-contract.md and avoid frontend token storage」已於 2026-07-19 移除 —— Phase 2 已完成,該提醒已過時。)*
@@ -194,6 +200,8 @@ Recent decisions affecting current work:
 ### Blockers/Concerns
 
 - Confirm exact frontend package scripts in sibling repo during Phase 5 planning.
+- [Phase 04.2] PR tommot20077/stock-web-v2#51 與 tommot20077/stock-web-v2-front-end#19 開向 develop,CI 全綠(含 Browser E2E 117/117、GitGuardian),待 Yuan review / merge;merge 後共用環境套用 V16 / V17 / V18(單向門)。
+- [Phase 04.2] 04.2-REVIEW 仍有 14 條建議性 finding open(WR-02/03/04/08/10、IN-01 ~ IN-09),不觸及 Success Criteria,見 04.2-REVIEW-DISPOSITION.md;另有契約文件小修 G2 與 Markets 頁 < 640px 溢出(既有)建議另開 quick task。
 
 ## Deferred Items
 
@@ -202,17 +210,17 @@ Items acknowledged and carried forward from previous milestone close:
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
 | Trading Evolution | Broker integration, pending orders, cancellations, partial fills, time-in-force | Deferred to v2 | Milestone initialization |
-| Portfolio Expansion | Alerts, notifications, analytics, settings, watchlists, ops dashboards API mode | Deferred to v2 | Milestone initialization |
+| Portfolio Expansion | Alerts, notifications, analytics, settings, ops dashboards API mode (watchlists 已移入 Phase 04.2) | Deferred to v2 | Milestone initialization |
 | Account Management | Password reset, email verification, multi-device session management | Deferred to v2 | Milestone initialization |
 | AI/Broker Security | AI-assisted trading policy enforcement and broker credential APIs | Deferred to v2 | Milestone initialization |
 
 ## Session Continuity
 
-Last session: 2026-10-24T07:40:57.624Z
-Stopped at: Phase 04.1 complete, ready to plan Phase 04.2
+Last session: 2026-11-04T12:28:33Z
+Stopped at: Phase 04.2 complete, ready to plan Phase 5
 前端契約凍結(見 04-05-SUMMARY 末節)。
-Resume file: .planning/phases/04.2-dividends-share-adjustments-watchlist/04.2-CONTEXT.md
-Next action: `/gsd-plan-phase 04.2`;04.1 的 PR #50 / #18 待 Yuan 合併。
+Resume file: None
+Next action: `/gsd-plan-phase 5`(或先處理 04.2 PR review / merge 與上列建議 quick task)。
 
 ~~**前端 repo 的狀態**:04-06 ~ 04-09 的 commit 只在本機、分支未推送。~~
 (2026-10-23 更正:已過時。Phase 4 前端經 PR #9 合併進 `develop @ a00fb29`,前端 repo 為 `tommot20077/stock-web-v2-front-end`。)

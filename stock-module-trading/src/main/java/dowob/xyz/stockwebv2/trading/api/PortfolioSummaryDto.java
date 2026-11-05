@@ -10,18 +10,24 @@ import java.util.List;
  * 表示（使用者基準幣）；先前版本是未折算的混幣加總。欄位名不變，消費者須改讀 {@code baseCurrency}
  * 判斷單位。{@code roi} 語意不變：{@code totalPnl / totalCostBasis}（兩者同為基準幣）。
  *
+ * <p><strong>2026-10-31 語意變更（Phase 04.2 D-01、04.2-02 裁決）：</strong>{@code totalPnl} 改為
+ * {@code realizedPnl + unrealizedPnl + dividendIncome}（含現金股利）；{@code roi} 公式不變
+ * （{@code totalPnl / totalCostBasis}），因此也隨之<strong>含股利</strong>。欄位名不變、數值語意改變；
+ * 新增 {@code dividendIncome} / {@code dividendTaxWithheld}，summary 快取鍵同步升版。
+ *
  * @param totalMarketValue      持倉總市值（基準幣）
  * @param totalCostBasis        持倉總成本（基準幣）
  * @param realizedPnl           已實現損益（基準幣；逐資產依各自幣別折算，含已平倉）
  * @param unrealizedPnl         未實現損益（基準幣）
- * @param totalPnl              總損益 = realizedPnl + unrealizedPnl（基準幣）
- * @param roi                   報酬率 = totalPnl / totalCostBasis
+ * @param totalPnl              總損益 = realizedPnl + unrealizedPnl + dividendIncome（基準幣；2026-10-31 起含現金股利）
+ * @param roi                   報酬率 = totalPnl / totalCostBasis（totalCostBasis 為 0 時為 0）；因 totalPnl 含股利，
+ *                              2026-10-31 起 roi 亦含股利；不含現金
  * @param holdingCount          持有數量大於 0 的持倉檔數（含換不到匯率者）
  * @param baseCurrency          金額欄位使用的基準幣代碼
  * @param fxExcludedCount       持有數量大於 0 但換不到匯率、因此未計入總額的持倉檔數（D-04）
  * @param unconvertedCurrencies 換不到匯率的幣別代碼，字母排序、去重
  * @param dayPricePnl           今日價格損益總額（基準幣，以<strong>目前匯率</strong>折算，D-15）；只含價格損益，
- *                              不含匯差、不扣手續費。涵蓋持有中的部位與今天賣光的部位。
+ *                              不含匯差、不扣手續費、不含股利。涵蓋持有中的部位與今天賣光的部位。
  *                              <strong>null = 缺資料</strong>（有候選但全部被排除），
  *                              <strong>0 = 真實的零</strong>（沒有任何候選：無持倉且今日無成交）
  * @param dayPricePnlRatio      今日價格損益比率 = Σ損益 / Σ前收時市值與買入成本（皆基準幣）；總額為 null 或分母為零時為 null
@@ -39,8 +45,14 @@ import java.util.List;
  * @param sectorAllocation      產業配置（D-19）：以 {@code assets.sector} 原值分組，依金額降冪（同值依產業字母升冪），
  *                              {@code sector = null}（未分類）一律排最後；分母 = 可折算持倉市值（不含現金），
  *                              分母為 0 時為空 list（不是 null）
+ * @param dividendIncome        現金股利收入（基準幣，D-01）：Σ 各標的實領淨額（{@code amount}，沖銷列反號）以
+ *                              <strong>目前匯率</strong>折算；換不到匯率的標的不計入並列入 {@code unconvertedCurrencies}；
+ *                              沒有股利時為 0（不是 null）。計入 {@code totalPnl}，不計入 {@code dayPricePnl}
+ * @param dividendTaxWithheld   預扣稅合計（基準幣）：Σ 各標的 {@code withholdingTax}（沖銷列反號）以目前匯率折算；
+ *                              僅供顯示，<strong>不</strong>計入 {@code totalPnl}（{@code amount} 已是扣稅後實領）；
+ *                              沒有股利時為 0
  * @author Yuan
- * @version 4.0
+ * @version 5.0
  */
 public record PortfolioSummaryDto(
     BigDecimal totalMarketValue,
@@ -60,6 +72,8 @@ public record PortfolioSummaryDto(
     BigDecimal totalEquity,
     List<CashBalanceDto> cashBalances,
     List<AllocationSliceDto> allocation,
-    List<SectorAllocationDto> sectorAllocation
+    List<SectorAllocationDto> sectorAllocation,
+    BigDecimal dividendIncome,
+    BigDecimal dividendTaxWithheld
 ) {
 }

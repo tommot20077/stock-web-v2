@@ -13,11 +13,13 @@ import dowob.xyz.stockwebv2.trading.api.CreateTradeRequest;
 import dowob.xyz.stockwebv2.trading.api.TradeDto;
 import dowob.xyz.stockwebv2.trading.domain.Holding;
 import dowob.xyz.stockwebv2.trading.domain.HoldingCalculator;
+import dowob.xyz.stockwebv2.trading.domain.ShareAdjustmentEntry;
 import dowob.xyz.stockwebv2.trading.domain.SortDirection;
 import dowob.xyz.stockwebv2.trading.domain.TradePayloadMatcher;
 import dowob.xyz.stockwebv2.trading.domain.TradeSortKey;
 import dowob.xyz.stockwebv2.trading.domain.TradeTransaction;
 import dowob.xyz.stockwebv2.trading.domain.TradeType;
+import dowob.xyz.stockwebv2.trading.repository.ShareAdjustmentRepository;
 import dowob.xyz.stockwebv2.trading.repository.TradeQuery;
 import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
 
@@ -65,17 +67,24 @@ public class TradingService {
     private final TradingMapper mapper;
     private final HoldingCalculator calculator;
 
+    /**
+     * 〔04.2〕股數調整帳本；建立交易時用來找該標的最晚一筆未沖銷調整（executedAt 守門）。
+     */
+    private final ShareAdjustmentRepository shareAdjustmentRepository;
+
     public TradingService(
         TradingRepository repository,
         AssetFacade assetFacade,
         PortfolioCache portfolioCache,
-        TradingMapper mapper
+        TradingMapper mapper,
+        ShareAdjustmentRepository shareAdjustmentRepository
     ) {
         this.repository = repository;
         this.assetFacade = assetFacade;
         this.portfolioCache = portfolioCache;
         this.mapper = mapper;
         this.calculator = new HoldingCalculator();
+        this.shareAdjustmentRepository = shareAdjustmentRepository;
     }
 
     /**
@@ -94,13 +103,20 @@ public class TradingService {
      * <p>整條路徑靠 {@code ON CONFLICT DO NOTHING} 避開唯一約束例外，因此<strong>不需要也不可以</strong>
      * 在本交易內 catch 例外後重讀：PostgreSQL 在唯一約束例外後該交易已中止，重讀必定失敗。</p>
      *
+     * <p>〔04.2〕<strong>成交時間不得早於該標的最晚一筆未沖銷股數調整的生效瞬間。</strong>持倉是就地改寫的物化狀態、
+     * 不依 {@code executed_at} 重播：拆股記錄後再補登除權日前的買入，會把拆前股數直接加進拆後持倉，靜默錯帳。
+     * 要補登更早的交易，先沖銷較晚的調整、補登後再重記。檢查放在冪等快路徑之後（同 key 重送舊交易仍回既有那筆），
+     * 並在 {@code findHoldingForUpdate} 取得持倉列鎖之後（與股數調整同一把鎖，不會與併發的調整交錯）；
+     * 被拒時已 insert 的交易列隨本方法的交易一起回滾。</p>
+     *
      * @param userId         交易擁有者 id，一律由 controller 自已驗證的身分取得
      * @param request        交易建立請求，已通過 bean validation
      * @param idempotencyKey 冪等鍵，由 {@code Idempotency-Key} header 原樣傳入
      * @return 新建立的交易；重送時為既有交易
      * @throws BusinessException 冪等鍵為空白或超過長度上限時丟出 VALIDATION_FAILED；
      *                           同一把鍵搭配不同 payload 時丟出 TRADE_IDEMPOTENCY_KEY_REUSED；
-     *                           以及既有的標的不存在、交易類型不支援、持倉不足、成交時間為未來時間等情境
+     *                           以及既有的標的不存在、交易類型不支援、持倉不足、成交時間為未來時間等情境；
+     *                           〔04.2〕成交時間早於最晚未沖銷股數調整時丟出 VALIDATION_FAILED（fields.executedAt）
      */
     @Transactional
     public TradeDto createTrade(Long userId, CreateTradeRequest request, String idempotencyKey) {
@@ -147,6 +163,7 @@ public class TradingService {
             return resolveIdempotentHit(concurrent, asset.id(), type, request, fee, executedAt, currency);
         }
         Optional<Holding> current = repository.findHoldingForUpdate(userId, asset.id());
+        rejectIfBeforeLatestShareAdjustment(userId, asset.id(), executedAt);
         Holding next = switch (type) {
             case BUY -> calculator.applyBuy(current.orElse(null), userId, asset.id(), request.quantity(), request.price(), fee, now);
             case SELL -> calculator.applySell(current.orElse(null), request.quantity(), request.price(), fee, now);
@@ -167,6 +184,24 @@ public class TradingService {
         }
         portfolioCache.invalidateAfterTrade(userId, asset.id());
         return mapper.toTradeDto(inserted.get(), currency);
+    }
+
+    /**
+     * 〔04.2〕成交時間不得早於該標的最晚一筆「非沖銷列且未被沖銷」股數調整的生效瞬間（等於或晚於皆可）。
+     *
+     * <p>訊息與 fields 值皆為靜態字串，不回射任何時間（理由見 {@link #createTrade} 的 Javadoc）。</p>
+     *
+     * @param userId     交易擁有者
+     * @param assetId    標的主鍵
+     * @param executedAt 本次成交時間（已截到微秒）
+     * @throws FieldValidationException 早於最晚調整時，fields 指名 {@code executedAt}
+     */
+    private void rejectIfBeforeLatestShareAdjustment(Long userId, Long assetId, OffsetDateTime executedAt) {
+        Optional<ShareAdjustmentEntry> latest = shareAdjustmentRepository.findLatestActive(userId, assetId);
+        if (latest.isPresent() && executedAt.isBefore(latest.get().effectiveAt())) {
+            throw new FieldValidationException("Trade predates the latest share adjustment",
+                Map.of("executedAt", "before latest share adjustment"));
+        }
     }
 
     /**

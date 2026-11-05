@@ -1,5 +1,8 @@
 package dowob.xyz.stockwebv2.start.e2e.support;
 
+import dowob.xyz.stockwebv2.common.model.AssetType;
+import dowob.xyz.stockwebv2.common.model.TradingDay;
+
 import org.junit.jupiter.api.AfterEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -9,6 +12,10 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -26,16 +33,20 @@ import tools.jackson.databind.JsonNode;
  * 投資組合 / 現金帳本 E2E 的共用基底：所有請求都走真實 HTTP（MockMvc）層與 bearer 身分，
  * 行情則以 SQL 直接種進 {@code market_prices}（E2E profile 關閉了行情排程，沒有任何背景 tick）。
  *
- * <p>每個測試結束後一律清掉自己種的行情與全部使用者資料（含 {@code cash_ledger_entries}），
+ * <p>每個測試結束後一律清掉自己種的行情與全部使用者資料（含 {@code cash_ledger_entries} 與 04.2 的
+ * {@code cash_dividends} / {@code share_adjustments} / {@code watchlists} / {@code watchlist_items}），
  * 讓 E2E 套件內的類別彼此不留殘影。</p>
  *
  * @author Yuan
- * @version 1.0
+ * @version 1.1
  */
 public abstract class AbstractPortfolioE2ETest extends AbstractStockE2ETest {
 
     /** 測試使用者共用的合法密碼。 */
     protected static final String PASSWORD = "Password1";
+
+    /** 美股交易日規則（交易所時區與換日點），用來算除權日與今日起點，不寫死時區。 */
+    protected static final TradingDay US_STOCK = TradingDay.of(AssetType.STOCK, "US");
 
     @Autowired
     protected AuthE2EHelper auth;
@@ -162,6 +173,22 @@ public abstract class AbstractPortfolioE2ETest extends AbstractStockE2ETest {
     // ── 交易 ───────────────────────────────────────────────────────────────────
 
     /**
+     * 送出一筆交易請求（{@code POST /api/v1/trades}，新的冪等鍵），不預設結果。
+     *
+     * @param token access token
+     * @param body  JSON 請求本文
+     * @return 回應
+     * @throws Exception MockMvc 失敗時
+     */
+    protected ResultActions postTrade(String token, String body) throws Exception {
+        return mockMvc.perform(post("/api/v1/trades")
+            .contentType(MediaType.APPLICATION_JSON)
+            .with(bearerToken(token))
+            .header("Idempotency-Key", UUID.randomUUID().toString())
+            .content(body));
+    }
+
+    /**
      * 送出一筆已成交的手動交易（手續費 0）並要求成功。
      *
      * @param token    access token
@@ -198,6 +225,83 @@ public abstract class AbstractPortfolioE2ETest extends AbstractStockE2ETest {
                 .header("Idempotency-Key", UUID.randomUUID().toString())
                 .content("{\"symbol\":\"%s\",\"type\":\"%s\",\"quantity\":%s,\"price\":%s,\"fee\":0%s}"
                     .formatted(symbol, type, quantity, price, executed)))
+            .andExpect(status().isOk())
+            .andExpect(apiSuccess()));
+    }
+
+    // ── 現金股利 / 股數調整 〔04.2〕 ─────────────────────────────────────────────
+
+    /**
+     * 送出一筆現金股利請求（{@code POST /api/v1/portfolio/dividends}），不預設結果。
+     *
+     * @param token          access token
+     * @param idempotencyKey 冪等鍵；null 表示不帶 header
+     * @param body           JSON 請求本文
+     * @return 回應
+     * @throws Exception MockMvc 失敗時
+     */
+    protected ResultActions postDividend(String token, String idempotencyKey, String body) throws Exception {
+        MockHttpServletRequestBuilder request = post("/api/v1/portfolio/dividends")
+            .contentType(MediaType.APPLICATION_JSON)
+            .with(bearerToken(token))
+            .content(body);
+        if (idempotencyKey != null) {
+            request = request.header("Idempotency-Key", idempotencyKey);
+        }
+        return mockMvc.perform(request);
+    }
+
+    /**
+     * 送出一筆股數調整請求（{@code POST /api/v1/portfolio/share-adjustments}），不預設結果。
+     *
+     * @param token          access token
+     * @param idempotencyKey 冪等鍵；null 表示不帶 header
+     * @param body           JSON 請求本文
+     * @return 回應
+     * @throws Exception MockMvc 失敗時
+     */
+    protected ResultActions postShareAdjustment(String token, String idempotencyKey, String body) throws Exception {
+        MockHttpServletRequestBuilder request = post("/api/v1/portfolio/share-adjustments")
+            .contentType(MediaType.APPLICATION_JSON)
+            .with(bearerToken(token))
+            .content(body);
+        if (idempotencyKey != null) {
+            request = request.header("Idempotency-Key", idempotencyKey);
+        }
+        return mockMvc.perform(request);
+    }
+
+    /**
+     * 以新的冪等鍵記一筆股數調整並要求成功。
+     *
+     * @param token access token
+     * @param body  JSON 請求本文
+     * @return 回應 {@code data}（股數調整 DTO）
+     * @throws Exception MockMvc 失敗時
+     */
+    protected JsonNode recordShareAdjustment(String token, String body) throws Exception {
+        return dataOf(postShareAdjustment(token, UUID.randomUUID().toString(), body)
+            .andExpect(status().isOk())
+            .andExpect(apiSuccess()));
+    }
+
+    /**
+     * 查詢統一活動列表（{@code GET /api/v1/portfolio/activities}）並要求成功。
+     *
+     * @param token  access token
+     * @param params 查詢參數（成對的 name、value）；可為空
+     * @return 回應 {@code data}（{@code PageResponse}）
+     * @throws Exception MockMvc 失敗時
+     */
+    protected JsonNode activitiesOf(String token, String... params) throws Exception {
+        if (params.length % 2 != 0) {
+            throw new IllegalArgumentException("params 必須成對（name, value）");
+        }
+        MockHttpServletRequestBuilder request = get("/api/v1/portfolio/activities").with(bearerToken(token));
+        for (int i = 0; i < params.length; i += 2) {
+            request = request.param(params[i], params[i + 1]);
+        }
+        return dataOf(mockMvc.perform(request)
             .andExpect(status().isOk())
             .andExpect(apiSuccess()));
     }
@@ -289,6 +393,17 @@ public abstract class AbstractPortfolioE2ETest extends AbstractStockE2ETest {
         return objectMapper.readTree(result.andReturn().getResponse().getContentAsString()).get("data");
     }
 
+    /**
+     * 某一瞬間所屬的美股交易日（日曆日），以 {@link #US_STOCK} 的時區與換日點換算。
+     *
+     * @param time 任一瞬間
+     * @return 該瞬間所屬的交易日
+     */
+    protected static LocalDate usTradingDate(Instant time) {
+        Instant dayStart = US_STOCK.dayStart(time);
+        return dayStart.atZone(US_STOCK.zone()).toLocalDateTime().minus(US_STOCK.startOffset()).toLocalDate();
+    }
+
     // ── 行情 ───────────────────────────────────────────────────────────────────
 
     /**
@@ -318,6 +433,33 @@ public abstract class AbstractPortfolioE2ETest extends AbstractStockE2ETest {
         }
         insertPrice(assetId, latest, "1 minute");
         seededAssetIds.add(assetId);
+    }
+
+    /**
+     * 為標的種明確時間的前收與最新價（供需要對齊交易日起點的情境，例如拆股當日今日損益）；
+     * 先清掉舊行情與 Redis latest 快取，並登記於本測試結束時刪除。
+     *
+     * @param symbol          標的代號
+     * @param previousClose   前收
+     * @param previousCloseAt 前收列時間（須早於最新價所屬交易日的起點）
+     * @param latest          最新價
+     * @param latestAt        最新價時間
+     */
+    protected void seedPricesAt(
+        String symbol, String previousClose, Instant previousCloseAt, String latest, Instant latestAt) {
+        Long assetId = jdbcTemplate.queryForObject("select id from assets where symbol = ?", Long.class, symbol);
+        redisTemplate.delete("market:latest:" + assetId);
+        jdbcTemplate.update("delete from market_prices where asset_id = ?", assetId);
+        insertPriceAt(assetId, previousClose, previousCloseAt);
+        insertPriceAt(assetId, latest, latestAt);
+        seededAssetIds.add(assetId);
+    }
+
+    private void insertPriceAt(Long assetId, String price, Instant time) {
+        jdbcTemplate.update("""
+                insert into market_prices(asset_id, time, price, volume)
+                values (?, ?, ?, 1000)
+                """, assetId, OffsetDateTime.ofInstant(time, ZoneOffset.UTC), new BigDecimal(price));
     }
 
     private void insertPrice(Long assetId, String price, String ago) {

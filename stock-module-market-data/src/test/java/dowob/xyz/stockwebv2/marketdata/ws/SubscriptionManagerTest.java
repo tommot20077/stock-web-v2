@@ -22,7 +22,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <ul>
  *   <li>subscribe 正常加入 channels 並更新 reverse index</li>
  *   <li>重複訂閱同 channel 為 no-op</li>
- *   <li>單一 session 最多 10 個 channel，超過者 rejected</li>
+ *   <li>單一 session tick 最多 100 個、kline 最多 10 個，各自計數，超過者 rejected</li>
+ *   <li>channel 前綴大小寫不敏感（TICK.* 計入 tick 額度）</li>
  *   <li>unsubscribe 正確移除 channels 及清理 reverse index</li>
  *   <li>最後一個 subscriber 退出後 channel entry 應被移除</li>
  *   <li>removeSession 清除所有訂閱</li>
@@ -32,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * </ul>
  *
  * @author Yuan
- * @version 1.0.0
+ * @version 1.1.0
  */
 class SubscriptionManagerTest {
 
@@ -69,31 +70,103 @@ class SubscriptionManagerTest {
     }
 
     @Test
-    @DisplayName("單一 session 訂閱上限 10 個，超過者被 rejected 並附原因")
-    void subscribe_limitOf10_perSession() {
-        List<String> first10 = IntStream.range(0, 10).mapToObj(i -> "tick.C" + i).toList();
+    @DisplayName("同一批次內重複的 channel 只接受一次，不重複佔額")
+    void subscribe_duplicateWithinBatch_acceptedOnce() {
+        var r = mgr.subscribe("s1", List.of("kline.A.1m", "kline.A.1m"));
+
+        assertThat(r.accepted()).containsExactly("kline.A.1m");
+        assertThat(r.rejected()).isEmpty();
+        List<String> nine = IntStream.range(0, 9).mapToObj(i -> "kline.X" + i + ".1m").toList();
+        assertThat(mgr.subscribe("s1", nine).accepted()).hasSize(9);
+    }
+
+    @Test
+    @DisplayName("同一 session 一次訂閱 11 個 tick channel 全部 accepted（tick 上限 100）")
+    void subscribe_elevenTickChannels_allAccepted() {
+        List<String> ticks = IntStream.rangeClosed(1, 11).mapToObj(i -> String.format("tick.S%02d", i)).toList();
+
+        var r = mgr.subscribe("s1", ticks);
+
+        assertThat(r.accepted()).hasSize(11);
+        assertThat(r.rejected()).isEmpty();
+        assertThat(mgr.channelsOf("s1")).hasSize(11);
+    }
+
+    @Test
+    @DisplayName("tick 訂閱上限 100 個，第 101 個被 rejected 並附 SUBSCRIPTION_LIMIT_EXCEEDED")
+    void subscribe_tickLimitOf100_perSession() {
+        List<String> ticks = IntStream.range(0, 101).mapToObj(i -> "tick.T" + i).toList();
+
+        var r = mgr.subscribe("s1", ticks);
+
+        assertThat(r.accepted()).hasSize(100);
+        assertThat(r.rejected()).hasSize(1);
+        assertThat(r.rejected().get(0).channel()).isEqualTo("tick.T100");
+        assertThat(r.rejected().get(0).reason()).isEqualTo("SUBSCRIPTION_LIMIT_EXCEEDED");
+        assertThat(mgr.subscribersOf("tick.T100")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("kline 訂閱上限維持 10 個，超過者被 rejected 並附原因")
+    void subscribe_klineLimitOf10_perSession() {
+        List<String> first10 = IntStream.range(0, 10).mapToObj(i -> "kline.X" + i + ".1m").toList();
         var r1 = mgr.subscribe("s1", first10);
         assertThat(r1.accepted()).hasSize(10);
         assertThat(r1.rejected()).isEmpty();
 
-        var r2 = mgr.subscribe("s1", List.of("tick.EXTRA"));
+        var r2 = mgr.subscribe("s1", List.of("kline.EXTRA.1m"));
         assertThat(r2.accepted()).isEmpty();
         assertThat(r2.rejected()).hasSize(1);
-        assertThat(r2.rejected().get(0).channel()).isEqualTo("tick.EXTRA");
+        assertThat(r2.rejected().get(0).channel()).isEqualTo("kline.EXTRA.1m");
         assertThat(r2.rejected().get(0).reason()).isEqualTo("SUBSCRIPTION_LIMIT_EXCEEDED");
     }
 
     @Test
-    @DisplayName("批次訂閱中部分超限，超限者 rejected，其餘 accepted")
-    void subscribe_partialBatch_someRejected() {
-        List<String> first9 = IntStream.range(0, 9).mapToObj(i -> "tick.C" + i).toList();
+    @DisplayName("kline 批次訂閱中部分超限，超限者 rejected，其餘 accepted")
+    void subscribe_klinePartialBatch_someRejected() {
+        List<String> first9 = IntStream.range(0, 9).mapToObj(i -> "kline.X" + i + ".1m").toList();
         mgr.subscribe("s1", first9);
 
-        // 剩餘空間 1，送 3 個新 channel
-        var r = mgr.subscribe("s1", List.of("tick.A", "tick.B", "tick.C"));
+        /* kline 剩餘空間 1，送 3 個新 kline channel */
+        var r = mgr.subscribe("s1", List.of("kline.A.1m", "kline.B.1m", "kline.C.1m"));
         assertThat(r.accepted()).hasSize(1);
         assertThat(r.rejected()).hasSize(2);
         assertThat(r.rejected()).allMatch(rc -> rc.reason().equals("SUBSCRIPTION_LIMIT_EXCEEDED"));
+    }
+
+    @Test
+    @DisplayName("tick 與 kline 各自計數、互不佔額")
+    void subscribe_tickAndKline_countedSeparately() {
+        List<String> klines = IntStream.range(0, 10).mapToObj(i -> "kline.X" + i + ".1m").toList();
+        mgr.subscribe("s1", klines);
+
+        var tickResult = mgr.subscribe("s1", List.of("tick.AAPL"));
+        assertThat(tickResult.accepted()).containsExactly("tick.AAPL");
+        assertThat(tickResult.rejected()).isEmpty();
+
+        List<String> ticks = IntStream.range(0, 100).mapToObj(i -> "tick.T" + i).toList();
+        mgr.subscribe("s2", ticks);
+
+        var klineResult = mgr.subscribe("s2", List.of("kline.AAPL.1m"));
+        assertThat(klineResult.accepted()).containsExactly("kline.AAPL.1m");
+        assertThat(klineResult.rejected()).isEmpty();
+        assertThat(mgr.channelsOf("s2")).hasSize(101);
+    }
+
+    @Test
+    @DisplayName("大寫前綴 TICK.* 計入 tick 額度，第 101 個被 rejected（不可繞過計數）")
+    void subscribe_upperCaseTickPrefix_countsTowardTickLimit() {
+        List<String> ticks = IntStream.range(0, 101).mapToObj(i -> "TICK.U" + i).toList();
+
+        var r = mgr.subscribe("s1", ticks);
+
+        assertThat(r.accepted()).hasSize(100);
+        assertThat(r.rejected()).hasSize(1);
+        assertThat(r.rejected().get(0).channel()).isEqualTo("TICK.U100");
+        assertThat(r.rejected().get(0).reason()).isEqualTo("SUBSCRIPTION_LIMIT_EXCEEDED");
+
+        var klineResult = mgr.subscribe("s1", List.of("KLINE.AAPL.1m"));
+        assertThat(klineResult.accepted()).containsExactly("KLINE.AAPL.1m");
     }
 
     @Test
