@@ -155,8 +155,9 @@ public class PortfolioQueryService {
      * 列出使用者的持倉與估值。
      *
      * <p>金額欄位為原幣；每列另帶 {@code currency}、{@code assetType}、{@code sector}，以及依使用者基準幣
-     * 折算的 {@code baseCurrency} 與 {@code marketValueInBase}（換不到匯率時為 null），供前端以
-     * {@code marketValueInBase / summary.totalMarketValue} 計算權重。持倉快取只存原幣估值，
+     * 折算的 {@code baseCurrency}、{@code marketValueInBase} 與 {@code unrealizedPnlInBase}（換不到匯率時兩者皆為 null），
+     * 供前端以 {@code marketValueInBase / summary.totalMarketValue} 計算權重、以 {@code unrealizedPnlInBase}
+     * 做跨標的損益排行（Top movers）。持倉快取只存原幣估值，
      * 基準幣欄位於回傳時才補上，所以使用者切換基準幣不需要等快取過期。
      *
      * <p>以固定次數的往返完成：一次批次讀持倉快取、對未命中者一次批次取資產屬性與最新價，再逐筆寫回快取。
@@ -172,7 +173,7 @@ public class PortfolioQueryService {
             return List.of();
         }
         // Facade 呼叫點（D-23：快取未命中時每個 Facade 至多一次批次呼叫）：
-        // 1. userPreferenceFacade.findBaseCurrency — 取基準幣，只用來補 marketValueInBase，不進持倉快取。
+        // 1. userPreferenceFacade.findBaseCurrency — 取基準幣，只用來補 marketValueInBase / unrealizedPnlInBase，不進持倉快取。
         // 2. assetFacade.findProfiles、3. marketDataFacade.findDailyQuotes — 皆只為持倉快取未命中者批次呼叫
         //    （見 valuePositions；findDailyQuotes 同時帶回最新價與前收，取代原本只取最新價的查詢）；
         //    全部命中時兩者皆不呼叫。今日成交 repository.listFillsSince 是本模組自己的表，不算 Facade。
@@ -191,7 +192,7 @@ public class PortfolioQueryService {
      * @param knownProfiles 呼叫端已批次取得的資產屬性；null 表示尚未取得，未命中時才由本方法一次批次取得
      * @param closedIds     今日損益的平倉候選資產 id（summary 專用，持倉列表傳空 set）；
      *                      其報價與持倉未命中者<strong>合併成同一次</strong> {@code findDailyQuotes}，需有 {@code knownProfiles}
-     * @return 與 {@code positions} 同順序的原幣估值 DTO（{@code baseCurrency} / {@code marketValueInBase} 為 null），
+     * @return 與 {@code positions} 同順序的原幣估值 DTO（基準幣三欄為 null），
      *         以及這次取回的報價與今日成交
      */
     private Valuation valuePositions(
@@ -355,18 +356,23 @@ public class PortfolioQueryService {
     }
 
     /**
-     * 依本次基準幣與匯率補上 {@code baseCurrency} / {@code marketValueInBase}；不修改傳入的（可能來自快取的）DTO。
+     * 依本次基準幣與匯率補上 {@code baseCurrency} / {@code marketValueInBase} / {@code unrealizedPnlInBase}；
+     * 不修改傳入的（可能來自快取的）DTO。兩個基準幣金額走同一個幣別解析與 {@link FxRates#convert}，所以 null 條件一致。
      *
      * @param holding 原幣持倉 DTO
      * @param base    使用者基準幣
      * @param rates   目前匯率
-     * @return 補上基準幣市值的新 DTO；缺幣別或換不到匯率時 {@code marketValueInBase} 為 null
+     * @return 補上基準幣市值與未實現損益的新 DTO；缺幣別或換不到匯率時兩者皆為 null
      */
     private HoldingDto withBaseValuation(HoldingDto holding, CurrencyCode base, FxRates rates) {
-        BigDecimal marketValueInBase = parseCurrency(holding.currency())
-            .flatMap(currency -> rates.convert(holding.marketValue(), currency, base))
+        Optional<CurrencyCode> currency = parseCurrency(holding.currency());
+        BigDecimal marketValueInBase = currency
+            .flatMap(code -> rates.convert(holding.marketValue(), code, base))
             .orElse(null);
-        return holding.withBaseValuation(base.name(), marketValueInBase);
+        BigDecimal unrealizedPnlInBase = currency
+            .flatMap(code -> rates.convert(holding.unrealizedPnl(), code, base))
+            .orElse(null);
+        return holding.withBaseValuation(base.name(), marketValueInBase, unrealizedPnlInBase);
     }
 
     private Optional<CurrencyCode> parseCurrency(String code) {
@@ -815,7 +821,7 @@ public class PortfolioQueryService {
      * 只依賴該資產今日成交、當日調整與行情，所以隨持倉一起寫入快取（交易與股數調整的 commit 都會失效該鍵）。
      * {@code previousClose} 維持行情原值，不另算調整後前收。
      *
-     * <p>估值結果存原幣（{@code baseCurrency} / {@code marketValueInBase} 為 null）。查無資產屬性
+     * <p>估值結果存原幣（{@code baseCurrency} / {@code marketValueInBase} / {@code unrealizedPnlInBase} 為 null）。查無資產屬性
      * （理論上不會發生，FK 保證存在）時不寫快取，讓下一次請求重試，並以 null 的幣別讓呼叫端排除折算。
      *
      * @param position 持倉位置

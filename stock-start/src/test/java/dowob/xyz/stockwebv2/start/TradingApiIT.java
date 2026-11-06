@@ -143,7 +143,9 @@ class TradingApiIT extends ContainerIT {
             .andExpect(jsonPath("$.data[0].assetType", equalTo("STOCK")))
             .andExpect(jsonPath("$.data[0].sector", equalTo("Tech")))
             .andExpect(jsonPath("$.data[0].baseCurrency", equalTo("USD")))
-            .andExpect(jsonPath("$.data[0].marketValueInBase", equalTo(2000.00000000)));
+            .andExpect(jsonPath("$.data[0].marketValueInBase", equalTo(2000.00000000)))
+            // quick-261106-fbs：基準幣未實現損益（基準幣 USD，故等於原幣 unrealizedPnl）。
+            .andExpect(jsonPath("$.data[0].unrealizedPnlInBase", equalTo(995.00000000)));
 
         mockMvc.perform(post("/api/v1/trades")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -285,6 +287,10 @@ class TradingApiIT extends ContainerIT {
             .andExpect(jsonPath("$.data[?(@.symbol=='AAPL')].currency", hasItem("USD")))
             .andExpect(jsonPath("$.data[?(@.symbol=='AAPL')].marketValue", hasItem(2000.00000000)))
             .andExpect(jsonPath("$.data[?(@.symbol=='AAPL')].marketValueInBase", hasItem(64836.00000000)))
+            // 10 × (200 − 100.5) = 995 USD × 32.418 → unrealizedPnlInBase（跨標的損益排行用）
+            .andExpect(jsonPath("$.data[?(@.symbol=='AAPL')].unrealizedPnlInBase", hasItem(32255.91000000)))
+            // 2 × (1000 − 900) TWD，基準幣即 TWD
+            .andExpect(jsonPath("$.data[?(@.symbol=='2330.TW')].unrealizedPnlInBase", hasItem(200.00000000)))
             .andExpect(jsonPath("$.data[?(@.symbol=='2330.TW')].currency", hasItem("TWD")))
             .andExpect(jsonPath("$.data[?(@.symbol=='2330.TW')].marketValueInBase", hasItem(2000.00000000)))
             .andExpect(jsonPath("$.data[?(@.symbol=='2330.TW')].baseCurrency", hasItem("TWD")));

@@ -129,7 +129,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 權限：`PORTFOLIO_VIEW`。回應：`HoldingDto[]`（只含持有數量大於 0 的標的）。
 
-> 既有金額欄位（`avgCost`、`costBasis`、`marketPrice`、`marketValue`、`realizedPnl`、`unrealizedPnl`）為**原幣**，幣別見 `currency`。需要跨標的比較或計算權重時請用 `marketValueInBase`（已折算為使用者基準幣）。今日欄位（`previousClose`、`dayPricePnl`、`dayPnlBasis`）同為原幣。
+> 既有金額欄位（`avgCost`、`costBasis`、`marketPrice`、`marketValue`、`realizedPnl`、`unrealizedPnl`）為**原幣**，幣別見 `currency`。需要跨標的比較或計算權重時請用 `marketValueInBase`（已折算為使用者基準幣）；跨標的比較損益（例如 Top movers 排行）請用 `unrealizedPnlInBase`。今日欄位（`previousClose`、`dayPricePnl`、`dayPnlBasis`）同為原幣。
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|
@@ -151,6 +151,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | `sector` | string \| null | 產業分類；`null` 代表未分類，由前端顯示「未分類」（後端不回在地化字串） |
 | `baseCurrency` | string | 使用者基準幣；`marketValueInBase` 的幣別 |
 | `marketValueInBase` | number \| null | `marketValue` 折算為 `baseCurrency` 的值；**換不到匯率時為 `null`** |
+| `unrealizedPnlInBase` | number \| null | 〔quick-261106-fbs〕`unrealizedPnl` 以**目前匯率**折算為 `baseCurrency` 的值（scale 8、HALF_UP，與 `marketValueInBase` 同一條折算路徑）；與 `marketValueInBase` **同條件為 `null`**（`currency` 為 `null` 或換不到匯率，語意同 summary 的 `fxExcludedCount`：不計入任何基準幣總額 / 排行）。跨標的比較 / 排行請用此欄 |
 | `previousClose` | number \| null | 前收（原幣）：該標的所屬市場交易日起點之前的最後一筆成交；沒有前收或查無行情時為 `null` |
 | `dayPricePnl` | number \| null | 單檔今日價格損益（原幣），規則見〈今日價格損益〉；計算所需價格缺失時為 `null` |
 | `dayPricePnlRatio` | number \| null | `dayPricePnl / dayPnlBasis`，**比值而非百分比**；分母為 0 或損益為 `null` 時為 `null` |
@@ -553,7 +554,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 ## 快取與一致性
 
-- 持倉與摘要有 60 秒 Redis 快取，鍵為 `portfolio:valuation:v2:{userId}:{assetId}`（存**原幣**估值，`baseCurrency` / `marketValueInBase` 於回應時才補上）與 `portfolio:summary:v3:{userId}:{baseCurrency}`（〔04.2〕2026-10-31 由 `v2` 升 `v3`：summary 新增 `dividendIncome` / `dividendTaxWithheld` 且 `totalPnl` 含股利，換前綴使部署前後兩種形狀互不讀取；持倉鍵維持 `v2`）。
+- 持倉與摘要有 60 秒 Redis 快取，鍵為 `portfolio:valuation:v2:{userId}:{assetId}`（存**原幣**估值，`baseCurrency` / `marketValueInBase` / `unrealizedPnlInBase` 於回應時才補上，所以新增欄位不需換鍵）與 `portfolio:summary:v3:{userId}:{baseCurrency}`（〔04.2〕2026-10-31 由 `v2` 升 `v3`：summary 新增 `dividendIncome` / `dividendTaxWithheld` 且 `totalPnl` 含股利，換前綴使部署前後兩種形狀互不讀取；持倉鍵維持 `v2`）。
 - summary 依基準幣分鍵：使用者切換基準幣（`PATCH /api/v1/me/preferences`）後，下一次讀取直接 miss、立即拿到新幣別的值，不必等 60 秒。
 - 成交後在交易 **commit 之後**失效持倉鍵與 `USD` / `TWD` / `EUR` / `JPY` 四把 summary 鍵，所以成交後立即重讀一定看得到新交易。
 - 入出金分錄（含沖銷）在寫入 **commit 之後**只失效上述四把 summary 鍵，**不影響持倉鍵**（分錄不改變持倉估值）；現金項因此留在 summary 快取之內，入金後立即重讀就看得到新的 `cash`。冪等命中與被拒絕的請求（資料未變）不失效。
@@ -584,5 +585,6 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 ## 變更紀錄
 
+- 2026-11-06（quick-261106-fbs）：holdings 新增 `unrealizedPnlInBase`（基準幣未實現損益；與 `marketValueInBase` 同條件為 `null`、回應時補上、不寫入持倉快取，持倉鍵維持 `portfolio:valuation:v2`，summary 與 `portfolio:summary:v3` 不變），供前端 Top movers 以基準幣排序。
 - 2026-11-04（Phase 04.2，04.2-08）：股數調整〈生效時間與時序規則〉明定**同一除權日的多筆調整依記錄順序疊加**（Yuan 裁決「同日依記錄順序疊加」）：`Q_asOf` 的調整段改為含同一 `effective_at`、已先記錄者（交易段仍為嚴格早於）；沖銷依記錄順序倒著來。修正前同日第二筆拆股的 `Q_asOf` 不含第一筆（100 股兩次 2:1 → 300 而非 400）。
 - 2026-11-01（Phase 04.2，04.2-02）：凍結 `POST /portfolio/dividends`、`POST /portfolio/share-adjustments`、`GET /portfolio/activities` 三節，summary 新增 `dividendIncome` / `dividendTaxWithheld`、`totalPnl` 與 `roi` 含股利（語意變更）、summary 快取鍵 `v3`、`POST /trades` 新增 `fields.executedAt` 早於最晚股數調整的 400。股利與股數調整**實作為新表 `cash_dividends` / `share_adjustments`，而非擴充 `transactions.type`**（先前〈尚未提供〉的「`transactions.type` 擴充」敘述已刪除；裁決見 `.planning/phases/04.2-dividends-share-adjustments-watchlist/04.2-02-SUMMARY.md`）。Watchlist 契約另立 [watchlist-contract.md](watchlist-contract.md)。
