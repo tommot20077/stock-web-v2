@@ -902,6 +902,46 @@ class PortfolioQueryServiceTest {
     }
 
     @Test
+    @DisplayName("今天賣光的平倉候選有成交與行情但查無資產屬性：計入 dayPnlExcludedCount，唯一候選時總額為 null（04.1 IN-05）")
+    void closedCandidateWithoutProfileIsCountedAsExcluded() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        when(repository.listHoldings(7L)).thenReturn(List.of());
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of(
+            closedSnapshot(99L, OffsetDateTime.now().minusHours(1))));
+        /* profiles() 只有 41 / 43：99 查無資產屬性，無從得知幣別、無法折算。 */
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(profiles());
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(99L, quote("125", "110")));
+        when(repository.listFillsSince(eq(7L), any(OffsetDateTime.class))).thenReturn(List.of(
+            fill(99L, TradeType.SELL, "4", "120", "2026-09-04T09:00:00-04:00")));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        assertThat(dto.dayPnlExcludedCount()).as("候選未計入總額就必須計入排除數").isEqualTo(1);
+        assertThat(dto.dayPricePnl()).isNull();
+        assertThat(dto.dayPricePnlRatio()).isNull();
+        assertThat(dto.fxExcludedCount()).as("平倉候選不是持倉，不計入 fxExcludedCount").isZero();
+    }
+
+    @Test
+    @DisplayName("持有中且查無資產屬性的持倉只計入 fxExcludedCount，dayPnlExcludedCount 不重複計（04.1 IN-05）")
+    void heldPositionWithoutProfileIsOnlyFxExcluded() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        HoldingPosition unknown = position(9L, 99L, "UNKNOWN", new BigDecimal("10"), new BigDecimal("100"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(unknown));
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of(
+            snapshot(99L, new BigDecimal("10"), new BigDecimal("100"), BigDecimal.ZERO)));
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(profiles());
+        /* 昨日即持有卻沒有前收：今日損益不可得，但該檔已因缺資產屬性計入 fxExcludedCount。 */
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(99L, quote("200", null)));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        assertThat(dto.fxExcludedCount()).isEqualTo(1);
+        assertThat(dto.dayPnlExcludedCount()).as("已計入 fxExcludedCount 者不再計入 dayPnlExcludedCount").isZero();
+        assertThat(dto.dayPricePnl()).isNull();
+    }
+
+    @Test
     @DisplayName("全部候選都被排除時總額為 null、比率為 null，並回報排除數")
     void allCandidatesExcludedYieldsNullTotal() {
         givenBase(CurrencyCode.TWD, seedRates());
