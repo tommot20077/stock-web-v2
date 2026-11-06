@@ -5,6 +5,8 @@ area: frontend-overview
 files:
   - ../stock-web-v2-front-end/vue-app/src/pages/Overview.vue
 source: Phase 04.1 走查(2026-10-26,real browser + stub),UI-SPEC U-27 明定保留版位
+resolved: 2026-11-06
+resolved_by: Phase 04.2(PR 後端 #51 / 前端 #19,2026-11-05 合併;證據見 04.2-24 SUMMARY)
 ---
 
 ## Problem
@@ -21,3 +23,7 @@ UI-SPEC U-27 的格線明定 API mode 仍保留「觀察清單(span 6)+ 新聞(s
 
 在這兩張卡加 `MockDataNotice`(或卡片層級的 Preview 標籤),API mode 下標示為示範資料;
 Watchlist 接真資料時(04.2)再移除。
+
+## Resolution
+
+API mode 的 Overview 觀察清單卡改讀 `watchlistApi` 第一個清單並疊加即時報價(`useLiveQuotes` + `LiveQuoteStatus`);新聞卡仍為示範資料,但在 API mode 加上 MockDataNotice 標示,符合鐵律 6。

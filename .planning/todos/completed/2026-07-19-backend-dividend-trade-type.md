@@ -7,6 +7,8 @@ files:
   - stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/service/TradingService.java:65-66
   - ../../vue/stock-v2/vue-app/src/types.ts:78
   - ../../vue/stock-v2/vue-app/src/pages/Trades.vue:65,75
+resolved: 2026-11-06
+resolved_by: Phase 04.2(PR 後端 #51 / 前端 #19,2026-11-05 合併;證據見 04.2-03 / 04.2-04 / 04.2-05 / 04.2-10 / 04.2-20 SUMMARY)
 ---
 
 ## Problem
@@ -33,3 +35,7 @@ TBD。注意這不是「加一個 enum 值」就好:
 - `CreateTradeRequest` 的 quantity/price 語意在 DIV 下不同(每股配息 × 持股數)
 - 可能需要獨立的 migration 與 append-only transactions 的相容性確認
 - 規模上很可能值得自己一個 phase,而非塞進既有 phase
+
+## Resolution
+
+未採「擴充 `TradeType` 加 DIV」:依 04.2-02 決策閘門(Yuan 裁決 option-recommended)改為獨立 append-only 表 `cash_dividends`(V16)與 `POST /api/v1/portfolio/dividends`,含一鍵沖銷、冪等、稽核;股利計入可用現金與 summary(`dividendIncome` / `totalPnl` / `roi`)。Trades「股利」頁籤改由統一活動列表 `GET /portfolio/activities?type=DIVIDEND` 後端篩選,`TradeType` / `TradeDto` / `GET /trades` 維持不變。

@@ -176,9 +176,9 @@ Recent decisions affecting current work:
 
 *(註:原有一條「Phase 2 planning should consume browser-auth-contract.md and avoid frontend token storage」已於 2026-07-19 移除 —— Phase 2 已完成,該提醒已過時。)*
 
-- 10 pending — `/gsd-capture --list` to review(2026-10-23 盤點;Spotless/JaCoCo、JWT 換鑰、header RWD 三條已完成、移到 `completed/`)
+- 11 pending — `/gsd-capture --list` to review(2026-11-06 盤點:04.2 解決的 3 條已移到 `completed/`;2026-10-23 另有 Spotless/JaCoCo、JWT 換鑰、header RWD 三條完成)
   - 併入 04.1:`backend-available-cash`、`backend-daily-pnl`、`backend-asset-classification`
-  - 排在 04.2:`backend-dividend-trade-type`、`frontend-watchlist-mock-store`
+  - 04.2 已解決並關閉(2026-11-06):`backend-dividend-trade-type`、`frontend-watchlist-mock-store`、`overview-mock-watchlist-news-unmarked`
   - Deferred / backlog:`fx-pnl-and-rate-history`、`account-level-return`、`asset-master-management`、`kline-adjusted-prices`、`it-shared-containers`
 
 以下兩段是 2026-07 的原始記錄,保留供追溯:
@@ -200,7 +200,7 @@ Recent decisions affecting current work:
 ### Blockers/Concerns
 
 - Confirm exact frontend package scripts in sibling repo during Phase 5 planning.
-- [Phase 04.2] PR tommot20077/stock-web-v2#51 與 tommot20077/stock-web-v2-front-end#19 開向 develop,CI 全綠(含 Browser E2E 117/117、GitGuardian),待 Yuan review / merge;merge 後共用環境套用 V16 / V17 / V18(單向門)。
+- [Phase 04.2] PR tommot20077/stock-web-v2#51 與 tommot20077/stock-web-v2-front-end#19 已於 2026-11-05 合併進 develop(merge commit 7b7ade0 / b4ff61e);V16 / V17 / V18 已進 develop,之後改形狀只能靠新 migration。
 - [Phase 04.2] 04.2-REVIEW 仍有 14 條建議性 finding open(WR-02/03/04/08/10、IN-01 ~ IN-09),不觸及 Success Criteria,見 04.2-REVIEW-DISPOSITION.md;另有契約文件小修 G2 與 Markets 頁 < 640px 溢出(既有)建議另開 quick task。
 
 ## Deferred Items

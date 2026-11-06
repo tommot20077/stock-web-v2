@@ -6,6 +6,8 @@ files:
   - ../../vue/stock-v2/vue-app/src/pages/Chart.vue:157,163,167,86
   - ../../vue/stock-v2/vue-app/src/pages/Markets.vue:130,137,173,236,71-73
   - ../../vue/stock-v2/vue-app/src/stores/mockPortfolio.ts
+resolved: 2026-11-06
+resolved_by: Phase 04.2(PR 後端 #51 / 前端 #19,2026-11-05 合併;證據見 04.2-11 / 04.2-12 / 04.2-17 / 04.2-22 / 04.2-23 SUMMARY)
 ---
 
 ## Problem
@@ -57,3 +59,7 @@ portfolioApi 建 `watchlistApi` 三件組),不要做路線 (2) 的純介面隔�
 補充查證(2026-07-26):後端目前**完全沒有** watchlist —— 整個 repo 只有
 `Permission.WATCHLIST_MANAGE` 一個 enum 值(`Permission.java:4`、`Role.java:13`),無表、無 endpoint。
 所以 04.1 要從 schema 開始做,不是接線。
+
+## Resolution
+
+後端 asset 模組新增多清單 watchlist(V18 `watchlists` / `watchlist_items`,7 個端點);前端 `services/watchlistApi.ts` 三件組,Chart / Markets / Watchlist 三頁改經 service interface,`src/pages` / `src/components` 不再 import `stores/mockPortfolio`,由 `mockStoreBoundary.test.ts` 守門。Markets / Chart 行情本身仍為示範資料並保留 MockDataNotice(加例外行)。
