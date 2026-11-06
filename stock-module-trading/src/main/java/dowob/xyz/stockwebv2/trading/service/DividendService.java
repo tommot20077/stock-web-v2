@@ -66,6 +66,13 @@ public class DividendService {
     private static final Duration PAID_AT_FUTURE_TOLERANCE = Duration.ofMinutes(5);
 
     /**
+     * 入帳時間的下限（含）。Java / Jackson 接受帶號擴充年份（例如 {@code -10000-01-01T00:00:00Z}），
+     * PostgreSQL {@code timestamptz} 卻只到西元前 4713 年；沒有下限時極端值會在 insert 才炸成 500
+     * （04.2 REVIEW WR-04），合理範圍內但荒謬的年份（如 0001）也會被靜默收下。
+     */
+    static final OffsetDateTime MIN_PAID_AT = OffsetDateTime.parse("1900-01-01T00:00:00Z");
+
+    /**
      * 紀錄的資料存取。
      */
     private final DividendRepository repository;
@@ -157,6 +164,7 @@ public class DividendService {
             .map(value -> value.truncatedTo(ChronoUnit.MICROS))
             .orElse(null);
         validateNotInFuture(requestedPaidAt, now);
+        validateNotBeforeFloor(requestedPaidAt);
         OffsetDateTime paidAt = Optional.ofNullable(requestedPaidAt)
             .orElseGet(() -> now.truncatedTo(ChronoUnit.MICROS));
         BigDecimal withholdingTax = Optional.ofNullable(request.withholdingTax()).orElse(BigDecimal.ZERO);
@@ -337,6 +345,19 @@ public class DividendService {
     private void validateNotInFuture(OffsetDateTime requestedPaidAt, OffsetDateTime now) {
         if (requestedPaidAt != null && requestedPaidAt.isAfter(now.plus(PAID_AT_FUTURE_TOLERANCE))) {
             throw new FieldValidationException("Invalid paidAt", Map.of("paidAt", "must not be in the future"));
+        }
+    }
+
+    /**
+     * 擋下早於 {@link #MIN_PAID_AT}（1900-01-01T00:00:00Z，含邊界）的入帳時間，在解析標的之前回 400，
+     * 不讓 DB 存不下的值落到 insert 變成 500。訊息為靜態英文，不回射輸入。只檢查請求明確送出的值。
+     *
+     * @param requestedPaidAt 請求明確送出的入帳時間（已截到微秒）；未送為 null
+     * @throws FieldValidationException 早於下限時，fields 指名 {@code paidAt}
+     */
+    private void validateNotBeforeFloor(OffsetDateTime requestedPaidAt) {
+        if (requestedPaidAt != null && requestedPaidAt.isBefore(MIN_PAID_AT)) {
+            throw new FieldValidationException("Invalid paidAt", Map.of("paidAt", "must not be before 1900-01-01"));
         }
     }
 

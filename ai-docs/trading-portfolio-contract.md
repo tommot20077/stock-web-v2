@@ -360,7 +360,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | `symbol` | string | 是 | 不得空白、最多 32 字；須為 **active 且 tradeable** 的標的，否則 404 `ASSET_NOT_FOUND`（`fields.symbol`） |
 | `amount` | number | 是 | **實領總額**（扣稅後、標的幣別）：0.00000001 ≤ x ≤ 1,000,000,000,000；整數最多 13 位、小數最多 8 位 |
 | `withholdingTax` | number | 否 | 預扣稅（標的幣別）：0 ≤ x ≤ 1,000,000,000,000；整數最多 13 位、小數最多 8 位；省略視為 0 |
-| `paidAt` | string（ISO-8601） | 否 | 入帳時間；省略視為伺服器現在；晚於伺服器時間 5 分鐘以上 → 400 `fields.paidAt` |
+| `paidAt` | string（ISO-8601） | 否 | 入帳時間；省略視為伺服器現在；晚於伺服器時間 5 分鐘以上 → 400 `fields.paidAt`；〔quick-261106-fbs〕早於 `1900-01-01T00:00:00Z`（含帶號擴充年份如 `-10000-01-01T00:00:00Z`）→ 400 `fields.paidAt`（`must not be before 1900-01-01`，下限含邊界） |
 | `note` | string | 否 | 最多 500 字；不納入冪等比對 |
 | `reversalOfId` | string（UUID） | 否 | 最多 36 字；帶值代表這是一筆**沖銷**，見下 |
 
@@ -395,7 +395,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 | HTTP | code | 情境 |
 |---|---|---|
-| 400 | `VALIDATION_FAILED` | `error.fields` 的鍵：`Idempotency-Key`、`symbol`、`amount`、`withholdingTax`、`paidAt`（`must not be in the future`）、`note`、`reversalOfId`（`invalid format`）；沖銷值不符時指名不符欄位 |
+| 400 | `VALIDATION_FAILED` | `error.fields` 的鍵：`Idempotency-Key`、`symbol`、`amount`、`withholdingTax`、`paidAt`（`must not be in the future` / `must not be before 1900-01-01`）、`note`、`reversalOfId`（`invalid format`）；沖銷值不符時指名不符欄位 |
 | 400 | `VALIDATION_FAILED` | body 不是合法 JSON 或欄位型別錯；訊息固定、無 `error.fields` |
 | 404 | `ASSET_NOT_FOUND` | 標的不存在、inactive 或不可交易（`fields.symbol`） |
 | 404 | `DIVIDEND_NOT_FOUND` | 沖銷對象不存在或屬於他人 |
@@ -435,6 +435,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 - `effective_at = TradingDay.of(assetType, market).startOf(effectiveDate)`：除權日**該市場交易日的起點**（股票為交易所時區午夜、外匯紐約 17:00、加密 UTC 00:00，與今日損益同一條規則）。
 - `effective_at` 晚於伺服器時間 5 分鐘以上 → 400 `fields.effectiveDate`。
+- 〔quick-261106-fbs〕`effectiveDate` 早於 `1900-01-01`（下限含邊界）→ 400 `fields.effectiveDate`（`must not be before 1900-01-01`），在解析標的之前擋下；先前 DB 存不下的極端日期會變成 500。
 - `effective_at` 早於該標的最晚一筆「**未被沖銷且非沖銷列**」調整的 `effective_at` → 400 `fields.effectiveDate`（調整只能依時間往後記；要補記更早的，先沖銷較晚者）。
 - **同一除權日可記多筆調整，依記錄順序疊加**（2026-11-04 裁決）：與最晚有效調整同一 `effective_at` 不算「早於」；後記錄者的 `Q_asOf` 包含同一 `effective_at`、已先記錄的調整。例：100 股同一除權日記兩次 2:1 拆股 → 第一筆 ΔQ +100、第二筆 ΔQ +200，結果 400 股。「最晚」依 (`effective_at` DESC, 記錄順序 DESC) 排序。
 - 事件日起點持股 `Q_asOf` = `executed_at` **早於** `effective_at` 的交易淨股數 + `effective_at` **不晚於**本筆生效瞬間的既有調整淨股數（沖銷列反號；本筆尚未寫入，因此只含先記錄者）。`Q_asOf` ≤ 0，或目前持倉不存在 / ≤ 0 → 409 `TRADE_INSUFFICIENT_HOLDING`（D-06 / D-09）。
@@ -483,7 +484,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 | HTTP | code | 情境 |
 |---|---|---|
-| 400 | `VALIDATION_FAILED` | `error.fields` 的鍵：`Idempotency-Key`、`symbol`、`type`、`quantity`、`ratio`（相等）/ `ratioNew` / `ratioOld`、`effectiveDate`（未來、早於最晚調整）、`note`、`reversalOfId`；沖銷值不符時指名不符欄位 |
+| 400 | `VALIDATION_FAILED` | `error.fields` 的鍵：`Idempotency-Key`、`symbol`、`type`、`quantity`、`ratio`（相等）/ `ratioNew` / `ratioOld`、`effectiveDate`（未來、早於 1900-01-01、早於最晚調整）、`note`、`reversalOfId`；沖銷值不符時指名不符欄位 |
 | 400 | `VALIDATION_FAILED` | body 不是合法 JSON 或欄位型別錯；訊息固定、無 `error.fields` |
 | 404 | `ASSET_NOT_FOUND` | 標的不存在、inactive 或不可交易（`fields.symbol`） |
 | 404 | `SHARE_ADJUSTMENT_NOT_FOUND` | 沖銷對象不存在或屬於他人 |
@@ -585,6 +586,6 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 ## 變更紀錄
 
-- 2026-11-06（quick-261106-fbs）：holdings 新增 `unrealizedPnlInBase`（基準幣未實現損益；與 `marketValueInBase` 同條件為 `null`、回應時補上、不寫入持倉快取，持倉鍵維持 `portfolio:valuation:v2`，summary 與 `portfolio:summary:v3` 不變），供前端 Top movers 以基準幣排序。`dayPnlExcludedCount` 補計「今天賣光但查無資產屬性的平倉候選」（先前既不計入總額也不計入排除數）；持有中且查無資產屬性的持倉只計入 `fxExcludedCount`，不再於價格缺失時被重複計入（04.1 REVIEW IN-05）。
+- 2026-11-06（quick-261106-fbs）：holdings 新增 `unrealizedPnlInBase`（基準幣未實現損益；與 `marketValueInBase` 同條件為 `null`、回應時補上、不寫入持倉快取，持倉鍵維持 `portfolio:valuation:v2`，summary 與 `portfolio:summary:v3` 不變），供前端 Top movers 以基準幣排序。`dayPnlExcludedCount` 補計「今天賣光但查無資產屬性的平倉候選」（先前既不計入總額也不計入排除數）；持有中且查無資產屬性的持倉只計入 `fxExcludedCount`，不再於價格缺失時被重複計入（04.1 REVIEW IN-05）。`POST /portfolio/dividends` 的 `paidAt` 與 `POST /portfolio/share-adjustments` 的 `effectiveDate` 新增下限 1900-01-01（含）：早於者回 400 `fields.paidAt` / `fields.effectiveDate`，不再以 500 結束（04.2 REVIEW WR-04）。
 - 2026-11-04（Phase 04.2，04.2-08）：股數調整〈生效時間與時序規則〉明定**同一除權日的多筆調整依記錄順序疊加**（Yuan 裁決「同日依記錄順序疊加」）：`Q_asOf` 的調整段改為含同一 `effective_at`、已先記錄者（交易段仍為嚴格早於）；沖銷依記錄順序倒著來。修正前同日第二筆拆股的 `Q_asOf` 不含第一筆（100 股兩次 2:1 → 300 而非 400）。
 - 2026-11-01（Phase 04.2，04.2-02）：凍結 `POST /portfolio/dividends`、`POST /portfolio/share-adjustments`、`GET /portfolio/activities` 三節，summary 新增 `dividendIncome` / `dividendTaxWithheld`、`totalPnl` 與 `roi` 含股利（語意變更）、summary 快取鍵 `v3`、`POST /trades` 新增 `fields.executedAt` 早於最晚股數調整的 400。股利與股數調整**實作為新表 `cash_dividends` / `share_adjustments`，而非擴充 `transactions.type`**（先前〈尚未提供〉的「`transactions.type` 擴充」敘述已刪除；裁決見 `.planning/phases/04.2-dividends-share-adjustments-watchlist/04.2-02-SUMMARY.md`）。Watchlist 契約另立 [watchlist-contract.md](watchlist-contract.md)。
