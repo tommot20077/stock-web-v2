@@ -9,7 +9,7 @@
 > Phase 04.2 起另含 `CashDividendController`、`CreateDividendRequest`、`DividendDto`、`DividendService`、`ShareAdjustmentController`、`CreateShareAdjustmentRequest`、`ShareAdjustmentDto`、`ShareAdjustmentService`、`PortfolioActivityController`、`PortfolioActivityDto`、`ActivityQueryService`。
 > 觀察清單（watchlist，asset 模組）的契約在 [watchlist-contract.md](watchlist-contract.md)。
 >
-> ⚠️ **Phase 04.2 凍結契約（2026-11-01，04.2-02；Yuan 於決策閘門裁決 option-recommended）**：本檔標 〔04.2〕 的段落是股利 / 股數調整 / 活動列表與 summary 新欄位的**先行契約**，在 04.2-03 ~ 04.2-10 實作合入前程式碼尚不存在，是前後端平行實作的共同依據；實作合入後回到「程式碼是事實來源」，實作若需偏離須先改本檔並回報。
+> ℹ️ **〔04.2〕段落已實作**：本檔標 〔04.2〕 的段落（股利 / 股數調整 / 活動列表與 summary 新欄位）於 2026-11-01（04.2-02，Yuan 於決策閘門裁決 option-recommended）凍結為先行契約；04.2-03 ~ 04.2-10 已合入（後端 PR #51、前端 PR #19），目前**程式碼是事實來源**——程式與本檔偏離時以程式為準，回頭修本檔並回報。
 > 使用者基準幣（`GET /api/v1/me` 的 `baseCurrency`、`PATCH /api/v1/me/preferences`）的契約在 [browser-auth-contract.md](browser-auth-contract.md#user-preferences)。
 
 ## 共通
@@ -165,7 +165,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 > ⚠️ **2026-10-24 單位語意變更（Phase 04.1 D-05）**：所有金額欄位改以 `baseCurrency`（使用者基準幣）表示；先前版本是未折算的混幣加總（USD 與 TWD 直接相加，錯誤）。欄位名不變，bearer client 與前端須改讀 `baseCurrency` 判斷單位。
 >
-> ⚠️ **2026-10-31 語意變更（Phase 04.2 D-01，〔04.2〕）**：`totalPnl` 改為**含現金股利**（`realizedPnl + unrealizedPnl + dividendIncome`）；`roi` 公式不變（`totalPnl / totalCostBasis`），因此 `roi` 也隨之**含股利**——欄位名不變但數值語意改變。新增 `dividendIncome`、`dividendTaxWithheld`；快取鍵升 `v3`（見〈快取與一致性〉）。
+> ⚠️ **2026-11-01 語意變更（Phase 04.2 D-01，〔04.2〕；04.2-02 決策閘門裁決日）**：`totalPnl` 改為**含現金股利**（`realizedPnl + unrealizedPnl + dividendIncome`）；`roi` 公式不變（`totalPnl / totalCostBasis`），因此 `roi` 也隨之**含股利**——欄位名不變但數值語意改變。新增 `dividendIncome`、`dividendTaxWithheld`；快取鍵升 `v3`（見〈快取與一致性〉）。
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|
@@ -173,8 +173,8 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | `totalCostBasis` | number | 所有持倉 costBasis 逐筆折算為基準幣後加總（同上） |
 | `realizedPnl` | number | **含已平倉部位**；逐資產依各自幣別折算為基準幣後加總（不是 SQL 跨幣別 sum） |
 | `unrealizedPnl` | number | totalMarketValue − totalCostBasis（基準幣） |
-| `totalPnl` | number | realizedPnl + unrealizedPnl + dividendIncome（基準幣）。〔04.2〕2026-10-31 起含現金股利；此前為 realizedPnl + unrealizedPnl |
-| `roi` | number | totalPnl / totalCostBasis（兩者同為基準幣；totalCostBasis 為 0 時為 0）。公式不變，但因 `totalPnl` 含股利，〔04.2〕2026-10-31 起 **`roi` 含股利**（語意變更，Overview「總報酬率」即綁此欄）。**不含現金** |
+| `totalPnl` | number | realizedPnl + unrealizedPnl + dividendIncome（基準幣）。〔04.2〕2026-11-01 起含現金股利；此前為 realizedPnl + unrealizedPnl |
+| `roi` | number | totalPnl / totalCostBasis（兩者同為基準幣；totalCostBasis 為 0 時為 0）。公式不變，但因 `totalPnl` 含股利，〔04.2〕2026-11-01 起 **`roi` 含股利**（語意變更，Overview「總報酬率」即綁此欄）。**不含現金** |
 | `dividendIncome` | number | 〔04.2〕現金股利收入（基準幣）：Σ 各標的**實領淨額**（`amount`，沖銷列反號）× **目前匯率**；換不到匯率的標的不計入並列入 `unconvertedCurrencies`（與 realizedPnl 同規則）；沒有股利時為 0 |
 | `dividendTaxWithheld` | number | 〔04.2〕預扣稅合計（基準幣）：Σ 各標的 `withholdingTax`（沖銷列反號）× 目前匯率；僅供顯示，**不**計入 `totalPnl`（`amount` 已是扣稅後實領） |
 | `holdingCount` | number | 持有數量大於 0 的標的數（含換不到匯率而未計入總額者） |
@@ -555,7 +555,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 ## 快取與一致性
 
-- 持倉與摘要有 60 秒 Redis 快取，鍵為 `portfolio:valuation:v2:{userId}:{assetId}`（存**原幣**估值，`baseCurrency` / `marketValueInBase` / `unrealizedPnlInBase` 於回應時才補上，所以新增欄位不需換鍵）與 `portfolio:summary:v3:{userId}:{baseCurrency}`（〔04.2〕2026-10-31 由 `v2` 升 `v3`：summary 新增 `dividendIncome` / `dividendTaxWithheld` 且 `totalPnl` 含股利，換前綴使部署前後兩種形狀互不讀取；持倉鍵維持 `v2`）。
+- 持倉與摘要有 60 秒 Redis 快取，鍵為 `portfolio:valuation:v2:{userId}:{assetId}`（存**原幣**估值，`baseCurrency` / `marketValueInBase` / `unrealizedPnlInBase` 於回應時才補上，所以新增欄位不需換鍵）與 `portfolio:summary:v3:{userId}:{baseCurrency}`（〔04.2〕2026-11-01 由 `v2` 升 `v3`：summary 新增 `dividendIncome` / `dividendTaxWithheld` 且 `totalPnl` 含股利，換前綴使部署前後兩種形狀互不讀取；持倉鍵維持 `v2`）。
 - summary 依基準幣分鍵：使用者切換基準幣（`PATCH /api/v1/me/preferences`）後，下一次讀取直接 miss、立即拿到新幣別的值，不必等 60 秒。
 - 成交後在交易 **commit 之後**失效持倉鍵與 `USD` / `TWD` / `EUR` / `JPY` 四把 summary 鍵，所以成交後立即重讀一定看得到新交易。
 - 入出金分錄（含沖銷）在寫入 **commit 之後**只失效上述四把 summary 鍵，**不影響持倉鍵**（分錄不改變持倉估值）；現金項因此留在 summary 快取之內，入金後立即重讀就看得到新的 `cash`。冪等命中與被拒絕的請求（資料未變）不失效。
@@ -586,6 +586,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 ## 變更紀錄
 
+- 2026-11-06（quick-261106-fbs，文件掃描）：檔首 〔04.2〕 凍結提示改為「已實作、程式為事實來源」；D-01 語意變更（`totalPnl` / `roi` 含股利、summary 鍵升 `v3`）的日期由 2026-10-31 對齊 04.2-02 裁決日 2026-11-01（04.2 G2）。
 - 2026-11-06（quick-261106-fbs）：holdings 新增 `unrealizedPnlInBase`（基準幣未實現損益；與 `marketValueInBase` 同條件為 `null`、回應時補上、不寫入持倉快取，持倉鍵維持 `portfolio:valuation:v2`，summary 與 `portfolio:summary:v3` 不變），供前端 Top movers 以基準幣排序。`dayPnlExcludedCount` 補計「今天賣光但查無資產屬性的平倉候選」（先前既不計入總額也不計入排除數）；持有中且查無資產屬性的持倉只計入 `fxExcludedCount`，不再於價格缺失時被重複計入（04.1 REVIEW IN-05）。`POST /portfolio/dividends` 的 `paidAt` 與 `POST /portfolio/share-adjustments` 的 `effectiveDate` 新增下限 1900-01-01（含）：早於者回 400 `fields.paidAt` / `fields.effectiveDate`，不再以 500 結束（04.2 REVIEW WR-04）。
 - 2026-11-04（Phase 04.2，04.2-08）：股數調整〈生效時間與時序規則〉明定**同一除權日的多筆調整依記錄順序疊加**（Yuan 裁決「同日依記錄順序疊加」）：`Q_asOf` 的調整段改為含同一 `effective_at`、已先記錄者（交易段仍為嚴格早於）；沖銷依記錄順序倒著來。修正前同日第二筆拆股的 `Q_asOf` 不含第一筆（100 股兩次 2:1 → 300 而非 400）。
 - 2026-11-01（Phase 04.2，04.2-02）：凍結 `POST /portfolio/dividends`、`POST /portfolio/share-adjustments`、`GET /portfolio/activities` 三節，summary 新增 `dividendIncome` / `dividendTaxWithheld`、`totalPnl` 與 `roi` 含股利（語意變更）、summary 快取鍵 `v3`、`POST /trades` 新增 `fields.executedAt` 早於最晚股數調整的 400。股利與股數調整**實作為新表 `cash_dividends` / `share_adjustments`，而非擴充 `transactions.type`**（先前〈尚未提供〉的「`transactions.type` 擴充」敘述已刪除；裁決見 `.planning/phases/04.2-dividends-share-adjustments-watchlist/04.2-02-SUMMARY.md`）。Watchlist 契約另立 [watchlist-contract.md](watchlist-contract.md)。
