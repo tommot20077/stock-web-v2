@@ -279,7 +279,7 @@ class DividendApiIT extends ContainerIT {
     }
 
     @Test
-    @DisplayName("欄位越界與沖銷值不符：400 VALIDATION_FAILED 且 fields 指名欄位（amount / withholdingTax / note / reversalOfId / paidAt）；回應不回射 symbol 與 key")
+    @DisplayName("欄位越界與沖銷值不符：400 VALIDATION_FAILED 且 fields 指名欄位（amount / withholdingTax / note / reversalOfId / paidAt 未來與早於 1900-01-01）；回應不回射 symbol 與 key")
     void fieldErrorsNameTheOffendingField() throws Exception {
         String email = "div-fields-" + UUID.randomUUID() + "@example.com";
         String accessToken = register(email, "divfield" + UUID.randomUUID().toString().substring(0, 8));
@@ -302,6 +302,10 @@ class DividendApiIT extends ContainerIT {
             """, "reversalOfId");
         assertFieldError(accessToken, canaryKey, """
             {"symbol":"AAPL","amount":120,"paidAt":"2999-01-01T00:00:00Z"}
+            """, "paidAt");
+        /* 04.2 WR-04：帶號擴充年份在 Jackson 可解析、PostgreSQL 存不下；下限 1900-01-01 讓它回 400 而不是 500。 */
+        assertFieldError(accessToken, canaryKey, """
+            {"symbol":"AAPL","amount":120,"paidAt":"-10000-01-01T00:00:00Z"}
             """, "paidAt");
 
         String originalId = dividendIdOf(postDividend(accessToken, UUID.randomUUID().toString(), AAPL_DIVIDEND)

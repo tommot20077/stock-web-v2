@@ -275,6 +275,48 @@ class DividendServiceTest {
     }
 
     @Test
+    @DisplayName("入帳時間早於 1900-01-01（1899-12-31T23:59:59Z）：VALIDATION_FAILED fields.paidAt，未解析標的、未寫入（04.2 WR-04）")
+    void paidAtBeforeFloorIsRejected() {
+        OffsetDateTime beforeFloor = OffsetDateTime.parse("1899-12-31T23:59:59Z");
+
+        assertBusinessError(
+            () -> service.createDividend(USER_ID,
+                new CreateDividendRequest("AAPL", new BigDecimal("1"), null, beforeFloor, null, null), "k-floor"),
+            ErrorCode.VALIDATION_FAILED, "paidAt");
+        verifyNoInteractions(repository, portfolioCache);
+        verify(assetFacade, never()).findBySymbol(any());
+    }
+
+    @Test
+    @DisplayName("入帳時間為帶號擴充年份 -10000-01-01T00:00:00Z：400 fields.paidAt，不再落到 DB 變成 500（04.2 WR-04）")
+    void paidAtWithExpandedNegativeYearIsRejected() {
+        OffsetDateTime ancient = OffsetDateTime.parse("-10000-01-01T00:00:00Z");
+
+        assertThatThrownBy(() -> service.createDividend(USER_ID,
+                new CreateDividendRequest("AAPL", new BigDecimal("1"), null, ancient, null, null), "k-ancient"))
+            .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                assertThat(ex.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                assertThat(ex.fields()).containsEntry("paidAt", "must not be before 1900-01-01");
+                assertThat(ex.getMessage()).doesNotContain("10000");
+            });
+        verifyNoInteractions(repository, portfolioCache);
+    }
+
+    @Test
+    @DisplayName("入帳時間恰為 1900-01-01T00:00:00Z：下限含邊界，可寫入（04.2 WR-04）")
+    void paidAtOnFloorIsAccepted() {
+        OffsetDateTime floor = OffsetDateTime.parse("1900-01-01T00:00:00Z");
+        when(repository.findByIdempotencyKey(USER_ID, "k-floor-ok")).thenReturn(Optional.empty());
+        when(repository.insertIfAbsent(any(CashDividend.class))).thenAnswer(invocation ->
+            Optional.of(persisted(invocation.getArgument(0), 15L)));
+
+        DividendDto dto = service.createDividend(USER_ID,
+            new CreateDividendRequest("AAPL", new BigDecimal("1"), null, floor, null, null), "k-floor-ok");
+
+        assertThat(dto.paidAt()).isEqualTo(floor);
+    }
+
+    @Test
     @DisplayName("入帳時間在 5 分鐘容忍內：可寫入（吸收時鐘偏差）")
     void paidAtWithinToleranceIsAccepted() {
         OffsetDateTime nearFuture = OffsetDateTime.ofInstant(NOW, ZoneOffset.UTC).plusMinutes(4);
