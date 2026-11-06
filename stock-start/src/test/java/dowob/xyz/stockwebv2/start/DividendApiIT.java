@@ -33,6 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * {@code POST /api/v1/portfolio/dividends} 的端到端整合測試（DIV-01 tracer）。
@@ -180,7 +181,12 @@ class DividendApiIT extends ContainerIT {
             .andReturn()
             .getResponse()
             .getContentAsString();
-        assertThat(body).doesNotContain(ownerDividend).doesNotContain("987.65").doesNotContain("12.34");
+        // 只檢查回應中「非 meta」的部分:meta.timestamp 是伺服器時間(例如 …:56:12.340947…),
+        // 秒數與小數可能湊出 "12.34" 這類字串,raw body 比對會偶發誤判;traceId / timestamp 與資料洩漏無關。
+        ObjectNode response = (ObjectNode) objectMapper.readTree(body);
+        response.remove("meta");
+        String withoutMeta = response.toString();
+        assertThat(withoutMeta).doesNotContain(ownerDividend).doesNotContain("987.65").doesNotContain("12.34");
 
         assertThat(dividendRows(ownerEmail)).isEqualTo(1);
         assertThat(dividendRows(intruderEmail)).isZero();
