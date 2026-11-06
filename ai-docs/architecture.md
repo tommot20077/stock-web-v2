@@ -1,11 +1,11 @@
 # Architecture & Design
 
-> Full architecture design discussion available at [docs/plans/2026-03-21-architecture-design.md](../docs/plans/2026-03-21-architecture-design.md)
+> The original architecture design discussion was referenced as `docs/plans/2026-03-21-architecture-design.md`; that file is **not in this repository** (never committed; 2026-11-06 check), so this page and the code are the reference.
 
 ## Core Design Philosophy
 
-*   **Modular Monolith**: Distinct modules (`user`, `asset`, `trading`, `market-data`) with strict boundaries.
-*   **Facade Pattern**: Modules interact ONLY via Service Interfaces defined in `stock-infrastructure`, never direct Repository/SQL access.
+*   **Modular Monolith**: Distinct modules (`user`, `asset`, `backtest`, `trading`, `market-data`) with strict boundaries.
+*   **Facade Pattern**: Modules interact ONLY via Service Interfaces defined in `stock-infrastructure`, never direct Repository/SQL access. Facades today (2026-11-06): `AssetFacade` / `FxRateFacade` (implemented in asset), `MarketDataFacade` (market-data), `UserPreferenceFacade` (user).
 *   **DDD-Lite (as implemented: transaction script)**: Domain objects are immutable `record`s with no behaviour (e.g. `Holding`, `TradeTransaction`); business rules live in pure calculators (`HoldingCalculator`, `TradePayloadMatcher`) and application services (`TradingService`). Aggregate boundaries below still govern persistence. This is a deliberate fit for Spring Data JDBC — do not describe it as "rich domain models".
 *   **Switchable module (not independently deployable)**: `stock-module-market-data` can be *turned off* piecewise (`market-data.ingestor.enabled`, `market-data.scheduling.enabled`, mock provider) but there is only one runnable application (`stock-start`); market-data has no `@SpringBootApplication` or repackage config. True standalone deployment is not implemented.
 
@@ -17,8 +17,9 @@ stock-web-v2/                        ← parent pom
 ├── stock-db-migration/              ← L0: Centralized Flyway migration scripts
 ├── stock-infrastructure/            ← L1: Facade interfaces, Security, shared config
 ├── stock-module-user/               ← L2: User management
-├── stock-module-asset/              ← L2: Asset definitions (metadata)
-├── stock-module-trading/            ← L2: Trade records, portfolios, ROI
+├── stock-module-asset/              ← L2: Asset definitions (metadata), FX rates, watchlists
+├── stock-module-backtest/           ← L2: Backtest strategies, runs and results
+├── stock-module-trading/            ← L2: Trade records, holdings, portfolio summary, cash ledger, dividends, share adjustments
 ├── stock-module-market-data/        ← L2: Market data collection, K-lines, WebSocket push (switchable)
 └── stock-start/                     ← L3: Aggregating starter
 ```
@@ -112,6 +113,8 @@ Added alongside each feature implementation — never retrofitted. See [security
 
 ## Compliance Design (Taiwan Personal Data Protection Act)
 
+> Design target. As of 2026-11-06 only the append-only ledgers are implemented (`transactions` V8, `cash_ledger_entries` V15, `cash_dividends` V16, `share_adjustments` V17); user soft delete / anonymization / data export do not exist in code.
+
 - **User deletion**: Soft delete → immediate Redis cleanup → anonymization scheduled after 30 days (Spring Batch) → optional full purge
 - **Data export**: Full data export API (JSON + CSV), Phase 2
 - **Transaction record retention**: Retained for 2 years after anonymization
@@ -120,7 +123,7 @@ Added alongside each feature implementation — never retrofitted. See [security
 ## Key Design Decisions
 
 *   **Market data isolation**: `market-data` module handles all exchange connections. Crashes don't affect business logic.
-*   **Subscription decoupled**: Data collection is independent of user subscriptions. "Watchlist" is just a UI preference toggle (user_id + asset_id), not a data pipeline trigger.
+*   **Subscription decoupled**: Data collection is independent of user subscriptions. Watchlists (asset module, `watchlists` / `watchlist_items`, V18; see [watchlist-contract.md](watchlist-contract.md)) are user preferences only — adding an asset does not start ingestion for it.
 *   **Pre-computation**: K-line aggregation via TimescaleDB Continuous Aggregates (real-time aggregation on). Portfolio valuation is computed **on read** from `holdings` + `MarketDataFacade` prices and cached in Redis (`PortfolioCache`, TTL 60 s, invalidated after commit); trades do not emit events. Risk indicators are not implemented.
 *   **Kafka ordering**: `assetId` (as string) is the partition key, ensuring per-asset event ordering.
 *   **Pluggable data sources**: `DataProvider` interface allows adding new data sources without changing core logic.
@@ -140,6 +143,11 @@ Spring Data JDBC requires explicit Aggregate Root definitions. Each Aggregate is
 | asset | `Asset` | — (type-specific detail tables are not implemented) | — |
 | trading | `TradeTransaction` (`transactions` table) | — (standalone, append-only) | `userId` (Long), `assetId` (Long) |
 | trading | `Holding` | — | `userId` (Long), `assetId` (Long) |
+| trading | `CashLedgerEntry` (`cash_ledger_entries`, V15) | — (append-only; reversals are new rows) | `userId` (Long) |
+| trading | `CashDividend` (`cash_dividends`, V16) | — (append-only; reversals are new rows) | `userId` (Long), `assetId` (Long) |
+| trading | `ShareAdjustment` (`share_adjustments`, V17) | — (append-only; reversals are new rows) | `userId` (Long), `assetId` (Long) |
+| asset | `Watchlist` (`watchlists`, V18) | `watchlist_items` rows | `userId` (Long), `assetId` (Long) |
+| backtest | `BacktestRun` | `BacktestResult` | `userId` (Long) |
 | market-data | `MarketPrice` | — (TimescaleDB hypertable row) | `assetId` (Long) |
 
 **Rules:**

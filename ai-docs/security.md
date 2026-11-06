@@ -34,9 +34,9 @@ If the order is wrong, `anyRequest()` matches first and shadows the admin rule, 
 | Role | Spring Role | Permissions |
 |------|-------------|-------------|
 | USER | ROLE_USER | WATCHLIST_MANAGE, TRADE_EXECUTE, PORTFOLIO_VIEW, PROFILE_EDIT |
-| ADMIN | ROLE_ADMIN | All permissions (`EnumSet.allOf`) |
+| ADMIN | ROLE_ADMIN | All permissions (`EnumSet.allOf`; includes `ASSET_ADMIN`, which no endpoint uses yet) |
 
-**Permission overrides**: The `user_permissions` table allows per-user GRANT/REVOKE of individual permissions.
+**Permission overrides** (design only — **not implemented** as of 2026-11-06: there is no `user_permissions` table or loader; permissions come solely from `Role`): a `user_permissions` table would allow per-user GRANT/REVOKE of individual permissions.
 Loading logic: `Role default permissions ∪ Individual GRANTs − Individual REVOKEs = Final permission set`
 
 ### 4. Capability vs Ownership Separation
@@ -130,20 +130,22 @@ public void handleAccessDeniedException(AccessDeniedException e) throws AccessDe
 
 ## Public Endpoints (No Authentication Required)
 
+As implemented in `SecurityConfig` (re-verified 2026-11-06; the code is the source of truth):
+
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/v1/auth/login` | Login |
-| POST | `/api/v1/auth/register` | Registration |
-| POST | `/api/v1/auth/refresh` | Refresh Token |
-| GET | `/api/v1/assets/**` | Public asset browsing (stock list, crypto pairs, currencies) |
-| GET | `/api/v1/market-data/**` | Public market data (prices, charts, K-line) |
-| GET | `/api/v1/search` | Search (assets only, not users) |
-| GET | `/api/v1/search/suggest` | Search suggestions (assets only) |
-| ANY | Static resources | css, js, images, etc. |
+| GET | `/api/v1/assets` | Public asset search (exact path only, not `/**`) |
+| GET | `/api/v1/csrf` | Issues the readable `XSRF-TOKEN` cookie |
+| ANY | `/api/v1/auth/register`, `/api/v1/auth/login`, `/api/v1/auth/token` | Registration / browser login / bearer login (rate-limited per IP, §15) |
+| ANY | `/api/v1/auth/refresh`, `/api/v1/auth/logout` | Refresh / logout — public at the URL layer so a stale access cookie cannot block them; cookie mode still requires CSRF (browser-auth-contract.md) |
+| ANY | `/actuator/health` | Health probe (actuator itself listens on the management port, §17) |
+| ANY | `/v3/api-docs/**`, `/swagger-ui/**` | OpenAPI / Swagger UI — permitted at the URL layer but **disabled by default** (`STOCK_OPENAPI_ENABLED` / `STOCK_SWAGGER_UI_ENABLED` default `false`) |
 | ANY | `/ws/v1/market/**` | WebSocket 握手。URL 層 `permitAll`，驗證全在 `MarketHandshakeInterceptor`（一次性 ticket，見 §9）；Origin 白名單同 `stock.cors.allowed-origins` |
 
+Market data (`/api/v1/market/**`), watchlists, trading / portfolio and backtests all **require authentication**. There is no search endpoint (`/api/v1/search*` does not exist; asset search is `GET /api/v1/assets?query=`).
+
 **Notes:**
-- `/api/v1/auth/change-password`, `/api/v1/auth/logout`, etc. **require authentication**
+- There is no change-password endpoint yet; when added it must **require authentication**
 - `/api/v1/users/**` has been moved to authenticated endpoints (to prevent user enumeration attacks)
 - If a public profile is needed, restrict to `GET /api/v1/users/{uuid}/profile` (authenticated + strict Rate Limiting + `PublicUserProfileDto` with minimal fields)
 - **Swagger UI**: Must be disabled in production (`springdoc.swagger-ui.enabled=false`), only available in dev/demo environments. Controlled via Spring Profile.
@@ -259,6 +261,8 @@ Redis 不可用時無法驗證 WS 身分，一律 fail-closed（與 REST 一致�
 
 ## 11. User Deletion Security Flow
 
+> Design target — **not implemented** as of 2026-11-06 (no user deletion endpoint, soft delete, anonymization job or `user:permissions:*` cache exists).
+
 Soft delete → immediate Redis cleanup → anonymization after 30 days → transaction records retained for 2 years after anonymization.
 
 **Redis Cleanup Steps (executed immediately, synchronous):**
@@ -299,6 +303,8 @@ Implement minimal version from Phase 1:
 
 ## 14. Security Testing
 
+> Design target. As of 2026-11-06 none of the tools below is configured (no Dependabot config, SpotBugs, OWASP Dependency-Check, ZAP or Trivy in `pom.xml` / `.github/workflows/ci.yml`); CI runs `spotless:check`, unit tests, `stock-start` IT (`verify`), backend E2E and browser E2E.
+
 | Phase | Tool | Action |
 |-------|------|--------|
 | Phase 1 | Dependabot | Automated dependency update PRs |
@@ -317,10 +323,10 @@ Implement minimal version from Phase 1:
 
 | Endpoint | Limit | Scope | Action on Exceed |
 |----------|-------|-------|-----------------|
-| `POST /api/v1/auth/login` | 10 requests/minute | Per IP | HTTP 429 + `Retry-After` header |
+| `POST /api/v1/auth/login` (also `POST /api/v1/auth/token`, same bucket) | 10 requests/minute | Per IP | HTTP 429 `AUTH_RATE_LIMITED` + `Retry-After` header |
 | `POST /api/v1/auth/register` | 5 requests/hour | Per IP | HTTP 429 |
-| `POST /api/v1/auth/refresh` | 5 requests/minute | Per User | HTTP 429 |
-| `POST /api/v1/auth/change-password` | 3 requests/hour | Per User | HTTP 429 |
+| `POST /api/v1/auth/refresh` | 5 requests/minute | Per refresh-token owner (falls back to IP when the token is unknown) | HTTP 429 |
+| `POST /api/v1/auth/change-password` | 3 requests/hour | Per User | HTTP 429 — endpoint **not implemented** yet |
 
 ### Account Lockout
 
@@ -331,8 +337,9 @@ Implement minimal version from Phase 1:
 
 ### General API Rate Limiting
 
-- Authenticated endpoints: 100 requests/minute per user (Resilience4j RateLimiter)
+- Authenticated endpoints: 100 requests/minute per user
 - Public endpoints: 60 requests/minute per IP
+- Implementation: Redis counters `rl:{bucket}:{identity}` via infrastructure `RateLimitService`, applied by `ApiRateLimitInterceptor` (stock-start); limits are `stock.security.rate-limit.*` (`RateLimitProperties` defaults above). Resilience4j is not used.
 
 ---
 
@@ -369,7 +376,7 @@ Only the following Actuator endpoints are enabled:
 
 ### Access Control
 
-- Actuator runs on a **separate management port** (`management.server.port=8081`)
+- Actuator runs on a **separate management port** (`management.server.port`, default `11181` via `STOCK_MANAGEMENT_PORT`; exposure `health,info,metrics`)
 - In K3s: management port is NOT exposed via Service (ClusterIP only for internal monitoring)
 - In development: accessible on localhost only
 
@@ -423,4 +430,4 @@ Enforce via `SecurityConfig`:
 - `Referrer-Policy: strict-origin-when-cross-origin`
 - `Cache-Control: no-store` (for API responses containing sensitive data)
 
-Spring Security enables some of these by default — document which are custom additions.
+Spring Security enables some of these by default — document which are custom additions. As implemented (2026-11-06): `SecurityConfig` adds only `Referrer-Policy: strict-origin-when-cross-origin`; `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Cache-Control: no-store` and HSTS (HTTPS requests only) are Spring Security defaults.

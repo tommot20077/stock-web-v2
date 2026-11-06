@@ -34,5 +34,5 @@
 
 1. **pre-commit 測試 hook 可能沒生效**:`.claude/hooks/pre-commit-test.sh` 存在,但 `.claude/settings.local.json` 沒有 `hooks` 註冊欄位。**未確認**(可能註冊在使用者層 `~/.claude/settings.json`)。驗證法:随便 commit 一次看 hook 有沒有跑;或查使用者層 settings。若沒生效,「commit 前必跑測試」的假設是假的。
 2. **`.mcp.json` 本機明文憑證**(GitHub PAT、Postgres/ES 密碼):未進 git(exclude 擋住,已驗證 `git ls-files` 為空),但建議改用環境變數引用,降低本機外洩面。
-3. **雙契約信封不一致**:前端 repo `docs/api-contracts/mock-to-real-contract.md` 的 `{data, requestId}` vs 後端 `ApiResponse<T>`。裁決規則已寫入 `judgment.md` §4,但文件本身尚未對齊——建議排進 phase 工作。
+3. **雙契約信封不一致**:前端 repo `docs/api-contracts/mock-to-real-contract.md` 的 `{data, requestId}` vs 後端 `ApiResponse<T>`。裁決規則已寫入 `judgment.md` §4,但文件本身尚未對齊——建議排進 phase 工作。(2026-11-06 註:該節已於 2026-07-19 對齊後端信封,見前端 `docs/api-contracts/mock-to-real-contract.md` 檔首狀態;本檔其餘內容為 2026-07-07 快照,不隨程式更新。)
 4. **PROJECT.md 的 `## Key Decisions` 有 6 條決策,GSD 不抽取**:那些決策在 AGENTS.md 上不可見。鐵律級的已由本次制度收進 Constraints/judgment;其餘維持原位(它們是 milestone 決策記錄,非常載需求)。
