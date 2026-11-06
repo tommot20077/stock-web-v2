@@ -1,0 +1,17 @@
+-- assets.currency 值域約束（quick-261106-fbs，04.1 REVIEW WR-02）：一列不支援的幣別會讓
+-- AssetFacadeImpl 轉 enum 失敗；應用層已改為略過壞列並 WARN（只記 id），這裡是第二道防線，
+-- 擋住繞過應用層、直接以 migration 或手動 SQL 寫入 assets 的情況（資產管理介面為 Deferred D-20）。
+--
+-- ── 值域與 Java enum 的同步 ─────────────────────────────────────────────────
+-- CHECK 的清單必須與 stock-common 的 CurrencyCode enum 一致（USD / TWD / EUR / JPY）。
+-- 新增幣別時要同時改 enum 與以下三個 CHECK（各以新的 migration 重建）：
+--   ck_users_base_currency（V14）、ck_cash_ledger_entries_currency（V15）、ck_assets_currency（本檔）。
+--
+-- ── 套用失敗時 ──────────────────────────────────────────────────────────────
+-- ADD CONSTRAINT 會掃描既有列；若某環境有違規列，本 migration 會失敗。先以
+--   select id, currency from assets where currency not in ('USD', 'TWD', 'EUR', 'JPY');
+-- 找出違規列並修正資料後再重跑。V2 seed 的 19 列幣別皆為 USD / TWD / EUR / JPY。
+--
+-- 不使用 CONCURRENTLY（CHECK 約束沒有 CONCURRENTLY 形式；assets 為小表）；V1~V18 不得修改。
+-- 一經套用到共用環境，只能以新的 migration 調整本約束。
+ALTER TABLE assets ADD CONSTRAINT ck_assets_currency CHECK (currency IN ('USD', 'TWD', 'EUR', 'JPY'));

@@ -7,6 +7,8 @@ import dowob.xyz.stockwebv2.infrastructure.asset.AssetProfile;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 
 import org.apache.commons.lang3.ObjectUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 
@@ -28,11 +30,16 @@ import java.util.Optional;
  * <p>此 bean 由 Spring 容器管理，消費模組（如 market-data）透過
  * {@link AssetFacade} 介面注入，符合架構文件 §60-66 的 Facade pattern 規範。
  *
+ * <p>{@code asset_type} / {@code currency} 無法轉成 enum 的壞列一律略過並記 WARN（只記 id），不拋例外；
+ * {@code currency} 另由 V19 的 {@code ck_assets_currency} 在 DB 層擋下。
+ *
  * @author Yuan
- * @version 1.0.0
+ * @version 1.1.0
  */
 @Service
 public class AssetFacadeImpl implements AssetFacade {
+
+    private static final Logger log = LoggerFactory.getLogger(AssetFacadeImpl.class);
 
     private final JdbcClient jdbcClient;
 
@@ -86,6 +93,7 @@ public class AssetFacadeImpl implements AssetFacade {
      *
      * <p>以單一 {@code IN} 子句查詢取得，ID 僅以具名參數綁定。
      * 結果以 {@link LinkedHashMap} 保留查詢回傳順序；不加 {@code active} 篩選。
+     * 無法轉換 enum 的壞列不在結果內（呼叫端視同查無資產屬性）。
      */
     @Override
     public Map<Long, AssetProfile> findProfiles(Collection<Long> assetIds) {
@@ -109,16 +117,26 @@ public class AssetFacadeImpl implements AssetFacade {
     /**
      * 把尚未轉 enum 的原始列轉成 {@link AssetProfile}。
      *
+     * <p>{@code asset_type} 或 {@code currency} 不在 enum 內（或為 null）的列回 empty 並記 WARN，
+     * WARN <strong>只記 id</strong>，不記 symbol / 原始值（避免 log injection）。一列壞資料不得讓
+     * summary / holdings / trades 整個 500（04.1 REVIEW WR-02），與 {@link FxRateFacadeImpl} 略過壞列同一做法。
+     *
      * @param raw 原始列
-     * @return 資產屬性
+     * @return 資產屬性；無法轉換時為 empty
      */
     static Optional<AssetProfile> toProfile(RawProfile raw) {
+        Optional<AssetType> assetType = parseEnum(AssetType.class, raw.assetType());
+        Optional<CurrencyCode> currency = parseEnum(CurrencyCode.class, raw.currency());
+        if (assetType.isEmpty() || currency.isEmpty()) {
+            log.warn("assets 略過無法解析 asset_type 或 currency 的列：id={}", raw.id());
+            return Optional.empty();
+        }
         return Optional.of(new AssetProfile(
                 raw.id(),
                 raw.symbol(),
-                AssetType.valueOf(raw.assetType()),
+                assetType.get(),
                 raw.market(),
-                CurrencyCode.valueOf(raw.currency()),
+                currency.get(),
                 raw.sector()));
     }
 
@@ -148,18 +166,45 @@ public class AssetFacadeImpl implements AssetFacade {
     /**
      * 把尚未轉 enum 的原始列轉成 {@link AssetSummary}。
      *
+     * <p>{@code asset_type} 不在 enum 內（或為 null）的列回 empty 並記 WARN（只記 id）：
+     * 一列壞資料不得讓 market-data ingestor 的 {@code findAllTradeable} 整批失敗；{@code findBySymbol} 遇壞列回 empty。
+     *
      * @param raw 原始列
-     * @return 資產摘要
+     * @return 資產摘要；無法轉換時為 empty
      */
     static Optional<AssetSummary> toSummary(RawSummary raw) {
+        Optional<AssetType> assetType = parseEnum(AssetType.class, raw.assetType());
+        if (assetType.isEmpty()) {
+            log.warn("assets 略過無法解析 asset_type 的列：id={}", raw.id());
+            return Optional.empty();
+        }
         return Optional.of(new AssetSummary(
                 raw.id(),
                 raw.symbol(),
                 raw.name(),
-                AssetType.valueOf(raw.assetType()),
+                assetType.get(),
                 raw.market(),
                 raw.tradeable(),
                 raw.active()));
+    }
+
+    /**
+     * 以 {@link Enum#valueOf} 轉換 DB 原始字串；null 或不在 enum 內時回 empty（呼叫端負責記 WARN）。
+     *
+     * @param type  enum 類別
+     * @param value DB 原始字串
+     * @param <E>   enum 型別
+     * @return 轉換結果；無法轉換時為 empty
+     */
+    private static <E extends Enum<E>> Optional<E> parseEnum(Class<E> type, String value) {
+        if (value == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(Enum.valueOf(type, value));
+        } catch (IllegalArgumentException exception) {
+            return Optional.empty();
+        }
     }
 
     private RawSummary mapRawSummary(ResultSet rs, int rowNum) throws SQLException {
