@@ -31,6 +31,7 @@ import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -409,6 +410,11 @@ public class PortfolioQueryService {
      * 列入 {@code unconvertedCurrencies}（D-04）。交易資產的幣別與持倉共用同一次 {@code findProfiles}。
      * 此方法不驗證餘額、不擋任何操作（D-01）。快取失效由寫入端負責，見類別說明。
      *
+     * <p>交易隔離（04.1 REVIEW WR-03）：快取未命中時要讀持倉快照、持倉、交易現金流、入出金淨額、股利、今日成交與
+     * 股數調整等多道述句；標記為<strong>可重複讀</strong>的唯讀交易，讓它們共用同一個快照，避免併發寫入落在中間時
+     * 總額彼此不一致（{@code readOnly = true} 本身不改變 READ COMMITTED）。唯讀交易在 PostgreSQL REPEATABLE READ 下
+     * 不會發生序列化失敗；此方法只由 controller 呼叫，不在外層讀寫交易內。
+     *
      * <p>現金股利（D-01、D-03）：各標的股利實領淨額（沖銷列反號）以標的幣別併入 {@code cashBalances}（第三個現金來源）；
      * 同時逐標的以目前匯率折成基準幣，加總為 {@code dividendIncome}（計入 {@code totalPnl}）與
      * {@code dividendTaxWithheld}（僅顯示）。換不到匯率者不計入、列入 {@code unconvertedCurrencies}。
@@ -422,7 +428,7 @@ public class PortfolioQueryService {
      * @param userId 使用者 id
      * @return 投資組合摘要 DTO
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PortfolioSummaryDto summary(Long userId) {
         // Facade 呼叫點（D-23：快取未命中時 4 次批次呼叫，皆為批次、結果有快取、命中路徑只有第 1 次）：
         // 1. userPreferenceFacade.findBaseCurrency — 取基準幣，同時是 summary 快取鍵的一部分，必須先於快取讀取。

@@ -25,6 +25,7 @@ import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
 
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -273,9 +274,12 @@ public class TradingService {
      * <p>每列的 {@code currency} 由該頁 distinct {@code assetId} 經 {@link AssetFacade#findProfiles}
      * <strong>一次批次查詢</strong>取得（空頁略過），不 JOIN {@code assets}、無 N+1（D-21、D-28）。</p>
      *
-     * <p>標記為唯讀交易：repository 內 count 與 list 是兩道獨立述句，若不共用同一個交易
-     * 快照，併發寫入落在兩者之間時 {@code totalElements} 會與 {@code items} 漂移，
-     * 客戶端算出的 {@code totalPages} 隨之失準。</p>
+     * <p>標記為<strong>可重複讀</strong>的唯讀交易：repository 內 count 與 list 是兩道獨立述句，
+     * PostgreSQL 預設的 READ COMMITTED 下兩者各取自己的快照，併發寫入落在兩者之間時
+     * {@code totalElements} 會與 {@code items} 漂移，客戶端算出的 {@code totalPages} 隨之失準；
+     * {@code readOnly = true} 本身不改變隔離層級，所以必須明確指定 {@code REPEATABLE_READ}
+     * （04.1 REVIEW WR-03，與 {@code CashLedgerService#listEntries} 同一做法）。唯讀交易在 REPEATABLE READ 下
+     * 不會發生序列化失敗。</p>
      *
      * @param userId    交易擁有者 id
      * @param symbol    標的代號；null 或空白代表不依標的篩選
@@ -290,7 +294,7 @@ public class TradingService {
      * @throws BusinessException 標的不存在、交易類型不支援、排序參數非法、日期格式非法，
      *                           或 dateFrom 晚於 dateTo 時
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageResponse<TradeDto> listTrades(
         Long userId,
         String symbol,
