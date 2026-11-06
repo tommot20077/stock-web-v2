@@ -7,6 +7,8 @@ files:
   - .planning/codebase/
   - ../stock-web-v2-front-end/docs/
   - ../stock-web-v2-front-end/AGENTS.md
+resolved: 2026-11-06
+resolved_by: quick-261106-fbs(後端 da4b541..7221c7f、前端 b4ff61e..fbae351;PR 待 orchestrator 開)
 ---
 
 ## Problem
@@ -20,3 +22,9 @@ Phase 04.2 研究時發現 `ai-docs/security.md` 的 WS 章節與程式有 5 處
 ## Solution
 
 Yuan 指定:Phase 04.2 這部分結束之後,做一次**全部文件**的掃描更新——逐份對照程式現況(端點、設定值、類別名、行為),以程式為準修文件,無法判斷的列給 Yuan 裁決。可考慮 `/gsd-docs-update` 或 `/gsd-map-codebase` 重產 codebase 對照圖。
+
+## Resolution
+
+- quick-261106-fbs Task 3 逐份以程式為準掃描並修正:`ai-docs/*.md`(含 04.2 G2 三處)、`.planning/codebase/*.md` 7 份(針對性更新至目前 HEAD)、前端 `AGENTS.md`、`docs/api-contracts/mock-to-real-contract.md`、`docs/LEARNINGS.md` 與 `docs/superpowers/**` 歷史標示。
+- 無法由程式判斷者未猜測,列在 `.planning/quick/261106-fbs-small-fixes-batch-a-markets-640px-b-top-/task3-report.md` 的「需 Yuan 裁決」清單。
+- 偏離原建議:未使用 `/gsd-map-codebase` 重產(本執行環境不派 mapper agents),改為逐份針對性更新;未驗證的段落同樣列在 task3-report。
