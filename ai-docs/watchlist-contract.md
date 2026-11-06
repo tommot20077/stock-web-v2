@@ -52,7 +52,7 @@
 
 ### POST /{id}/items — 加入項目
 
-- `symbol`：**任何 active 資產**，含 FX 與債券，**不要求 tradeable**（D-18）；不存在或 inactive → 404 `ASSET_NOT_FOUND`，`fields.symbol`。
+- `symbol`：**任何 active 資產**，含 FX 與債券，**不要求 tradeable**（D-18）；前後空白去除、**大小寫不敏感**（後端以 `toUpperCase(Locale.ROOT)` 正規化，`aapl` 等同 `AAPL`，與股利 / 股數調整 / 活動列表一致）；不存在或 inactive → 404 `ASSET_NOT_FOUND`，`fields.symbol`。
 - 已在清單中 → 原樣回傳該清單（冪等，不報錯、不改順序）。
 - 清單已有 100 檔 → 400 `VALIDATION_FAILED`，`fields.items`。
 - 新項目排在尾端。
@@ -119,4 +119,5 @@
 
 ## 變更紀錄
 
+- 2026-11-06（quick-261106-fbs）：加入項目的 `symbol` 改為大小寫不敏感（strip 後 `toUpperCase(Locale.ROOT)`），修正小寫 symbol 回 404 `ASSET_NOT_FOUND`（04.2 REVIEW WR-02）。
 - 2026-11-01（Phase 04.2，04.2-02）：初版凍結。七個端點、上限 20 / 100 與列鎖併發保證、`fields` key（`name` / `watchlists` / `items` / `symbol`）、錯誤碼 `WATCHLIST_NOT_FOUND` / `WATCHLIST_ORDER_CONFLICT`。
