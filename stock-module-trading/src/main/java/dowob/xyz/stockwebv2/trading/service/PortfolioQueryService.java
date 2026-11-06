@@ -703,6 +703,7 @@ public class PortfolioQueryService {
      *
      * <p>持倉列的單檔損益與分母直接取自（可能來自快取的）{@link HoldingDto}；平倉候選則以本次請求取回的報價與
      * 今日成交與當日股數調整計算。不可得者計入排除數；換不到匯率者改記入 {@code unconverted}（D-04），不計入排除數。
+     * 查無資產屬性者：持倉已計入 {@code fxExcludedCount}，不計入排除數；平倉候選計入排除數（04.1 IN-05）。
      *
      * @param base        使用者基準幣
      * @param rates       目前匯率
@@ -730,7 +731,8 @@ public class PortfolioQueryService {
             Optional<DayPnl> dayPnl = holding.dayPricePnl() == null || holding.dayPnlBasis() == null
                 ? Optional.empty()
                 : Optional.of(new DayPnl(holding.dayPricePnl(), holding.dayPnlBasis()));
-            total.add(profiles.get(positions.get(i).assetId()), dayPnl);
+            /* 持倉缺資產屬性時 summary 已把它計入 fxExcludedCount，這裡不再計入排除數。 */
+            total.add(profiles.get(positions.get(i).assetId()), dayPnl, true);
         }
         for (Long closedId : closedIds) {
             List<DayFill> fills = day.fillsOf(closedId);
@@ -741,7 +743,8 @@ public class PortfolioQueryService {
             // 今天先拆股再賣光的部位也要扣除當日調整（Pitfall 2：平倉候選最容易漏改）。
             Optional<DayPnl> dayPnl = dayPnlOf(
                 BigDecimal.ZERO, day.quotes().get(closedId), fills, day.adjustmentsOf(closedId));
-            total.add(profiles.get(closedId), dayPnl);
+            /* 平倉候選不是持倉，不在 fxExcludedCount 內：缺資產屬性時必須計入排除數（04.1 IN-05）。 */
+            total.add(profiles.get(closedId), dayPnl, false);
         }
         return total.result();
     }
@@ -751,7 +754,7 @@ public class PortfolioQueryService {
      *
      * @param pnl           總額（基準幣）；null = 缺資料，0 = 沒有任何候選
      * @param ratio         比率；總額為 null 或分母為零時為 null
-     * @param excludedCount 因價格缺失而未計入的檔數
+     * @param excludedCount 因價格缺失（或平倉候選查無資產屬性）而未計入的檔數
      */
     private record DayTotals(BigDecimal pnl, BigDecimal ratio, int excludedCount) {
     }
@@ -778,16 +781,24 @@ public class PortfolioQueryService {
         /**
          * 加入一個候選。
          *
-         * @param profile 資產屬性；null 時無從折算，視同換不到匯率（該持倉已被 fxExcludedCount 計入）
-         * @param dayPnl  該候選的原幣今日損益；empty 表示價格缺失
+         * <p>查無資產屬性（{@code profile == null}）時無從折算：若該候選已計入 {@code fxExcludedCount}
+         * （持有中的持倉）就不再計入排除數，避免重複計；否則（今天賣光的平倉候選）計入排除數，
+         * 讓「有候選卻沒計入總額」的檔數一定反映在 {@code dayPnlExcludedCount}（04.1 IN-05）。
+         *
+         * @param profile       資產屬性；null 表示查無
+         * @param dayPnl        該候選的原幣今日損益；empty 表示價格缺失
+         * @param fxExcludedYet 此候選缺資產屬性時是否已被 {@code fxExcludedCount} 計入（持倉為 true、平倉候選為 false）
          */
-        void add(AssetProfile profile, Optional<DayPnl> dayPnl) {
+        void add(AssetProfile profile, Optional<DayPnl> dayPnl, boolean fxExcludedYet) {
             candidates++;
-            if (dayPnl.isEmpty()) {
-                excluded++;
+            if (profile == null) {
+                if (!fxExcludedYet) {
+                    excluded++;
+                }
                 return;
             }
-            if (profile == null) {
+            if (dayPnl.isEmpty()) {
+                excluded++;
                 return;
             }
             Optional<BigDecimal> pnlInBase = rates.convert(dayPnl.get().pnl(), profile.currency(), base);

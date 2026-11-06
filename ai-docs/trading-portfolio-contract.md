@@ -183,7 +183,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | `unconvertedCurrencies` | string[] | 換不到匯率的幣別代碼（持倉、已實現損益、今日損益、現金或〔04.2〕股利），字母排序、去重；全部可換算時為空陣列 |
 | `dayPricePnl` | number \| null | 今日價格損益總額（基準幣、以目前匯率折算）；`null` = 缺資料，`0` = 真實的零，規則見〈今日價格損益〉 |
 | `dayPricePnlRatio` | number \| null | 今日價格損益比率 = Σ損益 / Σ前收時市值與買入成本（皆基準幣），**比值而非百分比**；總額為 `null` 或分母為 0 時為 `null` |
-| `dayPnlExcludedCount` | number | 因計算所需價格缺失而未計入今日損益的檔數；換不到匯率者改計入 `fxExcludedCount` / `unconvertedCurrencies`，不在此數內 |
+| `dayPnlExcludedCount` | number | 因計算所需價格缺失而未計入今日損益的檔數；換不到匯率者改計入 `fxExcludedCount` / `unconvertedCurrencies`，不在此數內（持有中但查無資產屬性的持倉同理，只計入 `fxExcludedCount`）。〔quick-261106-fbs〕今天賣光但查無資產屬性的平倉候選也計入此數 |
 | `cash` | number | 可用現金合計（基準幣）：各幣別現金餘額以目前匯率折算後加總；**可為負**；不含在 `roi` 內，規則見〈可用現金〉 |
 | `totalEquity` | number | 總資產 = `totalMarketValue + cash`（基準幣） |
 | `cashBalances` | `CashBalanceDto[]` | 各幣別的原幣現金餘額，依 `CurrencyCode` 宣告順序（`USD`、`TWD`、`EUR`、`JPY`），只含有過入出金或交易的幣別；沒有任何紀錄時為空陣列（不是 `null`） |
@@ -585,6 +585,6 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 ## 變更紀錄
 
-- 2026-11-06（quick-261106-fbs）：holdings 新增 `unrealizedPnlInBase`（基準幣未實現損益；與 `marketValueInBase` 同條件為 `null`、回應時補上、不寫入持倉快取，持倉鍵維持 `portfolio:valuation:v2`，summary 與 `portfolio:summary:v3` 不變），供前端 Top movers 以基準幣排序。
+- 2026-11-06（quick-261106-fbs）：holdings 新增 `unrealizedPnlInBase`（基準幣未實現損益；與 `marketValueInBase` 同條件為 `null`、回應時補上、不寫入持倉快取，持倉鍵維持 `portfolio:valuation:v2`，summary 與 `portfolio:summary:v3` 不變），供前端 Top movers 以基準幣排序。`dayPnlExcludedCount` 補計「今天賣光但查無資產屬性的平倉候選」（先前既不計入總額也不計入排除數）；持有中且查無資產屬性的持倉只計入 `fxExcludedCount`，不再於價格缺失時被重複計入（04.1 REVIEW IN-05）。
 - 2026-11-04（Phase 04.2，04.2-08）：股數調整〈生效時間與時序規則〉明定**同一除權日的多筆調整依記錄順序疊加**（Yuan 裁決「同日依記錄順序疊加」）：`Q_asOf` 的調整段改為含同一 `effective_at`、已先記錄者（交易段仍為嚴格早於）；沖銷依記錄順序倒著來。修正前同日第二筆拆股的 `Q_asOf` 不含第一筆（100 股兩次 2:1 → 300 而非 400）。
 - 2026-11-01（Phase 04.2，04.2-02）：凍結 `POST /portfolio/dividends`、`POST /portfolio/share-adjustments`、`GET /portfolio/activities` 三節，summary 新增 `dividendIncome` / `dividendTaxWithheld`、`totalPnl` 與 `roi` 含股利（語意變更）、summary 快取鍵 `v3`、`POST /trades` 新增 `fields.executedAt` 早於最晚股數調整的 400。股利與股數調整**實作為新表 `cash_dividends` / `share_adjustments`，而非擴充 `transactions.type`**（先前〈尚未提供〉的「`transactions.type` 擴充」敘述已刪除；裁決見 `.planning/phases/04.2-dividends-share-adjustments-watchlist/04.2-02-SUMMARY.md`）。Watchlist 契約另立 [watchlist-contract.md](watchlist-contract.md)。
