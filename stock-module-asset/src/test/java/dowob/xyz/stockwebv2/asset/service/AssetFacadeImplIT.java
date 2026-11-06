@@ -9,6 +9,7 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -33,10 +34,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *   <li>findBySymbol 依大小寫敏感的 symbol 查詢，找不到回 Optional.empty()</li>
  *   <li>findBySymbol null 輸入拋出 NullPointerException</li>
  *   <li>findProfiles 一次查詢回傳幣別 / 類型 / 產業，查無者省略，空輸入回空 map</li>
+ *   <li>asset_type 不在 enum 的壞列被略過（WR-02）；V19 的 ck_assets_currency 拒絕 CurrencyCode 以外的幣別</li>
  * </ul>
  *
  * @author Yuan
- * @version 1.0.0
+ * @version 1.1.0
  */
 @Testcontainers
 class AssetFacadeImplIT {
@@ -206,6 +208,50 @@ class AssetFacadeImplIT {
     @DisplayName("findProfiles：空集合回傳空 map")
     void findProfilesWithEmptyInputReturnsEmptyMap() {
         assertThat(facade.findProfiles(List.of())).isEmpty();
+    }
+
+    // ── 壞列容錯與 V19 ck_assets_currency（quick-261106-fbs，04.1 REVIEW WR-02）──────────────
+
+    @Test
+    @DisplayName("asset_type 不在 enum 的列被 findProfiles / findBySymbol 略過，其餘列照常")
+    void rowWithUnsupportedAssetTypeIsSkipped() {
+        String symbol = "QT261106-BAD-TYPE";
+        jdbc.sql("""
+                        insert into assets (symbol, name, asset_type, market, currency, tradeable, active)
+                        values (:symbol, 'bad asset_type row', 'COMMODITY', 'US', 'USD', false, true)
+                        """)
+                .param("symbol", symbol)
+                .update();
+        try {
+            Long bad = idOf(symbol);
+            Long aapl = idOf("AAPL");
+
+            Map<Long, AssetProfile> profiles = facade.findProfiles(List.of(aapl, bad));
+
+            assertThat(profiles).containsOnlyKeys(aapl);
+            assertThat(facade.findBySymbol(symbol)).isEmpty();
+            assertThat(facade.findAllTradeable()).hasSize(11);
+        } finally {
+            jdbc.sql("delete from assets where symbol = :symbol").param("symbol", symbol).update();
+        }
+    }
+
+    @Test
+    @DisplayName("V19：currency 不在 CurrencyCode 內（HKD）的列被 ck_assets_currency 拒絕")
+    void unsupportedCurrencyIsRejectedByCheckConstraint() {
+        String symbol = "QT261106-HKD";
+        try {
+            assertThatThrownBy(() -> jdbc.sql("""
+                            insert into assets (symbol, name, asset_type, market, currency, tradeable, active)
+                            values (:symbol, 'HKD row', 'STOCK', 'HK', 'HKD', false, true)
+                            """)
+                    .param("symbol", symbol)
+                    .update())
+                    .isInstanceOf(DataIntegrityViolationException.class)
+                    .hasMessageContaining("ck_assets_currency");
+        } finally {
+            jdbc.sql("delete from assets where symbol = :symbol").param("symbol", symbol).update();
+        }
     }
 
     private static Long idOf(String symbol) {

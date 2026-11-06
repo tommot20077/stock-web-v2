@@ -53,8 +53,11 @@ public class AssetFacadeImpl implements AssetFacade {
                         where active = true and tradeable = true
                         order by symbol asc
                         """)
-                .query(this::map)
-                .list();
+                .query(this::mapRawSummary)
+                .list()
+                .stream()
+                .flatMap(raw -> toSummary(raw).stream())
+                .toList();
     }
 
     /**
@@ -73,8 +76,9 @@ public class AssetFacadeImpl implements AssetFacade {
                         where symbol = :symbol
                         """)
                 .param("symbol", symbol)
-                .query(this::map)
-                .optional();
+                .query(this::mapRawSummary)
+                .optional()
+                .flatMap(AssetFacadeImpl::toSummary);
     }
 
     /**
@@ -96,32 +100,98 @@ public class AssetFacadeImpl implements AssetFacade {
                         order by id asc
                         """)
                 .param("ids", assetIds)
-                .query(this::mapProfile)
+                .query(this::mapRawProfile)
                 .list()
-                .forEach(profile -> profiles.put(profile.id(), profile));
+                .forEach(raw -> toProfile(raw).ifPresent(profile -> profiles.put(profile.id(), profile)));
         return profiles;
     }
 
-    private AssetProfile mapProfile(ResultSet rs, int rowNum) throws SQLException {
-        return new AssetProfile(
-                rs.getLong("id"),
-                rs.getString("symbol"),
-                AssetType.valueOf(rs.getString("asset_type")),
-                rs.getString("market"),
-                CurrencyCode.valueOf(rs.getString("currency")),
-                rs.getString("sector")
-        );
+    /**
+     * 把尚未轉 enum 的原始列轉成 {@link AssetProfile}。
+     *
+     * @param raw 原始列
+     * @return 資產屬性
+     */
+    static Optional<AssetProfile> toProfile(RawProfile raw) {
+        return Optional.of(new AssetProfile(
+                raw.id(),
+                raw.symbol(),
+                AssetType.valueOf(raw.assetType()),
+                raw.market(),
+                CurrencyCode.valueOf(raw.currency()),
+                raw.sector()));
     }
 
-    private AssetSummary map(ResultSet rs, int rowNum) throws SQLException {
-        return new AssetSummary(
+    private RawProfile mapRawProfile(ResultSet rs, int rowNum) throws SQLException {
+        return new RawProfile(
+                rs.getLong("id"),
+                rs.getString("symbol"),
+                rs.getString("asset_type"),
+                rs.getString("market"),
+                rs.getString("currency"),
+                rs.getString("sector"));
+    }
+
+    /**
+     * {@code assets} 尚未轉 enum 的原始列（findProfiles 用）。
+     *
+     * @param id        資產 id
+     * @param symbol    標的代號
+     * @param assetType asset_type 原始字串
+     * @param market    交易市場代號
+     * @param currency  currency 原始字串
+     * @param sector    產業分類；可為 null
+     */
+    record RawProfile(long id, String symbol, String assetType, String market, String currency, String sector) {
+    }
+
+    /**
+     * 把尚未轉 enum 的原始列轉成 {@link AssetSummary}。
+     *
+     * @param raw 原始列
+     * @return 資產摘要
+     */
+    static Optional<AssetSummary> toSummary(RawSummary raw) {
+        return Optional.of(new AssetSummary(
+                raw.id(),
+                raw.symbol(),
+                raw.name(),
+                AssetType.valueOf(raw.assetType()),
+                raw.market(),
+                raw.tradeable(),
+                raw.active()));
+    }
+
+    private RawSummary mapRawSummary(ResultSet rs, int rowNum) throws SQLException {
+        return new RawSummary(
                 rs.getLong("id"),
                 rs.getString("symbol"),
                 rs.getString("name"),
-                AssetType.valueOf(rs.getString("asset_type")),
+                rs.getString("asset_type"),
                 rs.getString("market"),
                 rs.getBoolean("tradeable"),
-                rs.getBoolean("active")
-        );
+                rs.getBoolean("active"));
+    }
+
+    /**
+     * {@code assets} 尚未轉 enum 的原始列（findAllTradeable / findBySymbol 用）。
+     *
+     * @param id        資產 id
+     * @param symbol    標的代號
+     * @param name      標的名稱
+     * @param assetType asset_type 原始字串
+     * @param market    交易市場代號
+     * @param tradeable 是否可交易
+     * @param active    是否啟用
+     */
+    record RawSummary(
+            long id,
+            String symbol,
+            String name,
+            String assetType,
+            String market,
+            boolean tradeable,
+            boolean active
+    ) {
     }
 }
