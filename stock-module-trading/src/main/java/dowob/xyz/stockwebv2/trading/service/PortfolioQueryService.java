@@ -857,6 +857,7 @@ public class PortfolioQueryService {
             profile == null ? null : profile.sector(),
             null,
             null,
+            null,
             quote == null ? null : quote.previousClose(),
             dayPnl.map(DayPnl::pnl).orElse(null),
             dayPnl.map(DayPnl::ratio).orElse(null),
