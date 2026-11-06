@@ -31,7 +31,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -551,6 +554,20 @@ class PortfolioQueryServiceTest {
         assertThat(dto.dividendIncome()).isNotNull().isEqualByComparingTo("0");
         assertThat(dto.dividendTaxWithheld()).isNotNull().isEqualByComparingTo("0");
         assertThat(dto.totalPnl()).isEqualByComparingTo("32455.91000000");
+    }
+
+    @Test
+    @DisplayName("summary 必須在可重複讀的唯讀交易內：多道聚合述句共用同一個快照（04.1 WR-03）")
+    void summaryRunsInARepeatableReadReadOnlyTransaction() throws NoSuchMethodException {
+        Method method = PortfolioQueryService.class.getMethod("summary", Long.class);
+
+        Transactional transactional = method.getAnnotation(Transactional.class);
+
+        assertThat(transactional).as("summary 需有 @Transactional").isNotNull();
+        assertThat(transactional.readOnly()).isTrue();
+        assertThat(transactional.isolation())
+            .as("readOnly 不改隔離層級；READ COMMITTED 下持倉、快照、現金與股利各道述句會各取自己的快照")
+            .isEqualTo(Isolation.REPEATABLE_READ);
     }
 
     @Test
