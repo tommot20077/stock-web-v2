@@ -29,6 +29,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -350,6 +351,26 @@ class WatchlistServiceTest {
         assertThat(dto.id()).isEqualTo(list.uuid());
         assertThat(dto.items()).extracting(AssetDto::symbol).containsExactly("TSLA", "MSFT", "AAPL");
         verify(marketData, times(1)).findDailyQuotes(anyMap());
+    }
+
+    @Test
+    @DisplayName("加入：symbol 大小寫不敏感——\" aapl \" 以 strip + toUpperCase(Locale.ROOT) 後的 AAPL 查詢（04.2 REVIEW WR-02）")
+    void addItem_lowerCaseSymbol_isNormalizedToUpperCase() {
+        Watchlist list = watchlist(1L, "我的自選");
+        Asset aapl = asset(10L, "AAPL", AssetType.STOCK, "US");
+        when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
+        when(repository.findActiveAssetIdBySymbol("AAPL")).thenReturn(Optional.of(10L));
+        when(repository.containsItem(1L, 10L)).thenReturn(false);
+        when(repository.countItems(1L)).thenReturn(0);
+        when(repository.insertItemAtEnd(1L, 10L)).thenReturn(true);
+        when(repository.itemsByWatchlist(List.of(1L))).thenReturn(Map.of(1L, List.of(aapl)));
+        when(marketData.findDailyQuotes(any())).thenReturn(Map.of());
+
+        Throwable thrown = catchThrowable(() -> service.addItem(USER_ID, list.uuid(), " aapl "));
+
+        verify(repository).findActiveAssetIdBySymbol("AAPL");
+        assertThat(thrown).as("小寫 symbol 不應回 ASSET_NOT_FOUND").isNull();
+        verify(repository).insertItemAtEnd(1L, 10L);
     }
 
     @Test
