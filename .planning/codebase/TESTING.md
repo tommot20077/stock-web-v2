@@ -1,10 +1,12 @@
 ---
-last_mapped_commit: b4459745f0bdf575818d0613cfa9e5b5276f55d8
-sibling_frontend_last_mapped_commit: 0d942c2af74440ce4509383206b38a3021136841
+last_mapped_commit: 5ca148d0e17ea7e2cafc957738dbfc70fe6dfa74
+sibling_frontend_last_mapped_commit: 5e215a00510e25fddce7d02b6aa3bf7d0942748d
 ---
 # Testing Patterns
 
-**Analysis Date:** 2026-05-30
+**Analysis Date:** 2026-11-06(初次分析 2026-05-30)
+
+**Refresh:** 2026-11-06 targeted refresh (quick-261106-fbs Task 3) — 以程式核對並修正與現況衝突處,**不是** `/gsd-map-codebase` 全量重產(本次執行環境無法派 mapper agents;建議日後全量重產)。前端路徑以 Yuan 本機佈局 `../../vue/stock-v2/vue-app` 表示(cloud 環境為 `../stock-web-v2-front-end/vue-app`)。
 
 ## TDD Expectations
 
@@ -53,6 +55,9 @@ sibling_frontend_last_mapped_commit: 0d942c2af74440ce4509383206b38a3021136841
 cd ../../vue/stock-v2/vue-app && npm test
 cd ../../vue/stock-v2/vue-app && npm run test:watch
 cd ../../vue/stock-v2/vue-app && npm run build
+cd ../../vue/stock-v2/vue-app && npm run lint
+cd ../../vue/stock-v2/vue-app && npx playwright test e2e/tests/layout.spec.ts
+./mvnw spotless:check
 ```
 
 ## CI Pipeline
@@ -61,20 +66,22 @@ cd ../../vue/stock-v2/vue-app && npm run build
 - GitHub Actions workflow: `.github/workflows/ci.yml`.
 - Triggers: push to all branches, pull requests to `main` and `develop`, and manual `workflow_dispatch`.
 - Java setup: Temurin Java 21 with Maven cache.
+- Spotless job runs `./mvnw -B spotless:check`.
 - Unit job runs `./mvnw -B test --fail-at-end --no-transfer-progress`.
 - Integration job runs `./mvnw -B -pl stock-start -am verify -Dspring-boot.repackage.skip=true --fail-at-end --no-transfer-progress` after unit tests.
 - E2E job runs `./mvnw -B -pl stock-start -am test -Pe2e --no-transfer-progress` after integration tests.
+- Browser E2E job checks out the frontend repo (matching branch, else `develop`), sets up Node 20 + Playwright Chromium, and runs `e2e/run-e2e.sh` (Playwright journeys in the frontend `vue-app/e2e/tests/` against the real backend).
 - Test reports are published with `dorny/test-reporter@v1` and uploaded as artifacts.
 
 **Frontend CI:**
-- No sibling frontend CI workflow detected under `../../vue/stock-v2/vue-app/.github`.
-- Backend CI does not run frontend tests or builds. For integration phases, run frontend Vitest/build locally until a combined pipeline exists.
+- The frontend repo has its own workflow at the repo root `.github/workflows/` (Node 20, `vue-app/` working directory): `npm ci → lint → test → build` on develop push / PR.
+- Backend CI runs the frontend only for browser E2E (above); Vitest / build / lint run in the frontend CI.
 
 ## Test File Organization
 
 **Backend location:**
 - Tests are co-located by Maven module under `*/src/test/java`.
-- Current backend scan found 73 Java test files and 132 Java main files.
+- Current backend scan (2026-11-06) found 177 Java test files and 237 Java main files; `./mvnw test -Dtest='!*IT,!*E2E*'` runs 949 unit / web tests.
 - Unit tests live beside module code, e.g. `stock-module-trading/src/test/java/dowob/xyz/stockwebv2/trading/domain/HoldingCalculatorTest.java`.
 - Web layer tests live in module API packages, e.g. `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/api/MarketControllerTest.java`.
 - Full app integration tests live in `stock-start/src/test/java/dowob/xyz/stockwebv2/start/`.
@@ -82,13 +89,13 @@ cd ../../vue/stock-v2/vue-app && npm run build
 
 **Backend naming:**
 - Unit tests: `*Test.java`, e.g. `stock-module-user/src/test/java/dowob/xyz/stockwebv2/user/service/AuthServiceTest.java`.
-- Web layer tests: `*ControllerTest.java`, e.g. `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/api/BackfillControllerTest.java`.
+- Web layer tests: `*ControllerTest.java` or `*ControllerWebMvcTest.java`, e.g. `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/api/BackfillControllerTest.java`.
 - Integration tests: `*IT.java`, e.g. `stock-start/src/test/java/dowob/xyz/stockwebv2/start/AuthFlowIT.java`.
-- E2E tests: `*E2ETest.java`, e.g. `stock-start/src/test/java/dowob/xyz/stockwebv2/start/e2e/MarketRestApiE2ETest.java`.
+- E2E tests: `*E2E.java` (included by the `-Pe2e` profile) or `*E2ETest.java`, e.g. `stock-start/src/test/java/dowob/xyz/stockwebv2/start/e2e/WatchlistE2E.java`, `MarketRestApiE2ETest.java`.
 
 **Frontend location:**
 - Tests are co-located under `../../vue/stock-v2/vue-app/src`.
-- Current frontend scan found 19 `.test.ts` files and 70 TypeScript/Vue source files under `src`.
+- Current frontend scan (2026-11-06) found 59 `.test.ts` files (1138 tests) and 80 TypeScript/Vue source files under `src`, plus Playwright specs under `../../vue/stock-v2/vue-app/e2e/tests/` (`layout.spec.ts` with stubs; `auth`, `trade`, `cash-journey`, `holding-event-journey`, `watchlist-*`, `backtest`, `smoke` journeys for full-stack E2E).
 - Service tests live next to adapters, e.g. `../../vue/stock-v2/vue-app/src/services/backtestApi.test.ts`.
 - Component tests live next to components, e.g. `../../vue/stock-v2/vue-app/src/components/settings/SettingsAiAccess.test.ts`.
 - Cross-page behavior tests live at `src` root, e.g. `../../vue/stock-v2/vue-app/src/api-adapter-wiring.test.ts`.
@@ -98,7 +105,7 @@ cd ../../vue/stock-v2/vue-app && npm run build
 stock-module-*/src/test/java/dowob/xyz/stockwebv2/<module>/<layer>/*Test.java
 stock-module-*/src/test/java/dowob/xyz/stockwebv2/<module>/<layer>/*IT.java
 stock-start/src/test/java/dowob/xyz/stockwebv2/start/*IT.java
-stock-start/src/test/java/dowob/xyz/stockwebv2/start/e2e/*E2ETest.java
+stock-start/src/test/java/dowob/xyz/stockwebv2/start/e2e/*E2E.java | *E2ETest.java
 ../../vue/stock-v2/vue-app/src/**/*.test.ts
 ```
 
@@ -263,11 +270,11 @@ const request: BacktestRunRequest = {
 
 ## Coverage
 
-**Requirements:** No numeric coverage threshold or JaCoCo config detected in `pom.xml` files. Project standards require feature coverage and all three test layers unless Yuan waives a layer.
+**Requirements:** JaCoCo 0.8.13 is configured in the root `pom.xml` (`prepare-agent` + `report`) without a numeric threshold. Project standards require feature coverage and all three test layers unless Yuan waives a layer.
 
 **View Coverage:**
 ```bash
-# Not detected: no JaCoCo Maven plugin or frontend coverage script is configured.
+./mvnw verify   # JaCoCo report (bound to verify) under each module's target/site/jacoco/; no frontend coverage script
 ```
 
 **Practical expectation:**
@@ -296,7 +303,7 @@ const request: BacktestRunRequest = {
 - Backend E2E uses MockMvc against a full app context with `@ActiveProfiles("e2e")`.
 - Base class: `stock-start/src/test/java/dowob/xyz/stockwebv2/start/e2e/support/AbstractStockE2ETest.java`.
 - Examples: `stock-start/src/test/java/dowob/xyz/stockwebv2/start/e2e/MarketRestApiE2ETest.java`, `stock-start/src/test/java/dowob/xyz/stockwebv2/start/e2e/WsAuthFlowE2ETest.java`.
-- Frontend E2E framework: Not detected.
+- Frontend E2E: Playwright (`../../vue/stock-v2/vue-app/e2e/`); browser full-stack runs via backend CI `e2e/run-e2e.sh`.
 
 **Contract / Adapter Tests:**
 - Frontend adapter tests assert exact backend paths, HTTP methods, headers, JSON payloads, paginated envelopes, and typed error conversion.
@@ -358,7 +365,7 @@ afterEach(() => {
 - Use module-local containers when testing one infrastructure dependency without booting the full application.
 
 **Documented target pattern:**
-- `ai-docs/testing-standards.md` asks for singleton containers with `withReuse(true)` for shared container performance. Current `ContainerIT` uses static containers but not `withReuse(true)`. New shared container work should follow the documented singleton/reuse pattern when compatible with CI.
+- `ai-docs/testing-standards.md` sketches singleton containers with `withReuse(true)`. Current `ContainerIT` uses static singleton containers (`timescale/timescaledb:2.17.2-pg16`, `redis:7.4-alpine`, `confluentinc/cp-kafka:7.6.0`) without `withReuse(true)`; cross-IT sharing for market-data is backlog todo `2026-09-27-it-shared-containers`.
 
 ## Java Test Naming Rules
 
@@ -385,12 +392,10 @@ afterEach(() => {
 
 ## ArchUnit Expectations
 
-**Required by project standards, not yet detected as implemented dependency/config:**
-- Module isolation: no direct dependencies between L2 modules.
-- Facade boundary: L2 modules interact through `stock-infrastructure` facade interfaces.
-- DDD layering: controllers must not call repositories directly.
-- Ownership check: service methods must call `SecurityUtils.assertOwnerOrAdmin`.
-- Controller to facade: controllers should go through application services rather than facades.
+**Implemented (ArchUnit 1.3.0, `stock-start/src/test/java/dowob/xyz/stockwebv2/start/`):**
+- `ArchitectureRulesTest`: L2 modules must not depend on each other; facade interfaces live in `stock-infrastructure`; controllers must not depend on repositories; controllers must not depend on facades.
+- `EndpointAuthorizationRulesTest`: every endpoint method declares `@PreAuthorize` or is on a reasoned allow-list (stale entries fail).
+- Ownership is not an ArchUnit rule: it is query scoping (`where user_id = :userId`) verified by per-endpoint "non-owner returns 404" tests; `SecurityUtils.assertOwnerOrAdmin` was retired 2026-09-28.
 
 **When adding ArchUnit:**
 - Place architecture tests under `stock-start/src/test/java` or a dedicated module-level test package that can see all relevant modules.
@@ -413,4 +418,4 @@ cd ../../vue/stock-v2/vue-app && npm run build
 
 ---
 
-*Testing analysis: 2026-05-30*
+*Testing analysis: 2026-05-30;targeted refresh 2026-11-06*
