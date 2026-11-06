@@ -894,10 +894,6 @@ public class PortfolioQueryService {
         return dto;
     }
 
-    private BigDecimal sum(List<BigDecimal> values) {
-        return values.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
-
     private BigDecimal roi(BigDecimal pnl, BigDecimal costBasis) {
         if (costBasis == null || costBasis.compareTo(BigDecimal.ZERO) == 0) {
             return BigDecimal.ZERO;
