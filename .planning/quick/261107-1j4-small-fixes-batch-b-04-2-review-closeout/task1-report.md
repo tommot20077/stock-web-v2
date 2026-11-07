@@ -127,3 +127,65 @@ stock-start 之前的模組全綠(數字同上)。stock-start 以 BUILD FAILURE 
 - 單元測試:`CashLedgerServiceTest`、`TradingServiceTest`、`DividendServiceTest`、`ShareAdjustmentServiceTest`、`ErrorCodeTest`、`WatchlistServiceTest`
 - IT:`CashEntryApiIT`、`TradingApiIT`、`DividendApiIT`、`ShareAdjustmentApiIT`、`WatchlistApiIT`
 - 契約:`ai-docs/trading-portfolio-contract.md`(1a + WR-01,〈變更紀錄〉兩條 2026-11-07)、`ai-docs/watchlist-contract.md`(WR-03 + IN-04,〈變更紀錄〉兩條 2026-11-07)
+
+## Addendum E1(HoldingDto market)
+
+> 執行者:E1 executor(後端 repo,分支 `claude/epic-curie-lj8alo`),2026-11-07。範圍:PLAN〈Orchestrator addendum〉E1。
+> 狀態:**完成**。3 個 commit(`b1eeb29..98d4851`),未 push;本段報告未 commit。
+
+### Commit
+
+| # | Hash | 類型 | Subject |
+|---|---|---|---|
+| 1 | `aae1dc2` | RED | test: 持倉應帶資產屬性的交易市場 market 且持倉快取鍵升 v3 |
+| 2 | `50b0c0e` | GREEN | feat: HoldingDto 新增 market 並將持倉快取鍵升 portfolio:valuation:v3 |
+| 3 | `98d4851` | docs | docs: 契約補 holdings market 欄位並同步持倉快取鍵 v3 |
+
+### 給前端 E2 的欄位契約
+
+- JSON 欄位名:**`market`**,型別 `string | null`。
+- 位置:`HoldingDto` 中緊接 **`sector` 之後**、`baseCurrency` 之前(`... currency, assetType, sector, market, baseCurrency, marketValueInBase, ...`)。前端以名稱讀取即可,位置只供對照。
+- 值:資產的 `assets.market` 原值,與 `GET /assets` 的 `market` 同值域;種子資料出現的值為 `US`、`TW`、`JP`、`DE`(債券)、`CRYPTO`、`FX`。
+- **null 的條件**:(1) 查無資產屬性(理論上不會發生,此時 `currency` / `assetType` / `sector` 也同為 null);(2) 資產的 `assets.market` 欄位為 NULL(V1 schema 允許,種子資料都有值)。前端遇 null 退回 fallback(紐約日期)。
+- 快取命中與未命中的回應都帶 `market`(單元測試 `cachedHoldingKeepsMarketThroughBaseValuation` 鎖住)。
+- summary(`PortfolioSummaryDto`)形狀不變。
+
+### 快取評估:持倉鍵升版 `portfolio:valuation:v2` → `v3`
+
+- `market` 不像 `unrealizedPnlInBase` 是回應時才補,而是在 `calculateAndCacheHolding` 隨原幣估值**寫入持倉快取**。
+- 不升版的話,部署後最長 60 秒內會讀到舊 v2 JSON。Jackson 讀缺欄位的 JSON 不會報錯,只會得到 `market = null`(`PortfolioCacheTest.readHoldingsUsesSingleMultiGet` 本來就用缺欄位的 JSON 證明這一點),前端會靜默退回紐約日期。
+- 所以升 `v3`,與 04.2 summary 升 `v3` 同一做法;舊 v2 鍵 60 秒後自然過期。summary 鍵維持 `portfolio:summary:v3`(summary JSON 不含 HoldingDto)。
+- 測試:`legacyV2ValuationKeyIsNeverRead`(舊 v2 鍵有值也不讀)、`holdingMarketSurvivesCacheRoundTrip`(寫入 v3 鍵的 JSON 含 `"market":"TW"`,讀回 market 不遺失),既有斷言的鍵全部從 v2 改為 v3,失效路徑另斷言不刪 v2 鍵。
+
+### 測試結果
+
+- RED:`./mvnw -o -B -q -pl stock-module-trading -am test -Dtest='PortfolioQueryServiceTest,PortfolioCacheTest'` → testCompile 失敗(`HoldingDto` 沒有 `market()`、建構子引數數目不符),符合預期。
+- GREEN 指定類別:`PortfolioQueryServiceTest` 65 / 0 fail(原 62,+3)、`PortfolioCacheTest` 13 / 0 fail(原 11,+2)。
+  - 新增:`holdingsCarryMarketFromAssetProfile`(AAPL→US、2330.TW→TW,寫入快取的 DTO 也帶 TW)、`holdingMarketIsNullWhenProfileMissing`(查無屬性 → market / currency / assetType / sector 都是 null,不寫快取)、`cachedHoldingKeepsMarketThroughBaseValuation`、`legacyV2ValuationKeyIsNeverRead`、`holdingMarketSurvivesCacheRoundTrip`。
+- 全 reactor 單元測試 `./mvnw -o -B test -Dtest='!*IT,!*E2E*' -Dsurefire.failIfNoSpecifiedTests=false`:**BUILD SUCCESS,976 案,0 failure / 0 error**(Task 1 結束時 971,+5):common 106、infrastructure 42、user 24、asset 56、backtest 45、market-data 222、trading 463、start 18。
+- `./mvnw -q -o -pl stock-start -am test-compile`:exit 0。
+- `./mvnw -q -o spotless:check`:exit 0。
+
+### 待 CI(本機沒有 Docker,只確認 test-compile,**沒有宣稱通過**)
+
+| 類別#方法 | 驗證內容 |
+|---|---|
+| `TradingApiIT`(買 AAPL 後 `GET /portfolio/holdings` 那段) | 新增 `$.data[0].market == "US"`(V2 seed AAPL 的 market) |
+
+### 文件
+
+- `ai-docs/trading-portfolio-contract.md`:HoldingDto 欄位表在 `sector` 後新增 `market` 列;〈快取與一致性〉持倉鍵改為 `portfolio:valuation:v3` 並說明升版原因;〈變更紀錄〉新增 2026-11-07 條目。該契約的 holdings 節沒有範例 JSON,所以不需要改範例。
+- 同步持倉鍵 v2 → v3:`ai-docs/redis-convention.md`、`ai-docs/code-standards.md`、`ai-docs/judgment.md`(Rule 2:文件會指向一把已經不用的鍵)。
+- `HoldingDto` Javadoc 新增 `@param market`,版本 3.1 → 3.2;`PortfolioCache` 的版本沿革補上持倉鍵 v3,版本 4.0 → 4.1。
+
+### 偏離計畫
+
+1. **[Rule 2 — 文件一致性]** 計畫只要求更新 trading-portfolio-contract;持倉鍵升版後,redis-convention / code-standards / judgment 三份文件仍寫 `v2`,所以一起改成 v3(放在 docs commit `98d4851`)。
+2. **[發現,不影響實作]** `assets.market` 在 V1 schema 是可為 NULL 的 `VARCHAR(50)`,`AssetFacadeImpl.toProfile` 原樣傳遞。所以除了查無資產屬性,`market` 在資產未設定市場時也會是 null;契約和 Javadoc 都寫明了。這種情況沒有另寫單元測試(原值傳遞,`TradingDay.of` 本來就要處理 null market)。
+3. RED commit 同時把 4 個既有 `HoldingDto` fixture 補上 market 引數(只改測試檔),所以 GREEN commit 只動主程式。
+
+### 給前端的對照(後端交易日規則,`stock-common` `TradingDay.of(assetType, market)`)
+
+- `assetType = CRYPTO` → UTC 00:00(不看 market);`FX` → 紐約 17:00(不看 market)。
+- 其餘依 market(後端會 `trim` + 轉大寫再比對;`market` 欄位本身回傳 DB 原值,不正規化):`US` / `NASDAQ` / `NYSE` / `AMEX` → 紐約午夜;`TW` / `TWSE` / `TPEX` → 台北午夜;`JP` / `TSE` → 東京午夜;`DE` / `XETRA` → 柏林午夜;其他值或 `market` 為 null → **UTC**。
+- 觀察:後端在 market 為 null 時退回 UTC,計畫 E2 寫的前端 fallback 是紐約日期,兩者不同。實務上種子資料不會出現 null,所以不影響;是否要對齊請 Yuan 決定。
