@@ -39,7 +39,7 @@ created: "2026-11-07"
 
 ## Per-Task Verification Map
 
-> 2026-11-07 plan-phase 已依 22 份 PLAN 填入 task / plan / wave / threat;Status 由 executor 與 05-12 / 05-22 gate 依 CI 證據更新。
+> 2026-11-07 plan-phase 已依 25 份 PLAN 填入 task / plan / wave / threat(revision:前端 Wave 2 依型別閉包切為 05-16 ~ 05-24,Wave 2 閘門改號 05-25);Status 由 executor 與 05-12 / 05-25 gate 依 CI 證據更新。
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
@@ -57,6 +57,15 @@ created: "2026-11-07"
 | 05-02-T1/T2 | 05-02 | 1 | VER-02 | T-05-04 | fetch reject / 5xx 空 body 不崩潰 | unit | `cd vue-app && npx vitest run src/services/apiClient.test.ts` | ✅ 案例 ❌ | ⬜ pending |
 | 05-03-T1 | 05-03 | 1 | VER-02 | T-05-06 | proxy target 讀 env,預設 11180 | unit | `cd vue-app && npx vitest run src/viteConfig.test.ts` | ✅ 案例 ❌ | ⬜ pending |
 | 05-16-T1 | 05-16 | 4 | VER-02 | T-05-27 | decimal 轉換與精度 | unit | `cd vue-app && npx vitest run src/services/decimal.test.ts` | ❌ W2 | ⬜ pending |
+| 05-17-T1~T3 | 05-17 | 5 | VER-02 | T-05-28 | summary 閉包 wire 字串 → Decimal;權重 div 後 HALF_UP | unit + component | `cd vue-app && npx vitest run src/services/portfolioApi.test.ts src/pages/Overview.test.ts src/pages/Positions.test.ts src/cashBalanceView.test.ts` | ✅ 需改 | ⬜ pending |
+| 05-18-T1/T2 | 05-18 | 6 | VER-02 | T-05-34 | holdings 閉包;可賣數量以 Decimal 比較 | unit + component | `cd vue-app && npx vitest run src/services/portfolioApi.test.ts src/pages/Positions.test.ts src/components/OrderTicket.test.ts` | ✅ 需改 | ⬜ pending |
+| 05-19-T1~T3 | 05-19 | 7 | VER-02 | T-05-29 | 交易 payload 字串;同 key 重試 body 逐位元相同 | unit + component | `cd vue-app && npx vitest run src/services/tradingApi.test.ts src/components/OrderTicket.test.ts src/services/portfolioRevision.test.ts` | ✅ 需改 | ⬜ pending |
+| 05-20-T1/T2 | 05-20 | 8 | VER-02 | T-05-30 | 股利 / 股數調整字串;選填送 null;沖銷值取自原列 | unit + component | `cd vue-app && npx vitest run src/services/holdingEventApi.test.ts src/components/HoldingEventDialog.test.ts` | ✅ 需改 | ⬜ pending |
+| 05-21-T1/T2 | 05-21 | 9 | VER-02 | T-05-35 | 活動列字串;CSV 金額一般記號、不被加公式前綴 | unit + component | `cd vue-app && npx vitest run src/services/portfolioApi.test.ts src/pages/Trades.test.ts src/csvCell.test.ts` | ✅ 需改 | ⬜ pending |
+| 05-22-T1~T3 | 05-22 | 10 | VER-02 | T-05-36 | 標的報價字串;null 價格不當 0;疊加 HALF_UP | unit + component | `cd vue-app && npx vitest run src/services/marketApi.test.ts src/services/watchlistApi.test.ts src/composables/useLiveQuotes.test.ts src/pages/Watchlist.test.ts` | ✅ 需改 | ⬜ pending |
+| 05-23-T1/T2 | 05-23 | 11 | VER-02 | T-05-31 | WS tick 只收字串價格,無效即丟棄 | unit | `cd vue-app && npx vitest run src/services/quoteStream.test.ts src/composables/useLiveQuotes.test.ts src/wsBoundary.test.ts` | ✅ 需改 | ⬜ pending |
+| 05-24-T1~T3 | 05-24 | 12 | VER-02, VER-03 | T-05-32 | 回測字串契約;頁面 / 元件 / composable 不含 numberToWire(交接點歸零的回歸守門);E2E helper 送字串 | unit + source scan | `cd vue-app && npx vitest run src/services/backtestApi.test.ts src/decimalBoundary.test.ts && npx playwright test --list` | ❌ W2 | ⬜ pending |
+| 05-25-T1~T3 | 05-25 | 13 | VER-01, VER-02, VER-03 | T-05-33 | Wave 2 PR CI 全綠且兩邊 Browser E2E 測對方同名分支;依宣告順序(前端先、後端緊接)合併後兩 repo develop 綠 | CI + checkpoint | `gh api "repos/tommot20077/stock-web-v2-front-end/actions/runs?branch=develop&event=push&per_page=1" --jq '.workflow_runs[0].conclusion'` | ✅ | ⬜ pending |
 | 05-11-T1/T2 | 05-11 | 2 | VER-02 | T-05-20 | useNow 未來時間判斷 | component | `cd vue-app && npx vitest run src/components/CashEntryDialog.test.ts src/components/OrderTicket.test.ts` | ✅ 案例 ❌ | ⬜ pending |
 | 05-10-T1~T3 | 05-10 | 1 | VER-02 | T-05-19 | 紅漲綠跌下失敗色不變綠 / 無寫死 rgba | unit + layout | `cd vue-app && npx vitest run src/contrastTokens.test.ts && npx playwright test e2e/tests/layout.spec.ts` | ✅ 案例 ❌ | ⬜ pending |
 | all | all | all | VER-02 | — | type-check / build | build | `cd vue-app && npm run build` | ✅ | ⬜ pending |
@@ -77,6 +86,7 @@ created: "2026-11-07"
 - [ ] `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/support/MarketDataContainers.java` — D-04
 - [ ] `vue-app/e2e/tests/contract-journey.spec.ts`、`vue-app/e2e/tests/api-failure-states.spec.ts`、`vue-app/e2e/support/mockSentinels.ts` — VER-03
 - [ ] `vue-app/src/services/decimal.ts` + `decimal.test.ts` — D-08(Wave 2)
+- [ ] `vue-app/src/decimalBoundary.test.ts` — D-08 交接點歸零的源碼守門(05-24)
 - [ ] Framework install:`npm install big.js@7.0.1 && npm install -D @types/big.js@7.0.0`(Wave 2)
 - [ ] `.planning/phases/05-cross-repo-browser-flow-verification-contract-hardening/05-COVERAGE-AUDIT.md` — D-01 驗收證據
 
@@ -88,6 +98,7 @@ created: "2026-11-07"
 |----------|-------------|------------|-------------------|
 | IT / E2E / browser E2E 實跑結果 | VER-01 / VER-03 | cloud 環境無 Docker daemon | 讀兩 repo CI run 的 job 結論與 artifact(`e2e-test-reports`、Playwright report),run id 記入 `05-COVERAGE-AUDIT.md` |
 | Wave 1 合併後 develop 綠才開 Wave 2(D-25) | VER-01 / VER-02 / VER-03 | 需要 Yuan 合併 PR | Yuan 合併 Wave 1 PR 後確認兩 repo develop CI 綠 |
+| Wave 2 依宣告順序同時窗合併(D-07,05-25 `<merge_order>`) | VER-01 / VER-02 / VER-03 | 需要 Yuan 合併 PR | 先合前端 PR、緊接合後端 PR;重跑前端合併時觸發的 develop run;確認前端 `merged_at` 早於後端且兩 repo develop CI 綠 |
 
 ---
 

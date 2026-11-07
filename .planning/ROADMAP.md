@@ -237,7 +237,7 @@ Plans:
   4. Browser verification 可確認 auth cookies 為 httpOnly、CSRF token/header 正確、protected requests 帶 credentials、logout 後 `/me` 回 401。
   5. API mode integration failure 會顯示錯誤/重試狀態，不會被 mock data 掩蓋。
 
-**Plans**: 22 plans(10 GSD waves;D-24 / D-25:PR Wave 1 安全網 = 05-01 ~ 05-12,05-12 為 Yuan 合併 + develop 綠的閘門;PR Wave 2 金額字串化硬切 = 05-13 ~ 05-22,05-22 為同時窗合併閘門)。本環境無 Docker,IT / E2E / 真後端 browser E2E 以 CI 為證。
+**Plans**: 25 plans(13 GSD waves;D-24 / D-25:PR Wave 1 安全網 = 05-01 ~ 05-12,05-12 為 Yuan 合併 + develop 綠的閘門;PR Wave 2 金額字串化硬切 = 05-13 ~ 05-25,前端依型別閉包分為 05-16 ~ 05-24,05-25 為依宣告順序(前端先、後端緊接)的同時窗合併閘門)。本環境無 Docker,IT / E2E / 真後端 browser E2E 以 CI 為證。
 **UI hint**: yes
 
 Plans:
@@ -257,12 +257,15 @@ Plans:
 - [ ] `05-14-PLAN.md` — 全 API BigDecimal 字串化 + ArchUnit 守門 + 快取 v4(D-05 / D-06 / D-09)(wave 5,backend)
 - [ ] `05-15-PLAN.md` — IT / E2E 字串斷言遷移、交易字串冪等、契約改字串(D-09)(wave 6,backend)
 - [ ] `05-16-PLAN.md` — 前端 tracer:big.js + decimal.ts + moneyFormat + 現金 slice(D-08)(wave 4,frontend)
-- [ ] `05-17-PLAN.md` — portfolio summary / holdings / 餘額 / 配置 Decimal 化(wave 5,frontend)
-- [ ] `05-18-PLAN.md` — 交易與活動列 / OrderTicket / Trades CSV Decimal 化(wave 6,frontend)
-- [ ] `05-19-PLAN.md` — 股利與股數調整 Decimal 化(wave 7,frontend)
-- [ ] `05-20-PLAN.md` — 標的報價 / 觀察清單 / WS tick Decimal 化(wave 8,frontend)
-- [ ] `05-21-PLAN.md` — 回測 Decimal 化、E2E helper 改字串、decimal 邊界守門與文件(wave 9,frontend)
-- [ ] `05-22-PLAN.md` — Wave 2 閘門:PR、CI 證據、Yuan 同時窗合併 + develop 綠(D-07)(wave 10,checkpoint)
+- [ ] `05-17-PLAN.md` — portfolio summary / 現金餘額 / 配置 Decimal 化(summary 型別閉包)(wave 5,frontend)
+- [ ] `05-18-PLAN.md` — 持倉 Decimal 化:Positions 持倉計算、OrderTicket 可賣數量、HoldingEventDialog 持股數(holdings 型別閉包)(wave 6,frontend)
+- [ ] `05-19-PLAN.md` — 手動交易請求 / 回應、OrderTicket 文字輸入與估算、LastFill、近期交易 Decimal 化(交易型別閉包)(wave 7,frontend)
+- [ ] `05-20-PLAN.md` — 股利與股數調整 Decimal 化(含沖銷請求)(wave 8,frontend)
+- [ ] `05-21-PLAN.md` — 活動列 / Trades 頁 / CSV / 沖銷原列 Decimal 化(活動列型別閉包)(wave 9,frontend)
+- [ ] `05-22-PLAN.md` — 標的報價 / 觀察清單 / 搜尋 / 報價列疊加 Decimal 化(AssetDto 型別閉包)(wave 10,frontend)
+- [ ] `05-23-PLAN.md` — WS 即時報價 LiveTick Decimal 化(wave 11,frontend)
+- [ ] `05-24-PLAN.md` — 回測 Decimal 化、E2E helper 改字串、decimal 邊界守門與文件(wave 12,frontend)
+- [ ] `05-25-PLAN.md` — Wave 2 閘門:PR、CI 證據、Yuan 依宣告順序同時窗合併(前端先、後端緊接)+ develop 綠(D-07)(wave 13,checkpoint)
 
 ## Progress
 

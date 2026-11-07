@@ -7,6 +7,8 @@
 <user_constraints>
 ## User Constraints (from CONTEXT.md)
 
+> 本節是 research 當下的 CONTEXT 摘錄。research 之後 Yuan 另有補充裁決 D-26 ~ D-29 與「D-15 補充」(見 CONTEXT.md〈Research 後補充裁決〉與本檔 `## Open Questions (RESOLVED)`);兩者衝突時以 CONTEXT.md 為準。
+
 ### Locked Decisions
 
 ### 已裁決範圍(來源:scope-decisions todo,本次 discuss 不重議,列出以便 planner 對照)
@@ -30,7 +32,7 @@
 
 ### CI
 - **D-14:** **`run-e2e.sh` 沒帶參數時跑全部**(拿掉預設的 `--grep @smoke`);`npm run test:e2e` 同步改掉 `--grep @smoke`。本機想快速跑可以自己帶 `--grep @smoke`。後端 CI 的 step 名稱「Run Browser E2E (@smoke)」與註解一併更新。
-- **D-15:** **兩邊 CI 都跑真後端 browser E2E**:前端 `.github/workflows/ci.yml` 新增 browser-e2e job,checkout 後端同名分支(不存在時用 `develop`),重用 `run-e2e.sh`(仿照後端 CI 的 Browser E2E job,只是方向相反)。若後端 repo 是 private,需要 Yuan 在前端 repo 設一個唯讀 secret(fine-grained PAT 或 deploy key);planner 要把這一步列成 Yuan 的人工步驟(checkpoint),不能假設已存在。
+- **D-15:** **兩邊 CI 都跑真後端 browser E2E**:前端 `.github/workflows/ci.yml` 新增 browser-e2e job,checkout 後端同名分支(不存在時用 `develop`),重用 `run-e2e.sh`(仿照後端 CI 的 Browser E2E job,只是方向相反)。若後端 repo 是 private,需要 Yuan 在前端 repo 設一個唯讀 secret(fine-grained PAT 或 deploy key);planner 要把這一步列成 Yuan 的人工步驟(checkpoint),不能假設已存在。（已被 D-15 補充推翻:後端 repo 為 public,用預設 `github.token` 即可,不設 PAT / deploy key checkpoint）
 
 ### SC5:API mode 失敗狀態
 - **D-16:** **用 `page.route` 注入失敗,重試時放行**:在真後端 E2E 中對目標端點先注入失敗,斷言錯誤與重試 UI;接著改用 `route.continue()` 放行到真後端,按重試後應看到後端真值。不採用「真的停掉後端」。
@@ -227,7 +229,7 @@ Req[amount=123456789012.12345678]
 - `""` → `null`(實測)→ 必填欄位由 `@NotNull` 擋成 `VALIDATION_FAILED`;選填欄位(`fee`、`withholdingTax`)會被當成「未提供」套預設 → 前端選填欄位**送 `null`,不要送 `""`**。
 - `"abc"` → `InvalidFormatException` → 既有 `GlobalExceptionHandler` 的 `HttpMessageNotReadableException` handler 回 400 `VALIDATION_FAILED`、靜態訊息、無 `fields`(`GlobalExceptionHandler.java:144-156` 註解明載不帶 Jackson 訊息,避免回射輸入)[CITED]。
 - `" 1.5 "` → `1.5`(前後空白被容忍,實測);`"1e3"` → `1E+3`,`@Digits(integer=13, fraction=8)` 以 precision-scale 計算整數位,仍正確。
-- **D-07「不做雙格式並存」的解讀**:後端請求端「同時接受 string 與 number」是 Jackson 預設、且不損精度;要真的拒收 number 需自訂 deserializer。建議**不拒收**(前端 `apiTypes` 型別 + big.js strict 已在編譯期與執行期守住),列為 Open Question 讓 Yuan 確認。
+- **D-07「不做雙格式並存」的解讀**:後端請求端「同時接受 string 與 number」是 Jackson 預設、且不損精度;要真的拒收 number 需自訂 deserializer。建議**不拒收**(前端 `apiTypes` 型別 + big.js strict 已在編譯期與執行期守住),列為 Open Question 讓 Yuan 確認（RESOLVED:CONTEXT「Claude's Discretion」採 Jackson 預設,接受 JSON number）。
 
 **冪等 `*PayloadMatcher` 影響:無**。`TradePayloadMatcher.sameAmount` 用 `compareTo`(`10` 等於 `10.00000000`),`DividendPayloadMatcher` / `ShareAdjustmentPayloadMatcher` / `CashEntryPayloadMatcher` 沿用;比對發生在 Jackson 已把字串轉成 `BigDecimal` 之後 [CITED: `TradePayloadMatcher.java` `sameAmount` Javadoc「絕不可改用 equals」]。
 
@@ -263,7 +265,7 @@ Req[amount=123456789012.12345678]
 | 共用 DB 被清表 | `MarketPriceRepositoryIT:91`、`PriceWriterConsumerIT:85` 都 `DELETE FROM market_prices`;Klines IT 斷言筆數 | **每個類別獨立 database**:helper `freshDatabase(String name)` 以 admin 連線 `CREATE DATABASE md_<class>`,回傳該 DB 的 JDBC URL,再跑既有的 `Flyway.configure()…migrate()`。V1 / V4 migration 自帶 `CREATE EXTENSION`(grep 證實),timescale image 已 preload 擴充,新 DB 可直接建 hypertable。`MarketDataMigrationIT` 本來就需要乾淨 DB,正好吻合 |
 | 共用 Kafka 殘留訊息 | `MarketDataIngestServiceIT` 用隨機 group + `earliest`,`pollOne` 取**第一筆**並斷言 `rec.key() == "42"`;`PriceWriterRetryIT:203` 往同 topic 寫 key `"1"` | 斷言改成「poll 到符合預期 key / 唯一標記的那一筆」(過濾),測試資料用每次唯一的 assetId(如 `ThreadLocalRandom` 9xxxxx);consumer group 一律 `"<class>-" + UUID` |
 | **(新)同名 topic 重複建立** | KafkaConfigIT:38-46、PriceWriterRetryIT:92-96、MarketDataIngestServiceIT:87-89 都 `admin.createTopics(TOPIC_PRICE_TICK…)`,共用 broker 後第二次會 `TopicExistsException` | helper `ensureTopics(admin, NewTopic…)`:吞掉 `TopicExistsException`;partition 數三處都是 3,所以 `KafkaConfigIT` 斷言 `hasSize(3)` 仍成立 —— 但要在 helper 註明「新增 topic 時 partition 數必須一致」 |
-| **(新)BackfillJobIT 的 Spring listener 讀到別人的 tick** | `BackfillJobIT:75` 設 `spring.kafka.consumer.auto-offset-reset=earliest`,其 context 的 `PriceWriterConsumer` 會消費殘留 tick 寫進自己的 DB;它斷言 `findRange(1L, from, to).hasSize(1440)`(:189, :216);`PriceWriterRetryIT` 的 key 是 `"1"` | 給 BackfillJobIT 獨立 database(上一條已涵蓋)+ 其他 IT 改用不會撞 assetId 1 的測試 id;或 **保守方案:BackfillJobIT 保留自己的 Kafka**(仍省下 4 次 Kafka 啟動中的 3 次)。建議先做保守方案,CI 綠後再評估 |
+| **(新)BackfillJobIT 的 Spring listener 讀到別人的 tick** | `BackfillJobIT:75` 設 `spring.kafka.consumer.auto-offset-reset=earliest`,其 context 的 `PriceWriterConsumer` 會消費殘留 tick 寫進自己的 DB;它斷言 `findRange(1L, from, to).hasSize(1440)`(:189, :216);`PriceWriterRetryIT` 的 key 是 `"1"` | 給 BackfillJobIT 獨立 database(上一條已涵蓋)+ 其他 IT 改用不會撞 assetId 1 的測試 id;或 **保守方案:BackfillJobIT 保留自己的 Kafka**(仍省下 4 次 Kafka 啟動中的 3 次)。建議先做保守方案,CI 綠後再評估（已被 D-29 推翻:BackfillJobIT 一併共用 Kafka,以唯一 topic / consumer group 隔離）|
 
 另:failsafe 預設 `runOrder=filesystem`,順序相依的問題可能潛伏;驗證時至少本機 / CI 各跑一次 `-Dfailsafe.runOrder=random`(或 `reversealphabetical`)以暴露殘留依賴 [ASSUMED: failsafe 參數名稱沿用 surefire 的 `runOrder`]。
 
@@ -278,15 +280,15 @@ Req[amount=123456789012.12345678]
 - 前端 CI 觸發只有 `push: [develop]` 與 `pull_request: [develop]`(後端是全分支 push)。新 job 建議 `needs: frontend`、`timeout-minutes: 30`、`permissions: contents: read`、加 `concurrency`。
 - 步驟:checkout 前端到 `frontend/`、解析後端 ref、checkout 後端到 `backend/`、setup-java 21(temurin、`cache: maven`)、setup-node 20(`cache-dependency-path: frontend/vue-app/package-lock.json`)、`npm ci`、`npx playwright install --with-deps chromium`、`E2E_BACKEND_DIR=$GITHUB_WORKSPACE/backend bash e2e/run-e2e.sh`、`if: always()` 上傳 `frontend/vue-app/e2e/artifacts/`。ubuntu-latest runner 內建 Docker + compose v2(後端 CI 已在用)。
 - 耗時參考:後端 develop 最新 CI(run 42348849621)Browser E2E job 07:02:44 → 07:06:17 ≈ 3.6 分鐘(只跑 @smoke 121 條)[VERIFIED: GitHub REST API]。全跑多 9 條 @extended + 新增約 19 條,預估仍在 30 分鐘 timeout 內。
-- **Wave 2 硬切的 CI 時序陷阱**:D-25 每 wave 一組 PR;Wave 2 若後端先合進 develop,前端 develop 的 push CI(checkout 後端 develop)會在前端 PR 合併前紅。兩邊 PR 要緊接著合併,合完各自 re-run develop CI;或先合前端(前端改成能吃字串前,舊後端仍送 number → 前端 strict mapper 會紅,所以順序反過來也會紅)。**結論:Wave 2 兩個 PR 必須在同一時間窗合併並接受 develop CI 短暫紅一輪**,plan 要寫明。
+- **Wave 2 硬切的 CI 時序陷阱**:D-25 每 wave 一組 PR;Wave 2 若後端先合進 develop,前端 develop 的 push CI(checkout 後端 develop)會在前端 PR 合併前紅。兩邊 PR 要緊接著合併,合完各自 re-run develop CI;或先合前端(前端改成能吃字串前,舊後端仍送 number → 前端 strict mapper 會紅,所以順序反過來也會紅)。**結論:Wave 2 兩個 PR 必須在同一時間窗合併並接受 develop CI 短暫紅一輪**,plan 要寫明。（plan-phase 已定案:05-25 `<merge_order>` 宣告「前端 PR 先、後端 PR 緊接」—— 過渡期是新前端對舊後端,strict mapper 大聲失敗(fail-closed),只有前端合併時那一次 develop run 預期為紅;兩邊合併後重跑）
 
 ### Q5 (D-23) 7 個 `*E2ETest` 與命名守門
 
 - 7 個類別:`BackfillAdminFlowE2ETest`、`MarketRestApiE2ETest`(extends `AbstractStockE2ETest`)、`WsAuthFlowE2ETest`、`WsConnectionLimitE2ETest`、`WsSubscribeReceiveE2ETest`、`WsSubscriptionLimitE2ETest`、`WsTokenRevocationE2ETest`(extends `AbstractWsE2ETest`)[CITED: grep `^class` 輸出]。
 - `stock-start/pom.xml:160-201`:預設 surefire `<exclude>**/*E2E.java</exclude>`;failsafe 預設 includes;`e2e` profile 下 surefire `<include>**/*E2E.java</include>` + `<excludes combine.self="override"/>` [VERIFIED: stock-start/pom.xml:160-201,Read]。CI E2E job 指令 `./mvnw -B -pl stock-start -am test -Pe2e`。
 - 改名後(檔名 + 類別名,`git mv`)它們自動被 e2e profile include、被預設 surefire exclude;不需改 pom。
-- **守門的關鍵細節**:`e2e/support/` 下的 `AbstractStockE2ETest`、`AbstractPortfolioE2ETest`、`AbstractWsE2ETest` **本身就以 `Test` 結尾**(abstract,surefire 不會執行抽象類別)。若照字面「擋住 `start/e2e` 套件內出現 `*Test` 結尾的類別」,這三個會紅。兩個選項:(a) 規則排除 abstract 類別(建議,零連帶修改);(b) 把三個 base 改名(例如 `AbstractStockE2ESupport`),連帶改 16+ 個 E2E 類別的 `extends`。
-- 建議實作(ArchUnit 1.3.0 已在 classpath):新檔 `stock-start/src/test/java/dowob/xyz/stockwebv2/start/E2eNamingRulesTest.java`(放在 `e2e` 套件**外**、以 `Test` 結尾 → 由 unit job 執行、不需容器):
+- **守門的關鍵細節**:`e2e/support/` 下的 `AbstractStockE2ETest`、`AbstractPortfolioE2ETest`、`AbstractWsE2ETest` **本身就以 `Test` 結尾**(abstract,surefire 不會執行抽象類別)。若照字面「擋住 `start/e2e` 套件內出現 `*Test` 結尾的類別」,這三個會紅。兩個選項:(a) 規則排除 abstract 類別(建議,零連帶修改);(b) 把三個 base 改名(例如 `AbstractStockE2ESupport`),連帶改 16+ 個 E2E 類別的 `extends`。（已被 D-27 推翻:採 (b) 改名三個 base,守門不豁免 abstract）
+- 建議實作(ArchUnit 1.3.0 已在 classpath;下方範例的 `.doNotHaveModifier(JavaModifier.ABSTRACT)` 一行已被 D-27 推翻,實作時必須刪除):新檔 `stock-start/src/test/java/dowob/xyz/stockwebv2/start/E2eNamingRulesTest.java`(放在 `e2e` 套件**外**、以 `Test` 結尾 → 由 unit job 執行、不需容器):
   ```java
   @AnalyzeClasses(packages = "dowob.xyz.stockwebv2.start.e2e",
                   importOptions = ImportOption.OnlyIncludeTests.class)
@@ -378,7 +380,7 @@ Req[amount=123456789012.12345678]
 | Watchlist | `GET /api/v1/watchlists`(`watchlistApi.ts:47`) | `watchlist-error`、`watchlist-error-code`、`watchlist-trace-id`、`watchlist-retry` | **Overview 掛載時也會 `watchlist.list()`**(`Overview.vue:926`):先在 Overview 完成載入,再裝 route,再點 `nav-watchlist` |
 | Settings | `GET /api/v1/me`(`profileApi.ts:53` `getPreferences`) | `settings-base-currency-error`、`-error-code`、`-trace-id`、`-retry` | **`/me` 也是 session bootstrap**(`authApi.ts:111`):必須等 `header-session-identity` 可見之後才裝 route,再點 nav 進 Settings;注入 5xx / abort 不會觸發 refresh(apiClient 只對 401 refresh) |
 
-**SC5 對 (a) 網路中斷的建議**:在 `apiClient.ts` 把 `fetch` 的 reject 正規化為 `ApiClientError({ status: 0, code: 'NETWORK_ERROR', message: 'Network error' })`(`AbortError` 原樣 rethrow,`OrderTicket.vue:793` / `HoldingEventDialog.vue:868` 的搜尋用 `AbortController`)。這符合鐵律 1,讓 6 頁都顯示 `NETWORK_ERROR`。連帶:`baseCurrencyErrorKey.ts` 目前以「非 `ApiClientError`」判斷網路錯誤(`if (!(error instanceof ApiClientError)) return 'baseCurrencyErrNetwork'`),要改成同時接受 `code === 'NETWORK_ERROR'`;`OrderTicket` / `CashEntryDialog` / `HoldingEventDialog` / `WatchlistPicker` 的 `handleSubmitFailure` 走 `instanceof` 分支後 code 仍是 `NETWORK_ERROR`,行為不變;沒有任何既有測試斷言 `UNKNOWN_ERROR`(grep 為空)。**此為行為變更,列 Open Question**;不做的話,SC5 (a) 的 4 頁斷言 `UNKNOWN_ERROR`。
+**SC5 對 (a) 網路中斷的建議**:在 `apiClient.ts` 把 `fetch` 的 reject 正規化為 `ApiClientError({ status: 0, code: 'NETWORK_ERROR', message: 'Network error' })`(`AbortError` 原樣 rethrow,`OrderTicket.vue:793` / `HoldingEventDialog.vue:868` 的搜尋用 `AbortController`)。這符合鐵律 1,讓 6 頁都顯示 `NETWORK_ERROR`。連帶:`baseCurrencyErrorKey.ts` 目前以「非 `ApiClientError`」判斷網路錯誤(`if (!(error instanceof ApiClientError)) return 'baseCurrencyErrNetwork'`),要改成同時接受 `code === 'NETWORK_ERROR'`;`OrderTicket` / `CashEntryDialog` / `HoldingEventDialog` / `WatchlistPicker` 的 `handleSubmitFailure` 走 `instanceof` 分支後 code 仍是 `NETWORK_ERROR`,行為不變;沒有任何既有測試斷言 `UNKNOWN_ERROR`(grep 為空)。**此為行為變更,列 Open Question**;不做的話,SC5 (a) 的 4 頁斷言 `UNKNOWN_ERROR`。（RESOLVED → D-26 採納:六頁一律 `NETWORK_ERROR`）
 
 **mock 哨兵候選**(`src/data.ts:35-50`、`stores/mockPortfolio.ts:5-9`):持股 `NVDA`、`2330.TW`、`BTC`、`ETH`(名稱 `NVIDIA Corp.`、`台積電`、`Bitcoin`)、價格 `1142.83`、`67842.40`、`3482.18`、交易備註 `加碼`、`停利`、`季度配息`、`DCA`、mock 觀察清單 `核心持倉`、`AI 概念`、`Crypto`。
 - **陷阱**:API mode 仍有合法的 Preview / 示範區塊(例:Overview 新聞卡「示範」,見 `layout.spec.ts` L16 名稱),且真後端 seed 的資產清單可能含 `NVDA`。因此**哨兵斷言要限定在目標區塊的 locator 內**(例如 `positions-table`、`overview-kpi`、`watchlist-page`),不能對整頁 `body` 做 `not.toContainText`。
@@ -631,7 +633,7 @@ for (const p of PAGES) for (const [kind, fail] of Object.entries(FAILURES)) {
   });
 }
 ```
-`error.code` 實值:5xx 信封列用注入的 code + `traceId` 列可見;502 HTML 列斷言 `HTTP_ERROR` 且 trace-id 隱藏;abort 列視 Open Question 1 決議為 `NETWORK_ERROR` 或 `UNKNOWN_ERROR`。`ErrorCode` 的實際 503 code 名稱請 planner 從 `stock-common/.../ErrorCode.java` 取(本研究未讀該 enum,上例 `SERVICE_UNAVAILABLE` 為 [ASSUMED] 佔位;注入的 body 由測試自訂,不必是後端存在的 code)。
+`error.code` 實值:5xx 信封列用注入的 code + `traceId` 列可見;502 HTML 列斷言 `HTTP_ERROR` 且 trace-id 隱藏;abort 列視 Open Question 1 決議為 `NETWORK_ERROR` 或 `UNKNOWN_ERROR`（D-26 已裁決:`NETWORK_ERROR`）。`ErrorCode` 的實際 503 code 名稱請 planner 從 `stock-common/.../ErrorCode.java` 取(本研究未讀該 enum,上例 `SERVICE_UNAVAILABLE` 為 [ASSUMED] 佔位;注入的 body 由測試自訂,不必是後端存在的 code)。
 
 ### Pattern 4: 前端 decimal 模組
 ```ts
@@ -707,11 +709,11 @@ export const toChartNumber = (d: Decimal): number => Number(d.toFixed()); // 明
 
 ### Pitfall 5: 共用 Kafka 的順序相依
 **What goes wrong:** 本機綠、CI 紅(或反之),取決於類別執行順序。
-**How to avoid:** 唯一 group id + 依 key 過濾 + `ensureTopics`;以亂序跑一次驗證;BackfillJobIT 先保留獨立 Kafka。
+**How to avoid:** 唯一 group id + 依 key 過濾 + `ensureTopics`;以亂序跑一次驗證;BackfillJobIT 先保留獨立 Kafka（已被 D-29 推翻:BackfillJobIT 一併共用 Kafka）。
 
 ### Pitfall 6: Wave 2 合併時序
 **What goes wrong:** 前後端 develop 互相 checkout,單邊先合就紅。
-**How to avoid:** 同時窗合併,合完各自 re-run develop CI;plan 寫成 checkpoint。
+**How to avoid:** 同時窗合併,合完各自 re-run develop CI;plan 寫成 checkpoint。（05-25 已宣告順序:前端 PR 先、後端 PR 緊接,並寫進兩個 PR 內文）
 
 ### Pitfall 7: `reuseExistingServer` 重用到錯 proxy 的 preview
 **What goes wrong:** 本機已開的 `npm run preview`(預設 11180)被 Playwright 重用。
@@ -751,7 +753,7 @@ if (requested.isAfter(now.plus(EXECUTED_AT_FUTURE_TOLERANCE))) {
 }
 ```
 
-### 前端:apiClient 網路錯誤正規化(若 Open Question 1 採納)
+### 前端:apiClient 網路錯誤正規化(Open Question 1 已由 D-26 採納)
 ```ts
 // Source: apiClient.ts:305 `const response = await fetch(path, init);` 的包裝建議
 async function transportFetch(path: string, init: RequestInit): Promise<Response> {
@@ -831,21 +833,23 @@ async function transportFetch(path: string, init: RequestInit): Promise<Response
 | A9 | Pattern 3 範例中的 `SERVICE_UNAVAILABLE` 只是注入 body 的佔位 code | Q9 | 無(注入值由測試自訂);若要用後端真實 code 需讀 `ErrorCode.java` |
 | A10 | 後端請求端不拒收 JSON number(維持 Jackson 預設)符合 D-07「不做雙格式並存」的本意 | Q2 | 若 Yuan 要嚴格拒收,需自訂 deserializer + 修改 118 處測試 body |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **SC5 網路中斷:要不要在 `apiClient.ts` 正規化為 `NETWORK_ERROR`?**
+> 2026-11-07 plan-phase:六題皆已定案。**以 CONTEXT.md 的裁決為準**;下列 Recommendation 保留作為研究紀錄,其中 Q2、Q5 的建議**已被 Yuan 推翻**,executor 不得採用。
+
+1. **SC5 網路中斷:要不要在 `apiClient.ts` 正規化為 `NETWORK_ERROR`?** —— **RESOLVED → D-26(採納研究建議)**:`apiClient.ts` 統一轉 `NETWORK_ERROR`,六頁一致,`baseCurrencyErrorKey` 同步調整;SC5 abort 列斷言 `NETWORK_ERROR`(05-02)。
    - What we know:目前 Overview / Positions / Trades / Cash 對 fetch reject 顯示 `UNKNOWN_ERROR`,Watchlist / Settings 顯示 `NETWORK_ERROR`;無既有測試斷言 `UNKNOWN_ERROR`;`baseCurrencyErrorKey` 依賴「非 ApiClientError」判斷網路錯。
    - What's unclear:這是行為變更(雖小),是否屬本 phase 範圍。
    - Recommendation:採納(符合鐵律 1、SC5 斷言一致、使用者看到正確分類),排在 Wave 1 的 SC2 缺口 plan,連同 `baseCurrencyErrorKey` 調整與 F1 測試。若不採納,SC5 abort 列對 4 頁斷言 `UNKNOWN_ERROR`。
-2. **D-23 守門與 `Abstract*E2ETest`**
-   - Recommendation:規則排除 abstract 類別(零連帶修改);若 Yuan 偏好字面「一個 `*Test` 都不許」,則改名三個 base 類別。
-3. **D-07 請求端是否拒收 JSON number**(見 A10)
+2. **D-23 守門與 `Abstract*E2ETest`** —— **RESOLVED → D-27(推翻研究建議)**:三個 `Abstract*E2ETest` 一併改名,守門規則對 `start/e2e` 套件內所有類別一律禁止 `*Test` 結尾,**不豁免 abstract**(規則不得含 `doNotHaveModifier(JavaModifier.ABSTRACT)`)。
+   - Recommendation(已被 D-27 推翻,勿採用):規則排除 abstract 類別(零連帶修改);若 Yuan 偏好字面「一個 `*Test` 都不許」,則改名三個 base 類別。
+3. **D-07 請求端是否拒收 JSON number**(見 A10)—— **RESOLVED → CONTEXT「Claude's Discretion」(採納研究建議)**:採 Jackson 預設(接受 JSON number),不另加拒收邏輯;契約寫「必須送字串」,前端以 wire 型別 + `Big.strict` 守住。
    - Recommendation:不拒收,契約寫「必須送字串」,前端以型別 + strict Big 守住。
-4. **D-02c 錯誤色範圍**:只改 Ops 燈,還是所有以 `--dn` 表示「錯誤」的樣式?
+4. **D-02c 錯誤色範圍**:只改 Ops 燈,還是所有以 `--dn` 表示「錯誤」的樣式?—— **RESOLVED → D-28(採納研究建議)**:所有失敗 / 錯誤樣式改用新的固定色 `--danger`,`--up` / `--dn` 只留給漲跌語意,寫死的 `rgba` 字面色改用會對調的 token。
    - Recommendation:全部改 `--danger`(D-02c 字面「失敗 / 錯誤另立固定色」),並加源碼掃描測試;需確認是否觸發 UI-SPEC 閘門。
-5. **共用容器的 Kafka 範圍**:BackfillJobIT 是否一起共用?
-   - Recommendation:第一步保留 BackfillJobIT 自己的 Kafka,其餘 4 個共用;CI 亂序跑綠後再評估。
-6. **CI 中 SC5 與 journey 的 tag**
+5. **共用容器的 Kafka 範圍**:BackfillJobIT 是否一起共用?—— **RESOLVED → D-29(推翻研究建議)**:全部共用,**包括 `BackfillJobIT`**,不保留獨立 Kafka;以每個 IT 唯一的 topic 名稱與 consumer group 隔離,處理 `TopicExistsException`、`pollOne` 讀到殘留訊息、BackfillJobIT listener 從 earliest 讀的風險,並以 `-Dfailsafe.runOrder=random` 在 CI 證明無順序相依。
+   - Recommendation(已被 D-29 推翻,勿採用):第一步保留 BackfillJobIT 自己的 Kafka,其餘 4 個共用;CI 亂序跑綠後再評估。
+6. **CI 中 SC5 與 journey 的 tag** —— **RESOLVED(plans 採納研究建議,無需另立 D-XX)**:journey `J0` 標 `@smoke`(05-01,D-10 已鎖定);SC5 18 組標 `@extended`(05-02);D-14 之後兩 repo CI 不帶 `--grep` 全跑,tag 只影響本機快速迴圈。
    - Recommendation:journey `@smoke`(D-10)、SC5 18 組 `@extended`(D-14 後兩者在 CI 都會跑,tag 只影響本機快速迴圈)。
 
 ## Environment Availability
