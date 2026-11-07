@@ -26,6 +26,14 @@ source: Yuan 2026-11-07 待辦裁決第 1、2、3C-2、3C-8 題;quick-261107-1j4
    - 紅漲綠跌模式下 Ops 失敗狀態燈不應變綠(失敗 / 錯誤語意比照 `--success` 另立固定色);寫死的 `rgba` 字面色底(如 `.pill.buy`)改用會跟著對調的 token。
    - CashEntryDialog / OrderTicket 的「未來時間」判斷改用 `useNow`,隨時間更新(與 04.2 IN-09 同類)。
 
+7. **2026-11-07 文件全面更新(map-codebase + docs-update)發現的契約 / 設定一致性問題**(Yuan 裁決併入 Phase 5;細節見 `docs/testing/overview.md`、`docs/api/reference.md`、`docs/configuration/overview.md`、`docs/guides/getting-started.md`):
+   - `stock-start` 裡 7 個舊的 `*E2ETest`(`Ws*E2ETest` ×5、`MarketRestApiE2ETest`、`BackfillAdminFlowE2ETest`)符合 Surefire `*Test.java`,`./mvnw test` 會起 Testcontainers;又不符合 `-Pe2e` 的 include,E2E job 不會跑它們。改名為 `*E2E.java`(或調整 include / exclude)並確認 CI 各 job 的歸屬。
+   - `ai-docs/architecture.md` 寫「Spring Data JDBC」,實際為手寫 `Jdbc*Repository` + `JdbcClient`(market-data 批次寫入用 `NamedParameterJdbcTemplate`),規範檔用詞更正。
+   - `ai-docs/browser-auth-contract.md` 補:瀏覽器已帶有效 `stock_access` cookie 時,login / register 會被視為 cookie 認證請求而要求 CSRF(依 `BrowserCsrfFilter` 實際行為)。
+   - 註解與程式不符:`application-demo.yaml` 檔頭沒列 `STOCK_AUTH_COOKIE_SECURE`(demo 預設 `true`);`application.yaml` 註解的 `JwkKeyConverter` 指令與 javadoc / `JwtService` 錯誤訊息(`PropertiesLauncher` + `-Dloader.main`)不一致。
+   - 前端 Vite 代理指向 `localhost:8080`,後端 `dev` profile 預設 `11180`(目前靠 `SERVER_PORT=8080` 對齊);決定要對齊哪一邊。
+   - access cookie 預設 `PT15M`、access JWT 預設 `PT30M`,兩個存活時間不一致;確認是否刻意,否則對齊並寫進契約。
+
 ## 維持現狀(不排工作)
 
 - **DB 計數**(3C-8):分頁的 `count(*)` 與觀察清單 100 檔上限的 count 維持現狀。Yuan 追問「直接呼叫 DB 計數對服務的影響」,影響分析已在 2026-11-07 討論中回答,裁決為不改。
