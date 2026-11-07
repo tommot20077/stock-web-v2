@@ -5,10 +5,10 @@ current_phase: 5
 current_phase_name: Cross-Repo Browser Flow Verification & Contract Hardening
 status: Phase 04.2 research + UI-SPEC done (2026-10-31);ready to plan
 stopped_at: Phase 04.2 complete, ready to plan Phase 5
-last_updated: "2026-11-04T12:26:55.887Z"
-last_activity: 2026-11-04
-last_activity_desc: Phase 04.2 complete, transitioned to Phase 5
-state_head: 223318613642c88af88d85c2b6eca1b76a463925
+last_updated: "2026-11-06T19:47:23.785Z"
+last_activity: 2026-11-06
+last_activity_desc: Completed quick task 261106-fbs (small-fixes batch)
+state_head: 70e7eb50faa043d6f3e04dd147260dfba2c8be98
 progress:
   total_phases: 7
   completed_phases: 5
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-04)
 Phase: 5 — Cross-Repo Browser Flow Verification & Contract Hardening
 Plan: Not started
 Next: **Phase 04.2**(Dividends, Share Adjustments & Watchlist)—— CONTEXT 已備,下一步 `/gsd-plan-phase 04.2`;Phase 04.1 已於 2026-10-31 完成並核准(32 份 plan = 25 原定 + 7 份 gap-closure,PR 後端 #50 / 前端 #18 待合併至 develop)。
-Last activity: 2026-11-04 — Phase 04.2 complete, transitioned to Phase 5
+Last activity: 2026-11-06 - Completed quick task 261106-fbs: 小型修補合併批次(對比度 / 文案 / Markets 溢出、Top movers 基準幣、後端穩健性、全面文件掃描)
 
 > ✅ **Phase 4 已完成（2026-09-04）。** 13 個 plan 全數執行完畢，`04-13` 的 blocking human-verify
 > checkpoint 由 Yuan 親自走完甲／乙／丙三段共 17 步後通過（未提出任何不符項）。
@@ -176,9 +176,9 @@ Recent decisions affecting current work:
 
 *(註:原有一條「Phase 2 planning should consume browser-auth-contract.md and avoid frontend token storage」已於 2026-07-19 移除 —— Phase 2 已完成,該提醒已過時。)*
 
-- 10 pending — `/gsd-capture --list` to review(2026-10-23 盤點;Spotless/JaCoCo、JWT 換鑰、header RWD 三條已完成、移到 `completed/`)
+- 7 pending — `/gsd-capture --list` to review(2026-11-06 盤點:04.2 解決 3 條、quick 261106-fbs 解決 5 條(cash-occurred-at-empty-copy、contrast-text-tokens、top-movers-base-currency、phase-04.1-review-followups、full-docs-sweep),新增 1 條 `cash-amount-string-serialization`(04.1 WR-04 → Phase 5))
   - 併入 04.1:`backend-available-cash`、`backend-daily-pnl`、`backend-asset-classification`
-  - 排在 04.2:`backend-dividend-trade-type`、`frontend-watchlist-mock-store`
+  - 04.2 已解決並關閉(2026-11-06):`backend-dividend-trade-type`、`frontend-watchlist-mock-store`、`overview-mock-watchlist-news-unmarked`
   - Deferred / backlog:`fx-pnl-and-rate-history`、`account-level-return`、`asset-master-management`、`kline-adjusted-prices`、`it-shared-containers`
 
 以下兩段是 2026-07 的原始記錄,保留供追溯:
@@ -200,8 +200,14 @@ Recent decisions affecting current work:
 ### Blockers/Concerns
 
 - Confirm exact frontend package scripts in sibling repo during Phase 5 planning.
-- [Phase 04.2] PR tommot20077/stock-web-v2#51 與 tommot20077/stock-web-v2-front-end#19 開向 develop,CI 全綠(含 Browser E2E 117/117、GitGuardian),待 Yuan review / merge;merge 後共用環境套用 V16 / V17 / V18(單向門)。
-- [Phase 04.2] 04.2-REVIEW 仍有 14 條建議性 finding open(WR-02/03/04/08/10、IN-01 ~ IN-09),不觸及 Success Criteria,見 04.2-REVIEW-DISPOSITION.md;另有契約文件小修 G2 與 Markets 頁 < 640px 溢出(既有)建議另開 quick task。
+- [Phase 04.2] PR tommot20077/stock-web-v2#51 與 tommot20077/stock-web-v2-front-end#19 已於 2026-11-05 合併進 develop(merge commit 7b7ade0 / b4ff61e);V16 / V17 / V18 已進 develop,之後改形狀只能靠新 migration。
+- [Phase 04.2] 04.2-REVIEW 仍有 12 條建議性 finding open(WR-03/08/10、IN-01 ~ IN-09;WR-02 / WR-04 已由 quick 261106-fbs 修正),不觸及 Success Criteria,見 04.2-REVIEW-DISPOSITION.md。G2 契約文件與 Markets < 640px 溢出已於 261106-fbs 處理。
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 261106-fbs | 小型修補合併批次:前端對比度 / 文案 / Markets 溢出、Top movers 基準幣、後端穩健性(04.1 WR-02/03、04.2 WR-02/04)、全面文件掃描 | 2026-11-06 | 70e7eb5 | [261106-fbs-small-fixes-batch-a-markets-640px-b-top-](./quick/261106-fbs-small-fixes-batch-a-markets-640px-b-top-/) |
 
 ## Deferred Items
 

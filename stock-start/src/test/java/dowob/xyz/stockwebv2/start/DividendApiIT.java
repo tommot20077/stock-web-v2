@@ -33,6 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * {@code POST /api/v1/portfolio/dividends} 的端到端整合測試（DIV-01 tracer）。
@@ -180,7 +181,12 @@ class DividendApiIT extends ContainerIT {
             .andReturn()
             .getResponse()
             .getContentAsString();
-        assertThat(body).doesNotContain(ownerDividend).doesNotContain("987.65").doesNotContain("12.34");
+        // 只檢查回應中「非 meta」的部分:meta.timestamp 是伺服器時間(例如 …:56:12.340947…),
+        // 秒數與小數可能湊出 "12.34" 這類字串,raw body 比對會偶發誤判;traceId / timestamp 與資料洩漏無關。
+        ObjectNode response = (ObjectNode) objectMapper.readTree(body);
+        response.remove("meta");
+        String withoutMeta = response.toString();
+        assertThat(withoutMeta).doesNotContain(ownerDividend).doesNotContain("987.65").doesNotContain("12.34");
 
         assertThat(dividendRows(ownerEmail)).isEqualTo(1);
         assertThat(dividendRows(intruderEmail)).isZero();
@@ -279,7 +285,7 @@ class DividendApiIT extends ContainerIT {
     }
 
     @Test
-    @DisplayName("欄位越界與沖銷值不符：400 VALIDATION_FAILED 且 fields 指名欄位（amount / withholdingTax / note / reversalOfId / paidAt）；回應不回射 symbol 與 key")
+    @DisplayName("欄位越界與沖銷值不符：400 VALIDATION_FAILED 且 fields 指名欄位（amount / withholdingTax / note / reversalOfId / paidAt 未來與早於 1900-01-01）；回應不回射 symbol 與 key")
     void fieldErrorsNameTheOffendingField() throws Exception {
         String email = "div-fields-" + UUID.randomUUID() + "@example.com";
         String accessToken = register(email, "divfield" + UUID.randomUUID().toString().substring(0, 8));
@@ -302,6 +308,10 @@ class DividendApiIT extends ContainerIT {
             """, "reversalOfId");
         assertFieldError(accessToken, canaryKey, """
             {"symbol":"AAPL","amount":120,"paidAt":"2999-01-01T00:00:00Z"}
+            """, "paidAt");
+        /* 04.2 WR-04：帶號擴充年份在 Jackson 可解析、PostgreSQL 存不下；下限 1900-01-01 讓它回 400 而不是 500。 */
+        assertFieldError(accessToken, canaryKey, """
+            {"symbol":"AAPL","amount":120,"paidAt":"-10000-01-01T00:00:00Z"}
             """, "paidAt");
 
         String originalId = dividendIdOf(postDividend(accessToken, UUID.randomUUID().toString(), AAPL_DIVIDEND)

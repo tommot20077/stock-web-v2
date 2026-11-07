@@ -1,10 +1,12 @@
 ---
-last_mapped_commit: b4459745f0bdf575818d0613cfa9e5b5276f55d8
-sibling_frontend_last_mapped_commit: 0d942c2af74440ce4509383206b38a3021136841
+last_mapped_commit: 5ca148d0e17ea7e2cafc957738dbfc70fe6dfa74
+sibling_frontend_last_mapped_commit: 5e215a00510e25fddce7d02b6aa3bf7d0942748d
 ---
 # Coding Conventions
 
-**Analysis Date:** 2026-05-30
+**Analysis Date:** 2026-11-06(初次分析 2026-05-30)
+
+**Refresh:** 2026-11-06 targeted refresh (quick-261106-fbs Task 3) — 以程式核對並修正與現況衝突處,**不是** `/gsd-map-codebase` 全量重產(本次執行環境無法派 mapper agents;建議日後全量重產)。前端路徑以 Yuan 本機佈局 `../../vue/stock-v2/vue-app` 表示(cloud 環境為 `../stock-web-v2-front-end/vue-app`)。
 
 ## Project Instructions
 
@@ -59,15 +61,14 @@ sibling_frontend_last_mapped_commit: 0d942c2af74440ce4509383206b38a3021136841
 ## Code Style
 
 **Formatting:**
-- Backend uses Maven/Java defaults; no Checkstyle, Spotless, or formatter config is detected. Follow existing indentation: 4 spaces in Java files such as `stock-module-backtest/src/main/java/dowob/xyz/stockwebv2/backtest/service/BacktestService.java`.
-- Frontend uses Vite/Vue/TypeScript defaults; no ESLint, Prettier, or Biome config is detected under `../../vue/stock-v2/vue-app`.
-- Keep Java imports explicit and sorted by package groups: project imports, framework imports, JDK imports, then static imports in tests.
+- Backend: Spotless (root `pom.xml`, bound to `validate`, CI job `spotless:check`) enforces `removeUnusedImports`, import order `dowob, jakarta, org, com, java, static`, trailing-whitespace trim and final newline; it does not reformat code. Follow existing indentation: 4 spaces. No Checkstyle.
+- Frontend: ESLint flat config `../../vue/stock-v2/vue-app/eslint.config.js` (`@eslint/js`, `typescript-eslint`, `eslint-plugin-vue`, `eslint-config-prettier`) and Prettier `../../vue/stock-v2/vue-app/.prettierrc.json` (`npm run format`).
+- Keep Java imports explicit; the group order is enforced by Spotless (see above).
 - Keep TypeScript imports with value imports before type-only imports when both appear, as in `../../vue/stock-v2/vue-app/src/services/backtestApi.ts`.
 
 **Linting:**
-- Backend linting tool: Not detected.
-- Frontend linting tool: Not detected.
-- CI currently enforces tests through `.github/workflows/ci.yml`; it does not run a dedicated lint job.
+- Backend: Spotless `check` (CI job in `.github/workflows/ci.yml`); ArchUnit rules in `stock-start` tests act as architecture lint.
+- Frontend: `npm run lint` (`eslint src`), run in the frontend repo CI before tests.
 
 **Backend style rules:**
 - Prefer constructor injection with final fields, e.g. `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/service/AuthService.java`.
@@ -82,11 +83,13 @@ sibling_frontend_last_mapped_commit: 0d942c2af74440ce4509383206b38a3021136841
 
 ## Import Organization
 
-**Backend order:**
-1. Project imports under `dowob.xyz.stockwebv2.*`.
-2. Third-party and Spring imports.
-3. JDK imports.
-4. Static imports in tests.
+**Backend order** (enforced by Spotless `importOrder` in root `pom.xml`):
+1. `dowob.*` (project).
+2. `jakarta.*`.
+3. `org.*` (Spring etc.).
+4. `com.*`.
+5. `java.*`.
+6. Static imports.
 
 **Backend examples:**
 - `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/api/AuthController.java` follows project, servlet/validation, Spring, JDK import grouping.
@@ -117,11 +120,11 @@ sibling_frontend_last_mapped_commit: 0d942c2af74440ce4509383206b38a3021136841
 - Do not return `ApiResponse.failed(...)` directly from `@ExceptionHandler`; always wrap with `ResponseEntity`.
 - `AccessDeniedException` must be re-thrown for Spring Security to produce HTTP 403 per `ai-docs/security.md`; verify this when changing `stock-start/src/main/java/dowob/xyz/stockwebv2/start/error/GlobalExceptionHandler.java`.
 - `ResourceNotFoundException` messages should include only the resource type name, never IDs or paths.
-- `SystemException`/unexpected errors must return a fixed external message and keep details in logs.
+- Unexpected errors (catch-all; there is no `SystemException` class) must return a fixed external message and keep details in logs.
 
 **Frontend patterns:**
 - Throw `ApiClientError` for non-OK responses, malformed JSON, malformed success envelopes, and malformed error envelopes in `../../vue/stock-v2/vue-app/src/services/apiClient.ts`.
-- Convert backend error envelopes into typed errors with `status`, `code`, `message`, `requestId`, optional `field`, and optional `details`.
+- Convert backend error envelopes into typed errors with `status`, `code`, `message`, `requestId` (read from `meta.traceId`), `fields` (the backend `error.fields` map, or `null`), plus legacy optional `field` / `details` that the backend never sends.
 - HTTP adapters should validate paginated envelopes before returning them, as in `../../vue/stock-v2/vue-app/src/services/backtestApi.ts`.
 - UI-level tests assert safe fallback states on failed adapter loads, e.g. `../../vue/stock-v2/vue-app/src/api-adapter-wiring.test.ts`.
 
@@ -142,7 +145,7 @@ sibling_frontend_last_mapped_commit: 0d942c2af74440ce4509383206b38a3021136841
 - Classes should include description, author, and version JavaDoc when adding or touching files.
 - Public methods should document behavior, parameters, and returns.
 - Member variables should document purpose and meaning where project standards require it.
-- Prefer JavaDoc block comments over `//` comments. Existing tests contain some `//` comments, e.g. `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/api/MarketControllerTest.java`; new backend comments should follow the block style.
+- Classes, public methods and members use `/** ... */` JavaDoc; short `//` comments inside method bodies are allowed for explaining *why* (decided 2026-09-28, `ai-docs/code-standards.md`).
 
 **JSDoc/TSDoc:**
 - Frontend TypeScript does not use heavy TSDoc; types and interfaces carry most structure. Add comments only when code intent is not clear from names and types.
@@ -179,14 +182,15 @@ sibling_frontend_last_mapped_commit: 0d942c2af74440ce4509383206b38a3021136841
 **Required pattern:**
 - Use `JdbcClient` with named parameters for SQL, e.g. `:userId`, `:assetId`, `:limit` in `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/repository/JdbcTradingRepository.java`.
 - Never concatenate untrusted values into SQL. Static fragment composition is present for fixed column and `where` clauses in `JdbcTradingRepository`; keep any dynamic values in `.param(...)`.
-- For LIKE queries, escape wildcards with the documented `LikeEscapeUtil.escape(keyword)` pattern from `ai-docs/code-standards.md`.
+- For LIKE / ILIKE queries, escape `\\`, `%`, `_` and cap input length as `AssetRepository.likePattern` does (there is no shared `LikeEscapeUtil`; see `ai-docs/code-standards.md`).
 
 ## Security and Authorization
 
 **Required pattern:**
 - URL-layer authorization belongs in `stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java`.
 - Method-layer authorization uses `@PreAuthorize` with permissions, e.g. `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/api/TradingController.java`.
-- Ownership checks belong in the service layer, not controllers, using `SecurityUtils.assertOwnerOrAdmin(currentUserId, resourceOwnerId)` per `ai-docs/security.md`.
+- Ownership is enforced by query scoping: repositories filter `where user_id = :userId`, another user's resource is simply not found → 404; ADMIN does not bypass; controllers never check ownership (`ai-docs/security.md` §4; the old `SecurityUtils.assertOwnerOrAdmin` design was retired 2026-09-28).
+- Every endpoint method must declare `@PreAuthorize` or be allow-listed with a reason (`EndpointAuthorizationRulesTest`).
 - JWT tests must not hardcode token fixtures; use generated tokens, `@WithMockUser`, or request post-processors per `ai-docs/testing-standards.md`.
 
 ## Frontend Integration Rules
@@ -199,4 +203,4 @@ sibling_frontend_last_mapped_commit: 0d942c2af74440ce4509383206b38a3021136841
 
 ---
 
-*Convention analysis: 2026-05-30*
+*Convention analysis: 2026-05-30;targeted refresh 2026-11-06*

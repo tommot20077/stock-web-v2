@@ -30,12 +30,15 @@ void methodNameInChinese() { ... }
 | Layer | Naming | Tools | Scope |
 |-------|--------|-------|-------|
 | Unit | `*Test.java` | Mockito + JUnit 5 | Service business logic |
-| Web layer | `*ControllerTest.java` | `@WebMvcTest` + MockitoBean | Controller + Security |
+| Web layer | `*ControllerTest.java` / `*ControllerWebMvcTest.java` | `@WebMvcTest` + MockitoBean | Controller + Security |
 | Integration | `*IT.java` | `@SpringBootTest` + Testcontainers | Full API flow |
+| Backend E2E | `*E2E.java`(`stock-start/.../e2e/`) | `@SpringBootTest` + Testcontainers, `-Pe2e` profile | Multi-step user flows (`./mvnw -pl stock-start -am test -Pe2e`) |
 
 `*IT.java` 一律由 **failsafe** 在 `verify` 階段執行,不得加進 surefire 的 includes:`./mvnw test` 只跑不需容器的單元 / Web 層測試(2026-09-27 起,IT 移出 surefire 後 `./mvnw test` 由約 5 分鐘降到約 2.5 分鐘)。需要容器的測試必須以 `IT` 結尾,否則會跑在 surefire、拖慢單元迴圈。
 
 ## Testcontainers Shared Container Pattern
+
+> As implemented (2026-11-06): `stock-start/src/test/java/dowob/xyz/stockwebv2/start/support/ContainerIT.java` is the shared base — static singleton containers `timescale/timescaledb:2.17.2-pg16`, `redis:7.4-alpine` and `confluentinc/cp-kafka:7.6.0`, started once per JVM with `Startables.deepStart`; **no** `withReuse(true)`. It also disables rate limiting for the shared suite (`AuthRateLimitAndLockoutIT` overrides it). Module ITs (asset / market-data) declare their own containers. Sharing containers across market-data ITs is a backlog todo (`2026-09-27-it-shared-containers`). The snippet below is the original design sketch.
 
 Use **singleton pattern** + `withReuse(true)` to share containers across test classes:
 
@@ -58,7 +61,7 @@ public abstract class BaseIntegrationTest {
 }
 ```
 
-**Phase 1 only starts PG + Redis.** Kafka/ES containers are deferred to their respective phases.
+**Phase 1 only started PG + Redis.** Kafka is now part of `ContainerIT`; Elasticsearch is not used.
 
 ## JWT Testing Rules
 
@@ -69,6 +72,8 @@ public abstract class BaseIntegrationTest {
 
 ## DataProvider Test Patterns
 
+> Design target — as of 2026-11-06 there is no Circuit Breaker, WireMock or `TestRealtimeDataProvider` in the repo; only the mock provider exists (`MockDataProvider`).
+
 | Test Type | Tool | Purpose |
 |-----------|------|---------|
 | Unit test | Mockito mock Circuit Breaker state | CB open/closed/half-open state transitions |
@@ -77,7 +82,10 @@ public abstract class BaseIntegrationTest {
 
 ## ArchUnit Testing Requirements
 
-Establish foundational ArchUnit rules (3-5 rules) from Phase 1 Sprint 1:
+Establish foundational ArchUnit rules (3-5 rules) from Phase 1 Sprint 1.
+
+> As implemented (2026-11-06): `stock-start/.../ArchitectureRulesTest.java` enforces rules 1, 2 (facade interfaces live in `stock-infrastructure`), 3 and 5; `EndpointAuthorizationRulesTest.java` additionally requires every endpoint method to carry `@PreAuthorize` or be on a reasoned allow-list. Rule 4 is enforced by per-endpoint "non-owner returns 404" tests, not by ArchUnit.
+
 
 1. **Module isolation**: No direct dependencies between L2 modules
 2. **Facade boundary**: L2 modules interact only through `stock-infrastructure` Facade interfaces

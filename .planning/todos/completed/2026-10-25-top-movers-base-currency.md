@@ -7,6 +7,8 @@ files:
   - stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/api/HoldingDto.java
   - stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/service/PortfolioQueryService.java
 source: Phase 04.1 plan 04.1-16 executor 回報(Yuan 於 2026-10-25 裁決:記待辦,不在 04.1 處理)
+resolved: 2026-11-06
+resolved_by: quick-261106-fbs(後端 da4b541..7221c7f、前端 b4ff61e..fbae351;PR 待 orchestrator 開)
 ---
 
 ## Problem
@@ -29,3 +31,10 @@ Positions 頁的 Top movers 卡(mock 與 API 兩模式共用):
   同步契約檔與前端 `apiTypes.ts`。
 - 前端:API mode 以 `unrealizedPnlInBase` 排序、金額走共用 `moneyFormat`(數字 + 基準幣 ISO);
   缺值的持倉不進榜並提示。
+
+## Resolution
+
+- 後端 `5a56a3e`(RED)→ `2cb62a1`(GREEN):`HoldingDto` 緊接 `marketValueInBase` 新增 `unrealizedPnlInBase`(以目前匯率折成基準幣;與 `marketValueInBase` 同條件為 null;回應時補上、不寫入持倉快取,`portfolio:valuation:v2` / `portfolio:summary:v3` 不變);trading-portfolio-contract 已同步。
+- 前端 `7d6e503`(RED)→ `0fcbca7`(GREEN):`apiTypes.ts` 新增欄位;Positions Top movers 以 `|unrealizedPnlInBase|` 排序取前 4,金額走 `fmtSignedMoney(…, base, 0)`(數字 + 基準幣 ISO),移除寫死的 `$`;缺值持倉不進榜並顯示 `topMoversFxExcluded`「N 檔…未列入排行」提示;mock mode 以 USD 代碼呈現。
+- 偏離原建議:無。
+- 證據:`task1-report.md`(1a)、`task2-report.md`(2a),同目錄 `.planning/quick/261106-fbs-small-fixes-batch-a-markets-640px-b-top-/`。

@@ -31,7 +31,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -167,7 +170,7 @@ class PortfolioQueryServiceTest {
             new BigDecimal("5"), new BigDecimal("200"), new BigDecimal("1000"), new BigDecimal("210"),
             new BigDecimal("1050"), BigDecimal.ZERO, new BigDecimal("50"), new BigDecimal("0.05"),
             OffsetDateTime.parse("2026-09-04T10:00:00+08:00"), OffsetDateTime.parse("2026-09-01T00:00:00+08:00"),
-            "USD", "STOCK", "Tech", null, null, null, null, null, null);
+            "USD", "STOCK", "Tech", null, null, null, null, null, null, null);
         when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of(42L, cachedMsft));
         when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(
             41L, quote(new BigDecimal("150"), null, OffsetDateTime.parse("2026-09-04T10:00:00+08:00")),
@@ -176,9 +179,9 @@ class PortfolioQueryServiceTest {
         List<HoldingDto> holdings = service.listHoldings(7L);
 
         assertThat(holdings).extracting(HoldingDto::symbol).containsExactly("AAPL", "MSFT", "NVDA");
-        // 快取命中者不重算估值；只在回傳時依本次基準幣補上 baseCurrency / marketValueInBase（新 record，非同一實例）。
+        // 快取命中者不重算估值；只在回傳時依本次基準幣補上 baseCurrency / marketValueInBase / unrealizedPnlInBase（新 record，非同一實例）。
         assertThat(holdings.get(1)).usingRecursiveComparison()
-            .ignoringFields("baseCurrency", "marketValueInBase").isEqualTo(cachedMsft);
+            .ignoringFields("baseCurrency", "marketValueInBase", "unrealizedPnlInBase").isEqualTo(cachedMsft);
         assertThat(holdings.get(0).marketPrice()).isEqualByComparingTo("150");
         assertThat(holdings.get(2).marketPrice()).isEqualByComparingTo("310");
 
@@ -554,6 +557,20 @@ class PortfolioQueryServiceTest {
     }
 
     @Test
+    @DisplayName("summary 必須在可重複讀的唯讀交易內：多道聚合述句共用同一個快照（04.1 WR-03）")
+    void summaryRunsInARepeatableReadReadOnlyTransaction() throws NoSuchMethodException {
+        Method method = PortfolioQueryService.class.getMethod("summary", Long.class);
+
+        Transactional transactional = method.getAnnotation(Transactional.class);
+
+        assertThat(transactional).as("summary 需有 @Transactional").isNotNull();
+        assertThat(transactional.readOnly()).isTrue();
+        assertThat(transactional.isolation())
+            .as("readOnly 不改隔離層級；READ COMMITTED 下持倉、快照、現金與股利各道述句會各取自己的快照")
+            .isEqualTo(Isolation.REPEATABLE_READ);
+    }
+
+    @Test
     @DisplayName("持倉帶原幣幣別、資產類型、產業與基準幣市值；既有 marketValue 維持原幣")
     void holdingsCarryProfileFieldsAndBaseValuation() {
         HoldingPosition aapl = position(1L, 41L, "AAPL", new BigDecimal("10"), new BigDecimal("100"));
@@ -587,9 +604,34 @@ class PortfolioQueryServiceTest {
         HoldingDto dto = service.listHoldings(7L).getFirst();
 
         assertThat(dto.marketValueInBase()).isNull();
+        assertThat(dto.unrealizedPnlInBase()).as("與 marketValueInBase 同條件為 null").isNull();
         assertThat(dto.baseCurrency()).isEqualTo("TWD");
         assertThat(dto.currency()).isEqualTo("USD");
         assertThat(dto.marketValue()).isEqualByComparingTo("2000.00000000");
+        assertThat(dto.unrealizedPnl()).isEqualByComparingTo("1000.00000000");
+    }
+
+    @Test
+    @DisplayName("持倉帶以目前匯率折成基準幣的未實現損益 unrealizedPnlInBase；寫入快取的原幣 DTO 該欄為 null")
+    void holdingsCarryUnrealizedPnlInBase() {
+        HoldingPosition aapl = position(1L, 41L, "AAPL", new BigDecimal("10"), new BigDecimal("100"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(aapl));
+        when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of());
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(profiles());
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(
+            41L, quote(new BigDecimal("110"), null, OffsetDateTime.parse("2026-09-04T10:00:00+08:00"))));
+
+        HoldingDto dto = service.listHoldings(7L).getFirst();
+
+        /* 10 × (110 − 100) = 100 USD；USD→TWD 32.418 → 3241.80000000（scale 8、HALF_UP，與 marketValueInBase 同路徑）。 */
+        assertThat(dto.unrealizedPnl()).isEqualByComparingTo("100.00000000");
+        assertThat(dto.unrealizedPnlInBase()).isNotNull();
+        assertThat(dto.unrealizedPnlInBase()).isEqualByComparingTo("3241.80000000");
+        assertThat(dto.unrealizedPnlInBase().scale()).isEqualTo(8);
+        ArgumentCaptor<HoldingDto> written = ArgumentCaptor.forClass(HoldingDto.class);
+        verify(portfolioCache).writeHolding(eq(7L), eq(41L), written.capture());
+        assertThat(written.getValue().unrealizedPnlInBase()).as("快取只存原幣").isNull();
+        assertThat(written.getValue().marketValueInBase()).isNull();
     }
 
     @Test
@@ -602,7 +644,7 @@ class PortfolioQueryServiceTest {
             new BigDecimal("2"), new BigDecimal("900"), new BigDecimal("1800"), new BigDecimal("1000"),
             new BigDecimal("2000"), BigDecimal.ZERO, new BigDecimal("200"), new BigDecimal("0.11111111"),
             OffsetDateTime.parse("2026-09-04T10:00:00+08:00"), OffsetDateTime.parse("2026-09-01T00:00:00+08:00"),
-            "TWD", "STOCK", "Tech", null, null, null, null, null, null);
+            "TWD", "STOCK", "Tech", null, null, null, null, null, null, null);
         when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of(43L, cachedOriginal));
 
         HoldingDto dto = service.listHoldings(7L).getFirst();
@@ -610,8 +652,12 @@ class PortfolioQueryServiceTest {
         assertThat(dto.baseCurrency()).isEqualTo("USD");
         assertThat(dto.marketValueInBase()).isEqualByComparingTo("61.69400000");
         assertThat(dto.marketValue()).isEqualByComparingTo("2000");
+        /* 200 TWD × 0.030847（TWD→USD 直接列）= 6.16940000。 */
+        assertThat(dto.unrealizedPnlInBase()).isNotNull();
+        assertThat(dto.unrealizedPnlInBase()).isEqualByComparingTo("6.16940000");
         assertThat(cachedOriginal.baseCurrency()).isNull();
         assertThat(cachedOriginal.marketValueInBase()).isNull();
+        assertThat(cachedOriginal.unrealizedPnlInBase()).isNull();
         verify(portfolioCache, never()).writeHolding(anyLong(), anyLong(), any(HoldingDto.class));
     }
 
@@ -641,7 +687,7 @@ class PortfolioQueryServiceTest {
             new BigDecimal("10"), new BigDecimal("100"), new BigDecimal("1000"), new BigDecimal("200"),
             new BigDecimal("2000"), BigDecimal.ZERO, new BigDecimal("1000"), new BigDecimal("1"),
             OffsetDateTime.parse("2026-09-04T10:00:00+08:00"), OffsetDateTime.parse("2026-09-01T00:00:00+08:00"),
-            "USD", "STOCK", "Tech", null, null, null, null, null, null);
+            "USD", "STOCK", "Tech", null, null, null, null, null, null, null);
         when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of(41L, cached));
 
         service.listHoldings(7L);
@@ -856,6 +902,46 @@ class PortfolioQueryServiceTest {
     }
 
     @Test
+    @DisplayName("今天賣光的平倉候選有成交與行情但查無資產屬性：計入 dayPnlExcludedCount，唯一候選時總額為 null（04.1 IN-05）")
+    void closedCandidateWithoutProfileIsCountedAsExcluded() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        when(repository.listHoldings(7L)).thenReturn(List.of());
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of(
+            closedSnapshot(99L, OffsetDateTime.now().minusHours(1))));
+        /* profiles() 只有 41 / 43：99 查無資產屬性，無從得知幣別、無法折算。 */
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(profiles());
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(99L, quote("125", "110")));
+        when(repository.listFillsSince(eq(7L), any(OffsetDateTime.class))).thenReturn(List.of(
+            fill(99L, TradeType.SELL, "4", "120", "2026-09-04T09:00:00-04:00")));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        assertThat(dto.dayPnlExcludedCount()).as("候選未計入總額就必須計入排除數").isEqualTo(1);
+        assertThat(dto.dayPricePnl()).isNull();
+        assertThat(dto.dayPricePnlRatio()).isNull();
+        assertThat(dto.fxExcludedCount()).as("平倉候選不是持倉，不計入 fxExcludedCount").isZero();
+    }
+
+    @Test
+    @DisplayName("持有中且查無資產屬性的持倉只計入 fxExcludedCount，dayPnlExcludedCount 不重複計（04.1 IN-05）")
+    void heldPositionWithoutProfileIsOnlyFxExcluded() {
+        givenBase(CurrencyCode.TWD, seedRates());
+        HoldingPosition unknown = position(9L, 99L, "UNKNOWN", new BigDecimal("10"), new BigDecimal("100"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(unknown));
+        when(repository.listHoldingSnapshots(7L)).thenReturn(List.of(
+            snapshot(99L, new BigDecimal("10"), new BigDecimal("100"), BigDecimal.ZERO)));
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(profiles());
+        /* 昨日即持有卻沒有前收：今日損益不可得，但該檔已因缺資產屬性計入 fxExcludedCount。 */
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(99L, quote("200", null)));
+
+        PortfolioSummaryDto dto = service.summary(7L);
+
+        assertThat(dto.fxExcludedCount()).isEqualTo(1);
+        assertThat(dto.dayPnlExcludedCount()).as("已計入 fxExcludedCount 者不再計入 dayPnlExcludedCount").isZero();
+        assertThat(dto.dayPricePnl()).isNull();
+    }
+
+    @Test
     @DisplayName("全部候選都被排除時總額為 null、比率為 null，並回報排除數")
     void allCandidatesExcludedYieldsNullTotal() {
         givenBase(CurrencyCode.TWD, seedRates());
@@ -927,7 +1013,7 @@ class PortfolioQueryServiceTest {
             new BigDecimal("10"), new BigDecimal("100"), new BigDecimal("1000"), new BigDecimal("200"),
             new BigDecimal("2000"), BigDecimal.ZERO, new BigDecimal("1000"), new BigDecimal("1"),
             PRICE_TIME, OffsetDateTime.parse("2026-09-01T00:00:00+08:00"),
-            "USD", "STOCK", "Tech", null, null,
+            "USD", "STOCK", "Tech", null, null, null,
             new BigDecimal("190"), new BigDecimal("100"), new BigDecimal("0.05263158"), new BigDecimal("1900"));
         when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of(41L, cached));
 

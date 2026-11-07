@@ -26,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
@@ -69,6 +70,12 @@ public class ShareAdjustmentService {
      * 生效瞬間可超前伺服器現在的容忍量，吸收客戶端與伺服器的時鐘偏差（同 {@code EXECUTED_AT_FUTURE_TOLERANCE}）。
      */
     private static final Duration EFFECTIVE_AT_FUTURE_TOLERANCE = Duration.ofMinutes(5);
+
+    /**
+     * 除權日的下限（含）。{@code LocalDate} 接受帶號擴充年份，PostgreSQL {@code date} / {@code timestamptz} 卻只到
+     * 西元前 4713 年；沒有下限時極端值會在第一個綁定 {@code :effectiveAt} 的查詢才炸成 500（04.2 REVIEW WR-04）。
+     */
+    static final LocalDate MIN_EFFECTIVE_DATE = LocalDate.of(1900, 1, 1);
 
     /**
      * 股數調整帳本的資料存取。
@@ -165,6 +172,11 @@ public class ShareAdjustmentService {
         validateIdempotencyKey(idempotencyKey);
         ShareAdjustmentType type = ShareAdjustmentType.fromApiValue(request.type());
         validateShape(type, request);
+        // 下限在任何 Facade 呼叫之前擋下：DB 存不下的日期不得落到 quantityAsOf / insert 變成 500。
+        if (request.effectiveDate().isBefore(MIN_EFFECTIVE_DATE)) {
+            throw new FieldValidationException("Invalid effectiveDate",
+                Map.of(EFFECTIVE_DATE_FIELD, "must not be before 1900-01-01"));
+        }
         UUID reversalUuid = parseReversalOfId(request.reversalOfId());
         OffsetDateTime now = OffsetDateTime.now(clock);
         // Facade 往返 1/2：解析標的（只有 active + tradeable 可記），同時取得換算生效瞬間所需的市場屬性。

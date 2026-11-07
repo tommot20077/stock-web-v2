@@ -316,6 +316,20 @@ class WatchlistApiIT extends ContainerIT {
     // ── 項目（WATCH-02，04.2-12）──────────────────────────────────────────
 
     @Test
+    @DisplayName("IT 10b：小寫 symbol（aapl）大小寫不敏感，加入成功且清單含 AAPL（04.2 REVIEW WR-02）")
+    void addItemAcceptsLowerCaseSymbol() throws Exception {
+        String token = registerAndLogin("watch-add-lower@example.com", "watchaddlower");
+        String id = getWatchlists(token).get(0).get("id").asText();
+
+        addItem(token, id, "aapl")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.items.length()", equalTo(1)))
+            .andExpect(jsonPath("$.data.items[-1].symbol", equalTo("AAPL")));
+
+        assertThat(symbols(getWatchlists(token).get(0).get("items"))).containsExactly("AAPL");
+    }
+
+    @Test
     @DisplayName("IT 10：加入 AAPL 出現在尾端；USD/TWD（不可交易）可加入且報價為 null；重複加入 AAPL 原樣回")
     void addItemAppendsAtEndAndIsIdempotent() throws Exception {
         String token = registerAndLogin("watch-add@example.com", "watchadd");

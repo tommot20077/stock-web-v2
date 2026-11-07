@@ -37,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -249,6 +250,33 @@ class ShareAdjustmentServiceTest {
                 assertThat(ex.fields()).containsKey("effectiveDate");
             });
         verifyNoInteractions(repository, tradingRepository, portfolioCache);
+    }
+
+    @Test
+    @DisplayName("除權日早於 1900-01-01（1899-12-31）→ 400 fields.effectiveDate，在任何 Facade 呼叫前擋下（04.2 WR-04）")
+    void effectiveDateBeforeFloorIsRejectedBeforeAnyFacadeCall() {
+        assertThatThrownBy(() -> service.create(USER_ID,
+            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null,
+                LocalDate.parse("1899-12-31"), null, null), "k-floor"))
+            .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                assertThat(ex.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                assertThat(ex.fields()).containsEntry("effectiveDate", "must not be before 1900-01-01");
+            });
+        verifyNoInteractions(assetFacade, repository, tradingRepository, portfolioCache);
+    }
+
+    @Test
+    @DisplayName("除權日恰為 1900-01-01：下限含邊界，不被下限擋下（04.2 WR-04）")
+    void effectiveDateOnFloorIsNotRejectedByFloor() {
+        holding("1000", "100");
+        when(repository.quantityAsOf(eq(USER_ID), eq(AAPL_ID), any(OffsetDateTime.class))).thenReturn(new BigDecimal("1000"));
+
+        ShareAdjustmentDto dto = service.create(USER_ID,
+            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null,
+                LocalDate.parse("1900-01-01"), null, null), "k-floor-ok");
+
+        assertThat(dto.effectiveDate()).isEqualTo(LocalDate.parse("1900-01-01"));
+        verify(repository).insertIfAbsent(any(ShareAdjustmentEntry.class));
     }
 
     @Test

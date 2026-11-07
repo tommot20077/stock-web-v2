@@ -1,6 +1,6 @@
 # Event & Kafka Conventions
 
-> **As implemented (2026-09-27) — read first.** Most of this file is the target design. What exists today:
+> **As implemented (2026-09-27; re-verified against code 2026-11-06) — read first.** Most of this file is the target design. What exists today:
 >
 > - `EventPublisher` / `EventSubscriber` / `DomainEvent` are interfaces in `stock-infrastructure/event` with
 >   **no implementation and no caller** — kept as reserved extension points (decision 2026-09-28). `SpringEventPublisher` / `KafkaEventPublisher` and the profile switch

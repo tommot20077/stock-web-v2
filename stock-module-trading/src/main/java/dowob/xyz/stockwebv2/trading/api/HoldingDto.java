@@ -8,7 +8,7 @@ import java.time.OffsetDateTime;
  *
  * <p>金額欄位（{@code avgCost}、{@code costBasis}、{@code marketPrice}、{@code marketValue}、
  * {@code realizedPnl}、{@code unrealizedPnl}）一律為<strong>原幣</strong>（{@code currency}）。
- * {@code baseCurrency} 與 {@code marketValueInBase} 是回應時才依使用者基準幣補上的折算值，
+ * {@code baseCurrency}、{@code marketValueInBase} 與 {@code unrealizedPnlInBase} 是回應時才依使用者基準幣補上的折算值，
  * <strong>不寫入持倉快取</strong>（快取只存原幣，基準幣為 null），避免基準幣變更後讀到舊單位。
  *
  * @param assetId           資產 UUID
@@ -29,6 +29,8 @@ import java.time.OffsetDateTime;
  * @param sector            產業分類；可為 null，由前端顯示「未分類」
  * @param baseCurrency      使用者基準幣代碼；快取中的原幣 DTO 為 null
  * @param marketValueInBase 折算成基準幣的市值；換不到匯率時為 null
+ * @param unrealizedPnlInBase 以目前匯率把 {@code unrealizedPnl} 折算成基準幣的未實現損益；與 {@code marketValueInBase}
+ *                          同條件為 null（缺資產屬性或換不到匯率），不寫入持倉快取；跨標的比較 / 排行請用此欄
  * @param previousClose     前收（原幣）；本交易日前沒有成交或查無行情時為 null
  * @param dayPricePnl       單檔今日價格損益（原幣）；只含價格損益、不含匯差、不扣手續費（D-15）；
  *                          計算所需價格缺失時為 null（D-17、D-26）
@@ -36,7 +38,7 @@ import java.time.OffsetDateTime;
  * @param dayPnlBasis       今日損益比率的分母（原幣）= 前收時市值 + 今日買入成本；供 summary 折算後計算總額比率，
  *                          隨持倉一起快取，所以快取命中的持倉也能參與總額
  * @author Yuan
- * @version 3.0
+ * @version 3.1
  */
 public record HoldingDto(
     String assetId,
@@ -57,6 +59,7 @@ public record HoldingDto(
     String sector,
     String baseCurrency,
     BigDecimal marketValueInBase,
+    BigDecimal unrealizedPnlInBase,
     BigDecimal previousClose,
     BigDecimal dayPricePnl,
     BigDecimal dayPricePnlRatio,
@@ -66,13 +69,14 @@ public record HoldingDto(
     /**
      * 回傳補上基準幣折算值的新 record，其餘欄位不變。
      *
-     * @param baseCurrency 使用者基準幣代碼
-     * @param valueInBase 折算成基準幣的市值；換不到匯率時為 null
+     * @param baseCurrency        使用者基準幣代碼
+     * @param valueInBase         折算成基準幣的市值；換不到匯率時為 null
+     * @param unrealizedPnlInBase 折算成基準幣的未實現損益；換不到匯率時為 null
      * @return 新的 HoldingDto
      */
-    public HoldingDto withBaseValuation(String baseCurrency, BigDecimal valueInBase) {
+    public HoldingDto withBaseValuation(String baseCurrency, BigDecimal valueInBase, BigDecimal unrealizedPnlInBase) {
         return new HoldingDto(assetId, symbol, assetName, totalQuantity, avgCost, costBasis, marketPrice, marketValue,
             realizedPnl, unrealizedPnl, roi, priceTime, lastUpdated, currency, assetType, sector,
-            baseCurrency, valueInBase, previousClose, dayPricePnl, dayPricePnlRatio, dayPnlBasis);
+            baseCurrency, valueInBase, unrealizedPnlInBase, previousClose, dayPricePnl, dayPricePnlRatio, dayPnlBasis);
     }
 }

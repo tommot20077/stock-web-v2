@@ -1,35 +1,65 @@
 ---
-last_mapped_commit: b4459745f0bdf575818d0613cfa9e5b5276f55d8
-frontend_last_mapped_commit: 0d942c2af74440ce4509383206b38a3021136841
+last_mapped_commit: 5ca148d0e17ea7e2cafc957738dbfc70fe6dfa74
+frontend_last_mapped_commit: 5e215a00510e25fddce7d02b6aa3bf7d0942748d
 ---
 
 # Codebase Concerns
 
-**Analysis Date:** 2026-05-30
+**Analysis Date:** 2026-11-06(初次分析 2026-05-30)
+
+**Refresh:** 2026-11-06 targeted refresh (quick-261106-fbs Task 3) — 以程式核對並修正與現況衝突處,**不是** `/gsd-map-codebase` 全量重產(本次執行環境無法派 mapper agents;建議日後全量重產)。前端路徑以 Yuan 本機佈局 `../../vue/stock-v2/vue-app` 表示(cloud 環境為 `../stock-web-v2-front-end/vue-app`)。
+
+## 2026-11-06 狀態總覽(targeted refresh)
+
+以下各節保留 2026-05-30 的原始描述;本表記錄 2026-11-06 以程式核對的現況。**已解決**者不再是待辦,僅作歷史脈絡。
+
+| 原始 concern | 現況 | 證據 |
+|---|---|---|
+| Bearer-token-only auth / Global CSRF disable with credentialed CORS / Cookie-auth fails without credentials | **已解決**(Phase 1 起):瀏覽器走 HttpOnly cookie + 雙提交 CSRF,前端 `credentials: 'include'` | `SecurityConfig`(`JwtAuthenticationFilter`、`BrowserCsrfFilter`)、`CsrfController`、`apiClient.ts`、`BrowserAuthFlowIT` |
+| Refresh tokens returned in JSON | **部分解決**:瀏覽器 login / register / refresh 不回 token;只有非瀏覽器的 `POST /api/v1/auth/token` 回 bearer JSON(設計如此) | `AuthController`、`ai-docs/browser-auth-contract.md` |
+| Duplicated frontend HTTP envelope parsing | **已解決**:信封解析只在 `apiClient.ts`(其他 service 不再自帶 `readJson` / `isApiFailure`) | `grep` 2026-11-06 |
+| Frontend trading split between mock mutation and backend API | **已解決**:`OrderTicket` 經 `tradingApi`(mock / HTTP 同介面),payload 只含 `CreateTradeRequest` 欄位 | `vue-app/src/services/tradingApi.ts` |
+| Market order UI vs backend manual trade | **部分**:payload 已符合「已成交手動紀錄」(無 order type / TIF);OrderTicket 仍保留 MKT / LMT 切換與 TIF 標籤(僅 UI),是否移除未在本次判斷 | `OrderTicket.vue`(`ordType`、`tif`) |
+| Backtest custom strategy `new Function` in browser mock path | **仍存在**(mock path only) | `backtestApi.ts`、`StrategyEditor.vue`、`Backtest.vue` |
+| WebSocket ticket query not URL-decoded | **仍存在**(後端簽發的 ticket 為 URL-safe,實務無影響) | `MarketHandshakeInterceptor#extractTicket` |
+| WebSocket endpoint allows all origins | **已解決**:handler 註冊用 `stock.cors.allowed-origins` | `WsConfig#registerWebSocketHandlers`(`setAllowedOrigins`) |
+| Trading API without idempotency | **已解決**:`Idempotency-Key` + `transactions.idempotency_key`(V11);現金 / 股利 / 股數調整同樣冪等 | `TradingService`、`TradingApiIT` |
+| Trading permissions coarse | 仍為設計現況(Role → Permission 靜態對應;無 per-user override) | `Role.java`、`ai-docs/security.md` §3 |
+| Full backend suite starts heavy containers | **部分解決**:IT 移到 failsafe(`./mvnw test` 不起容器);market-data IT 共用容器仍為 backlog | `stock-start/pom.xml`、todo `2026-09-27-it-shared-containers` |
+| Backfill idempotency test fixed 5 s sleep | **仍存在** | `BackfillJobIT`(`Thread.sleep(5_000)`) |
+| Portfolio summaries N latest-price reads on cache miss | **已解決**:`MarketDataFacade.findLatestPrices` / `findDailyQuotes` 批次;快取未命中 4 次批次往返(D-23 裁決) | `PortfolioQueryService`、`ai-docs/code-standards.md` §Facade Call Rules |
+| Frontend API mode silently falls back to mock | **已解決**:無效 `VITE_DATA_MODE` 拋 `RuntimeDataModeError` | `runtimeDataMode.ts` |
+| Trading pagination very large offsets | **已緩解**:`page` 夾限 0..10000、`size` 1..100 | `TradingService`(`MAX_PAGE`) |
+| No backend portfolio read model beyond trades / holdings | **已解決**:summary(基準幣、今日損益、現金、配置、股利)、cash entries、dividends、share adjustments、activities | `ai-docs/trading-portfolio-contract.md` |
+| No frontend auth client | **已解決**:`authApi` / `authSession` | `vue-app/src/services/authApi.ts` |
+| No backend for AI access / broker keys / MCP | **仍存在**:後端無端點,前端 Preview | 前端 `docs/api-contracts/mock-to-real-contract.md` 檔首 |
+| Test gaps: CSRF / cookie, idempotency, frontend HTTP auth, API mode vs real backend | **已補**:`BrowserAuthFlowIT`、`TradingApiIT` 冪等案例、`authSession` / `apiClient` 測試、CI browser E2E(Playwright 對真後端) | 各檔 |
+| Spring Boot 4.0.4 / Springdoc 3.0.2 / Vue Router 5 / TypeScript 6 前緣版本 | 仍適用(版本未變;TypeScript 已為 6.0) | `pom.xml`、`vue-app/package.json` |
+| 其餘(大型前端頁面、Redis 依賴、交易寫入合併 projection、前端 mock store 記憶體內、ingest 迴圈) | 本次未逐條重驗 | — |
 
 ## Tech Debt
 
 **Bearer-token-only auth contract conflicts with cookie-ready CORS/CSRF posture:**
 - Issue: The backend disables CSRF globally and returns `accessToken` / `refreshToken` in JSON bodies while CORS allows credentials. There is no cookie writer, CSRF token endpoint, refresh-cookie rotation contract, or frontend credential mode.
-- Files: `stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java`, `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/api/AuthController.java`, `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/api/AuthResponse.java`, `../vue/stock-v2/vue-app/src/services/apiClient.ts`
+- Files: `stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java`, `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/api/AuthController.java`, `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/api/AuthResponse.java`, `../../vue/stock-v2/vue-app/src/services/apiClient.ts`
 - Impact: Browser integration can work only by manually attaching bearer tokens from JavaScript storage or memory. If the integration moves refresh tokens into cookies, state-changing endpoints such as `POST /api/v1/trades`, `POST /api/v1/auth/logout`, backtest creation, backfill, and AI access writes have no CSRF defense.
 - Fix approach: Choose one auth transport per browser mode. For cookie mode, issue refresh/access cookies with `HttpOnly`, `Secure`, and `SameSite` policy, add CSRF tokens for unsafe methods, configure `fetch(..., { credentials: 'include' })`, and keep bearer-token auth available only for non-browser API clients.
 
 **Duplicated frontend HTTP envelope parsing:**
 - Issue: `apiRequest`, `readJson`, `isApiFailure`, and `isPaginatedResponse` logic is duplicated across multiple frontend services instead of sharing one typed client path.
-- Files: `../vue/stock-v2/vue-app/src/services/apiClient.ts`, `../vue/stock-v2/vue-app/src/services/backtestApi.ts`, `../vue/stock-v2/vue-app/src/services/opsApi.ts`, `../vue/stock-v2/vue-app/src/services/aiAccessApi.ts`
+- Files: `../../vue/stock-v2/vue-app/src/services/apiClient.ts`, `../../vue/stock-v2/vue-app/src/services/backtestApi.ts`, `../../vue/stock-v2/vue-app/src/services/opsApi.ts`, `../../vue/stock-v2/vue-app/src/services/aiAccessApi.ts`
 - Impact: API behavior can diverge silently across domains, especially for request IDs, error envelopes, auth headers, credentials, and pagination validation.
-- Fix approach: Keep one shared API client in `../vue/stock-v2/vue-app/src/services/apiClient.ts` with `request`, `paginatedRequest`, auth/credentials hooks, and schema guards. Domain clients should only build paths and map DTOs.
+- Fix approach: Keep one shared API client in `../../vue/stock-v2/vue-app/src/services/apiClient.ts` with `request`, `paginatedRequest`, auth/credentials hooks, and schema guards. Domain clients should only build paths and map DTOs.
 
 **Frontend trading remains split between mock portfolio mutation and backend trading API:**
 - Issue: The order ticket mutates local Pinia/mock store directly and does not use a service boundary that can point at backend `POST /api/v1/trades`.
-- Files: `../vue/stock-v2/vue-app/src/components/OrderTicket.vue`, `../vue/stock-v2/vue-app/src/store.ts`, `../vue/stock-v2/vue-app/src/stores/mockPortfolio.ts`, `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/api/TradingController.java`
+- Files: `../../vue/stock-v2/vue-app/src/components/OrderTicket.vue`, `../../vue/stock-v2/vue-app/src/store.ts`, `../../vue/stock-v2/vue-app/src/stores/mockPortfolio.ts`, `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/api/TradingController.java`
 - Impact: UI validation, order states, and fill simulations can drift from backend validation and persistence. Integration work must replace component-local execution rather than swapping a small API adapter.
 - Fix approach: Introduce a `TradingApi` service with mock and HTTP implementations, then make `OrderTicket.vue` call the service and update stores from returned backend DTOs.
 
 **Backtest custom strategy validation executes user JavaScript in the browser mock path:**
 - Issue: Mock backtest validation compiles arbitrary strategy code with `new Function`.
-- Files: `../vue/stock-v2/vue-app/src/services/backtestApi.ts`, `../vue/stock-v2/vue-app/src/pages/Backtest.vue`, `../vue/stock-v2/vue-app/src/components/StrategyEditor.vue`
+- Files: `../../vue/stock-v2/vue-app/src/services/backtestApi.ts`, `../../vue/stock-v2/vue-app/src/pages/Backtest.vue`, `../../vue/stock-v2/vue-app/src/components/StrategyEditor.vue`
 - Impact: A pasted strategy can execute in the app origin during mock mode. This is acceptable only for local demos and becomes a blocker if custom strategy editing is exposed in a shared environment without isolation.
 - Fix approach: Validate custom strategies server-side or inside a sandboxed worker/iframe with a narrow message protocol. Keep browser-side syntax checks limited to parsing or static validation.
 
@@ -37,7 +67,7 @@ frontend_last_mapped_commit: 0d942c2af74440ce4509383206b38a3021136841
 
 **Cookie-auth integration fails without explicit frontend credentials support:**
 - Symptoms: Browser cookies are not sent by the shared client because `fetch(path, init)` receives no `credentials` option. Backend CORS permits credentials but the frontend never opts in.
-- Files: `../vue/stock-v2/vue-app/src/services/apiClient.ts`, `stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java`
+- Files: `../../vue/stock-v2/vue-app/src/services/apiClient.ts`, `stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java`
 - Trigger: Enable cookie-backed auth or refresh-token cookies and call any protected endpoint from the Vue app.
 - Workaround: Use bearer tokens in `Authorization` headers until a cookie contract is added.
 
@@ -49,7 +79,7 @@ frontend_last_mapped_commit: 0d942c2af74440ce4509383206b38a3021136841
 
 **Market order UI sends simulated fill price but backend records supplied request price:**
 - Symptoms: The Vue order ticket distinguishes market and limit orders, but backend `CreateTradeRequest` has only `symbol`, `type`, `quantity`, `price`, `fee`, `note`, and `executedAt`; there is no order type, time-in-force, submitted price, fill price, or order status.
-- Files: `../vue/stock-v2/vue-app/src/components/OrderTicket.vue`, `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/api/CreateTradeRequest.java`, `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/service/TradingService.java`
+- Files: `../../vue/stock-v2/vue-app/src/components/OrderTicket.vue`, `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/api/CreateTradeRequest.java`, `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/service/TradingService.java`
 - Trigger: Wire `OrderTicket.vue` directly to `POST /api/v1/trades` while preserving the current market/limit UI.
 - Workaround: Treat backend trades as manual executed trades, not order placement, until the API adds order semantics.
 
@@ -75,7 +105,7 @@ frontend_last_mapped_commit: 0d942c2af74440ce4509383206b38a3021136841
 
 **Trading permissions are coarse and user accounts receive trade authority through role claims:**
 - Risk: `@PreAuthorize("hasAuthority('TRADE_EXECUTE')")` protects trade creation, but there are no per-symbol, per-notional, per-day, environment, or human-confirmation controls in the backend.
-- Files: `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/api/TradingController.java`, `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/api/CreateTradeRequest.java`, `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/service/TradingService.java`, `../vue/stock-v2/vue-app/src/services/aiAccessApi.ts`
+- Files: `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/api/TradingController.java`, `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/api/CreateTradeRequest.java`, `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/service/TradingService.java`, `../../vue/stock-v2/vue-app/src/services/aiAccessApi.ts`
 - Current mitigation: Asset must be active and tradeable, quantity/price/fee validation exists, and oversell is rejected.
 - Recommendations: Add backend policy checks for trading limits before write operations. Do not rely on frontend AI access mock policies for real broker or AI order execution.
 
@@ -107,7 +137,7 @@ frontend_last_mapped_commit: 0d942c2af74440ce4509383206b38a3021136841
 
 **Large frontend pages and components concentrate many reactive paths:**
 - Problem: Several single-file Vue components exceed 400 lines and include UI, data shaping, interaction state, and CSS together.
-- Files: `../vue/stock-v2/vue-app/src/pages/Analytics.vue`, `../vue/stock-v2/vue-app/src/pages/Alerts.vue`, `../vue/stock-v2/vue-app/src/pages/Positions.vue`, `../vue/stock-v2/vue-app/src/components/OrderTicket.vue`, `../vue/stock-v2/vue-app/src/pages/Notifications.vue`
+- Files: `../../vue/stock-v2/vue-app/src/pages/Analytics.vue`, `../../vue/stock-v2/vue-app/src/pages/Alerts.vue`, `../../vue/stock-v2/vue-app/src/pages/Positions.vue`, `../../vue/stock-v2/vue-app/src/components/OrderTicket.vue`, `../../vue/stock-v2/vue-app/src/pages/Notifications.vue`
 - Cause: Page-level features are implemented as self-contained prototypes with local state and styles.
 - Improvement path: Extract domain composables and API adapters before backend integration. Keep repeated table, filter, and command behavior in shared components.
 
@@ -126,16 +156,16 @@ frontend_last_mapped_commit: 0d942c2af74440ce4509383206b38a3021136841
 - Test coverage: `stock-start/src/test/java/dowob/xyz/stockwebv2/start/TradingApiIT.java` and `stock-module-trading/src/test/java/dowob/xyz/stockwebv2/trading/domain/HoldingCalculatorTest.java` cover core happy paths and oversell only.
 
 **Frontend API mode is opt-in and silently falls back to mock:**
-- Files: `../vue/stock-v2/vue-app/src/services/runtimeDataMode.ts`, `../vue/stock-v2/vue-app/src/services/backtestApi.ts`, `../vue/stock-v2/vue-app/src/services/opsApi.ts`, `../vue/stock-v2/vue-app/src/services/aiAccessApi.ts`, `../vue/stock-v2/vue-app/src/api-adapter-wiring.test.ts`
+- Files: `../../vue/stock-v2/vue-app/src/services/runtimeDataMode.ts`, `../../vue/stock-v2/vue-app/src/services/backtestApi.ts`, `../../vue/stock-v2/vue-app/src/services/opsApi.ts`, `../../vue/stock-v2/vue-app/src/services/aiAccessApi.ts`, `../../vue/stock-v2/vue-app/src/api-adapter-wiring.test.ts`
 - Why fragile: Any missing or mistyped `VITE_DATA_MODE` value becomes `mock`, which can hide failed backend integration in local demos and CI.
 - Safe modification: Make API mode explicit for integration builds, fail startup for invalid values outside local development, and surface the active mode in a non-sensitive diagnostics panel.
-- Test coverage: `../vue/stock-v2/vue-app/src/services/runtimeDataMode.test.ts` covers normalization; there is no build-time guard that prevents accidental mock mode for backend-integrated environments.
+- Test coverage: `../../vue/stock-v2/vue-app/src/services/runtimeDataMode.test.ts` covers normalization; there is no build-time guard that prevents accidental mock mode for backend-integrated environments.
 
 **Frontend AI access and broker controls are mock-only for high-risk workflows:**
-- Files: `../vue/stock-v2/vue-app/src/services/aiAccessApi.ts`, `../vue/stock-v2/vue-app/src/components/settings/SettingsBrokers.vue`, `../vue/stock-v2/vue-app/src/components/settings/SettingsAiAccess.vue`, `../vue/stock-v2/vue-app/src/composables/useAiAccessSettings.ts`
+- Files: `../../vue/stock-v2/vue-app/src/services/aiAccessApi.ts`, `../../vue/stock-v2/vue-app/src/components/settings/SettingsBrokers.vue`, `../../vue/stock-v2/vue-app/src/components/settings/SettingsAiAccess.vue`, `../../vue/stock-v2/vue-app/src/composables/useAiAccessSettings.ts`
 - Why fragile: The UI models live trading keys, HITL modes, MCP endpoints, and audit logs, but the backend has no matching API module or policy enforcement path.
 - Safe modification: Define backend DTOs and enforcement before enabling API mode for these pages. Treat the mock as UX-only data, not as a security model.
-- Test coverage: `../vue/stock-v2/vue-app/src/services/aiAccessApi.test.ts`, `../vue/stock-v2/vue-app/src/components/settings/SettingsBrokers.test.ts`, and `../vue/stock-v2/vue-app/src/components/settings/SettingsAiAccess.test.ts` cover mock behavior only.
+- Test coverage: `../../vue/stock-v2/vue-app/src/services/aiAccessApi.test.ts`, `../../vue/stock-v2/vue-app/src/components/settings/SettingsBrokers.test.ts`, and `../../vue/stock-v2/vue-app/src/components/settings/SettingsAiAccess.test.ts` cover mock behavior only.
 
 **WebSocket auth relies on Redis ticket and token-version data with permissive origin config:**
 - Files: `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/ws/WsTicketService.java`, `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/ws/MarketHandshakeInterceptor.java`, `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/config/WsConfig.java`
@@ -176,21 +206,21 @@ frontend_last_mapped_commit: 0d942c2af74440ce4509383206b38a3021136841
 
 **No backend API for frontend portfolio/trading read model beyond trades and holdings:**
 - Problem: The frontend has pages for positions, analytics, alerts, notifications, settings, AI access, brokers, watchlists, and ops, but backend modules currently cover assets, auth, backtest, market data, trading, and backfill/admin flows.
-- Blocks: Full API mode for `../vue/stock-v2/vue-app/src/pages/Positions.vue`, `../vue/stock-v2/vue-app/src/pages/Analytics.vue`, `../vue/stock-v2/vue-app/src/pages/Alerts.vue`, `../vue/stock-v2/vue-app/src/pages/Notifications.vue`, `../vue/stock-v2/vue-app/src/pages/Settings.vue`, and `../vue/stock-v2/vue-app/src/pages/Ops.vue`.
+- Blocks: Full API mode for `../../vue/stock-v2/vue-app/src/pages/Positions.vue`, `../../vue/stock-v2/vue-app/src/pages/Analytics.vue`, `../../vue/stock-v2/vue-app/src/pages/Alerts.vue`, `../../vue/stock-v2/vue-app/src/pages/Notifications.vue`, `../../vue/stock-v2/vue-app/src/pages/Settings.vue`, and `../../vue/stock-v2/vue-app/src/pages/Ops.vue`.
 
 **No frontend auth client or protected-route model:**
 - Problem: The Vue app has service adapters but no shared auth service, token storage strategy, refresh handling, or route guard.
-- Blocks: Calling protected backend endpoints from `../vue/stock-v2/vue-app/src/services/backtestApi.ts`, `../vue/stock-v2/vue-app/src/services/opsApi.ts`, `../vue/stock-v2/vue-app/src/services/aiAccessApi.ts`, and a future trading API adapter.
+- Blocks: Calling protected backend endpoints from `../../vue/stock-v2/vue-app/src/services/backtestApi.ts`, `../../vue/stock-v2/vue-app/src/services/opsApi.ts`, `../../vue/stock-v2/vue-app/src/services/aiAccessApi.ts`, and a future trading API adapter.
 
 **No backend implementation for AI access, broker keys, or MCP endpoint policy:**
 - Problem: The frontend models API keys, provider permissions, HITL modes, risk limits, MCP endpoints, agents, and audit logs; no matching backend module exists.
-- Blocks: Secure AI trading or broker integration from `../vue/stock-v2/vue-app/src/services/aiAccessApi.ts` and settings components.
+- Blocks: Secure AI trading or broker integration from `../../vue/stock-v2/vue-app/src/services/aiAccessApi.ts` and settings components.
 
 ## Test Coverage Gaps
 
 **CSRF and cookie-auth flows:**
 - What's not tested: Cookie issuance, `SameSite` behavior, `HttpOnly` cookies, credentialed cross-origin fetch, CSRF success/failure, and refresh-token cookie rotation.
-- Files: `stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java`, `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/api/AuthController.java`, `../vue/stock-v2/vue-app/src/services/apiClient.ts`
+- Files: `stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java`, `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/api/AuthController.java`, `../../vue/stock-v2/vue-app/src/services/apiClient.ts`
 - Risk: Browser auth integration can pass bearer-token tests while failing or being unsafe in cookie mode.
 - Priority: High
 
@@ -202,22 +232,22 @@ frontend_last_mapped_commit: 0d942c2af74440ce4509383206b38a3021136841
 
 **Frontend HTTP auth behavior:**
 - What's not tested: Authorization header injection, refresh handling, `credentials: include`, API base URL configuration, and protected endpoint redirects or error handling.
-- Files: `../vue/stock-v2/vue-app/src/services/apiClient.ts`, `../vue/stock-v2/vue-app/src/services/apiClient.test.ts`, `../vue/stock-v2/vue-app/src/api-adapter-wiring.test.ts`
+- Files: `../../vue/stock-v2/vue-app/src/services/apiClient.ts`, `../../vue/stock-v2/vue-app/src/services/apiClient.test.ts`, `../../vue/stock-v2/vue-app/src/api-adapter-wiring.test.ts`
 - Risk: Switching from mock to API mode surfaces auth failures late in integration.
 - Priority: High
 
 **Full-suite duration and noisy container tests:**
 - What's not tested: No committed timing budget, no per-suite duration report, and no test profile document that separates unit, integration, E2E, and frontend suites.
-- Files: `pom.xml`, `stock-start/pom.xml`, `stock-start/src/test/java/dowob/xyz/stockwebv2/start/support/ContainerIT.java`, `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/batch/BackfillJobIT.java`, `../vue/stock-v2/vue-app/package.json`
+- Files: `pom.xml`, `stock-start/pom.xml`, `stock-start/src/test/java/dowob/xyz/stockwebv2/start/support/ContainerIT.java`, `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/batch/BackfillJobIT.java`, `../../vue/stock-v2/vue-app/package.json`
 - Risk: Developers avoid full verification or CI becomes hard to diagnose as container suites expand.
 - Priority: Medium
 
 **Frontend API mode against real backend:**
 - What's not tested: The Vue app in `VITE_DATA_MODE=api` against the Spring backend for auth, CORS, backtest, market data, trading, and settings paths.
-- Files: `../vue/stock-v2/vue-app/src/services/runtimeDataMode.ts`, `../vue/stock-v2/vue-app/src/api-adapter-wiring.test.ts`, `stock-start/src/test/java/dowob/xyz/stockwebv2/start/`
+- Files: `../../vue/stock-v2/vue-app/src/services/runtimeDataMode.ts`, `../../vue/stock-v2/vue-app/src/api-adapter-wiring.test.ts`, `stock-start/src/test/java/dowob/xyz/stockwebv2/start/`
 - Risk: Mock adapters stay green while backend contracts are missing, differently shaped, or unauthorized.
 - Priority: High
 
 ---
 
-*Concerns audit: 2026-05-30*
+*Concerns audit: 2026-05-30;targeted refresh 2026-11-06*

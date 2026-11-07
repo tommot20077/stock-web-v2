@@ -155,6 +155,8 @@ Frontend should route these stable codes:
 | 403 | `AUTH_FORBIDDEN` | Authenticated user lacks permission or status is not allowed. |
 | 403 | `AUTH_CSRF_TOKEN_INVALID` | CSRF cookie/header missing or mismatched. |
 | 503 | `AUTH_REDIS_UNAVAILABLE` | Auth state unavailable; fail closed. |
+| 429 | `AUTH_RATE_LIMITED` | Rate limit exceeded (`RateLimitService`; e.g. 100 requests / minute per authenticated user for general API calls, see security.md). |
+| 429 | `AUTH_ACCOUNT_LOCKED` | Login temporarily locked after repeated failures (`LoginAttemptService`); an ADMIN can unlock via `POST /api/admin/users/{uuid}/unlock`. |
 | 400 | `VALIDATION_FAILED` | Body field or required header invalid; `error.fields` names the field or header (for example `Idempotency-Key`). |
 | 409 | `TRADE_IDEMPOTENCY_KEY_REUSED` | Same `Idempotency-Key` reused with a different trade payload (trading, Phase 4). |
 

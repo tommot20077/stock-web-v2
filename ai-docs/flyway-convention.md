@@ -40,11 +40,11 @@ stock-module-*/
 V{N}__{description}.sql
 ```
 
-- `{N}` = next available integer (check stock-start migrations before choosing)
+- `{N}` = next available integer (check `stock-db-migration/src/main/resources/db/migration/` before choosing; highest version as of 2026-11-06 is **V19** `V19__assets_currency_check.sql`, so the next is V20)
 - `{description}` = English snake_case description
 - Double underscore (`__`) between version and description
 
-**Examples:**
+**Examples** (illustrative naming only — the real files are `V1__foundation_schema.sql` … `V19__assets_currency_check.sql`):
 - `V1__create_users_table.sql`
 - `V2__create_assets_table.sql`
 - `V3__create_transactions_table.sql`
@@ -80,7 +80,7 @@ All Flyway migration SQL files (V1..VN and beyond) are **centralized** in the `s
 
 **Per-module test schemas are ELIMINATED.** No more divergence between test and production schemas. Do NOT create `src/test/resources/db/migration/` directories in individual modules.
 
-**For test-specific seed data**, use Flyway repeatable migrations (`R__*.sql`) placed in `src/test/resources/db/testdata/` and add the location to `application-test.yaml`:
+**For test-specific seed data**, use Flyway repeatable migrations (`R__*.sql`) placed in `src/test/resources/db/testdata/` and add the location to `application-test.yaml` (as of 2026-11-06 no module uses `db/testdata`; ITs create and delete their own rows, e.g. `WatchlistApiIT#createTempAssets`):
 
 ```yaml
 spring:
@@ -147,7 +147,7 @@ SELECT add_continuous_aggregate_policy('market_prices_1h',
 
 ### Important Notes
 
-- Continuous Aggregate DDL is managed by Flyway migrations — Java layer **only reads via `@Query`** (appears as a regular View to JDBC)
+- Continuous Aggregate DDL is managed by Flyway migrations — Java layer **only reads** it with plain SQL through `JdbcClient` (e.g. `kline_1m` / `kline_5m` … routed by `KlineQueryService`; appears as a regular view to JDBC). The `market_prices_1h` block above is an illustrative example; the real aggregates live in `V5__market_data_continuous_aggregates.sql` / `V12__kline_real_time_aggregates.sql`
 - Auto-refresh policies are set in migrations — Java does not manage them
 - Some TimescaleDB DDL cannot execute within a transaction — migration files may need a `-- non-transactional` marker at the top
 - Modifying Continuous Aggregates (e.g., adding columns) requires `DROP` + recreate — pay attention to migration idempotency

@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -143,7 +144,8 @@ public class WatchlistService {
      *
      * @param userId        擁有者
      * @param watchlistUuid 清單 UUID
-     * @param symbol        資產代號（前後空白會被去除）
+     * @param symbol        資產代號；前後空白去除、大小寫不敏感（以 {@code toUpperCase(Locale.ROOT)} 正規化，
+     *                      與 {@code DividendService} / {@code ShareAdjustmentService} / {@code ActivityQueryService} 一致）
      * @return 加入後的清單（含項目與報價）；已在清單中時為原樣
      * @throws BusinessException 清單不存在或屬於他人（404 {@code WATCHLIST_NOT_FOUND}）、資產不存在或 inactive
      *                           （404 {@code ASSET_NOT_FOUND}，{@code fields.symbol}）、清單已有 100 檔
@@ -154,7 +156,7 @@ public class WatchlistService {
         Watchlist watchlist = watchlistRepository.findByUuidForUpdate(userId, watchlistUuid)
             .orElseThrow(WatchlistService::notFound);
         Long assetId = Optional.ofNullable(symbol)
-            .map(String::strip)
+            .map(raw -> raw.strip().toUpperCase(Locale.ROOT))
             .filter(normalized -> !normalized.isEmpty())
             .flatMap(watchlistRepository::findActiveAssetIdBySymbol)
             .orElseThrow(WatchlistService::assetNotFound);

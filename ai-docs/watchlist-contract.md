@@ -6,7 +6,7 @@
 > 程式碼是事實來源。與本檔衝突時以程式碼為準，並回頭修本檔。
 > 權威檔案（asset 模組）：`WatchlistController`、`WatchlistDto`、`AssetDto`、`AssetQuoteMapper`、`WatchlistService`、`WatchlistRepository`、`ErrorCode`。
 >
-> ⚠️ **Phase 04.2 凍結契約（2026-11-01，04.2-02；Yuan 於決策閘門裁決 option-recommended）**：本檔在 04.2-11 / 04.2-12 實作合入前是前後端平行實作的共同依據，程式碼尚不存在；實作合入後回到「程式碼是事實來源」，實作若需偏離須先改本檔並回報。
+> ℹ️ **已實作（Phase 04.2）**：本檔於 2026-11-01（04.2-02，Yuan 於決策閘門裁決 option-recommended）凍結，作為前後端平行實作的共同依據；04.2-11 / 04.2-12 已合入（後端 PR #51、前端 PR #19），目前**程式碼是事實來源**——程式與本檔偏離時以程式為準，回頭修本檔並回報。
 
 ## 共通
 
@@ -22,8 +22,8 @@
 
 | 項目 | 上限 | 超過時 | 併發保證 |
 |---|---|---|---|
-| 每位使用者的清單數 | 20 | 400 `VALIDATION_FAILED`，`fields.watchlists` | 建立前先確保預設清單存在，再 `SELECT … FROM watchlists WHERE user_id = :userId FOR UPDATE` 鎖住該使用者全部清單列 → count → insert；因至少有一列可鎖，並發建立會序列化，上限是硬的 |
-| 每份清單的項目數 | 100 | 400 `VALIDATION_FAILED`，`fields.items` | 加入前 `SELECT … FROM watchlists WHERE uuid = :id AND user_id = :userId FOR UPDATE` 鎖住清單列 → count → insert；同清單的並發加入序列化 |
+| 每位使用者的清單數 | 20 | 400 `VALIDATION_FAILED`，`fields.watchlists` | 建立前先確保預設清單存在，再 `SELECT … FROM watchlists WHERE user_id = :userId FOR UPDATE` 鎖住該使用者全部清單列 → **取得鎖之後另起**的 `countByUser` 查詢 → insert（count 不能沿用鎖查詢本身的結果：READ COMMITTED 下鎖查詢的快照在等鎖前取得，看不到前一個持鎖交易剛 commit 的列；見 `WatchlistService#create` 註解）；因至少有一列可鎖，並發建立會序列化，上限是硬的 |
+| 每份清單的項目數 | 100 | 400 `VALIDATION_FAILED`，`fields.items` | 加入前 `SELECT … FROM watchlists WHERE uuid = :id AND user_id = :userId FOR UPDATE` 鎖住清單列 → **取得鎖之後另起**的 `countItems` 查詢 → insert（理由同上；見 `WatchlistService#addItem` 註解）；同清單的並發加入序列化 |
 | 清單名稱 | trim 後 1–30 字；同使用者唯一 | 長度不符 400 `fields.name`；重名 409 `DUPLICATE_RESOURCE`，`fields.name` | `(user_id, name)` 唯一約束 |
 
 - **預設清單**：使用者 0 個清單時，`GET /api/v1/watchlists` 先建立「我的自選」：`INSERT … ON CONFLICT (user_id, name) DO NOTHING` 後重讀——兩個並發的首次 GET 只會留一列，不需 advisory lock。刪掉全部清單後，下一次 GET 會重建（星號選擇器需要至少一個清單）。
@@ -52,7 +52,7 @@
 
 ### POST /{id}/items — 加入項目
 
-- `symbol`：**任何 active 資產**，含 FX 與債券，**不要求 tradeable**（D-18）；不存在或 inactive → 404 `ASSET_NOT_FOUND`，`fields.symbol`。
+- `symbol`：**任何 active 資產**，含 FX 與債券，**不要求 tradeable**（D-18）；前後空白去除、**大小寫不敏感**（後端以 `toUpperCase(Locale.ROOT)` 正規化，`aapl` 等同 `AAPL`，與股利 / 股數調整 / 活動列表一致）；不存在或 inactive → 404 `ASSET_NOT_FOUND`，`fields.symbol`。
 - 已在清單中 → 原樣回傳該清單（冪等，不報錯、不改順序）。
 - 清單已有 100 檔 → 400 `VALIDATION_FAILED`，`fields.items`。
 - 新項目排在尾端。
@@ -119,4 +119,6 @@
 
 ## 變更紀錄
 
+- 2026-11-06（quick-261106-fbs，文件掃描）：檔首凍結提示改為「已實作、程式為事實來源」；上限表補明 count 必須是取得列鎖之後另起的查詢（04.2 G2）。
+- 2026-11-06（quick-261106-fbs）：加入項目的 `symbol` 改為大小寫不敏感（strip 後 `toUpperCase(Locale.ROOT)`），修正小寫 symbol 回 404 `ASSET_NOT_FOUND`（04.2 REVIEW WR-02）。
 - 2026-11-01（Phase 04.2，04.2-02）：初版凍結。七個端點、上限 20 / 100 與列鎖併發保證、`fields` key（`name` / `watchlists` / `items` / `symbol`）、錯誤碼 `WATCHLIST_NOT_FOUND` / `WATCHLIST_ORDER_CONFLICT`。

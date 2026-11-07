@@ -9,7 +9,7 @@
 > Phase 04.2 起另含 `CashDividendController`、`CreateDividendRequest`、`DividendDto`、`DividendService`、`ShareAdjustmentController`、`CreateShareAdjustmentRequest`、`ShareAdjustmentDto`、`ShareAdjustmentService`、`PortfolioActivityController`、`PortfolioActivityDto`、`ActivityQueryService`。
 > 觀察清單（watchlist，asset 模組）的契約在 [watchlist-contract.md](watchlist-contract.md)。
 >
-> ⚠️ **Phase 04.2 凍結契約（2026-11-01，04.2-02；Yuan 於決策閘門裁決 option-recommended）**：本檔標 〔04.2〕 的段落是股利 / 股數調整 / 活動列表與 summary 新欄位的**先行契約**，在 04.2-03 ~ 04.2-10 實作合入前程式碼尚不存在，是前後端平行實作的共同依據；實作合入後回到「程式碼是事實來源」，實作若需偏離須先改本檔並回報。
+> ℹ️ **〔04.2〕段落已實作**：本檔標 〔04.2〕 的段落（股利 / 股數調整 / 活動列表與 summary 新欄位）於 2026-11-01（04.2-02，Yuan 於決策閘門裁決 option-recommended）凍結為先行契約；04.2-03 ~ 04.2-10 已合入（後端 PR #51、前端 PR #19），目前**程式碼是事實來源**——程式與本檔偏離時以程式為準，回頭修本檔並回報。
 > 使用者基準幣（`GET /api/v1/me` 的 `baseCurrency`、`PATCH /api/v1/me/preferences`）的契約在 [browser-auth-contract.md](browser-auth-contract.md#user-preferences)。
 
 ## 共通
@@ -129,7 +129,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 權限：`PORTFOLIO_VIEW`。回應：`HoldingDto[]`（只含持有數量大於 0 的標的）。
 
-> 既有金額欄位（`avgCost`、`costBasis`、`marketPrice`、`marketValue`、`realizedPnl`、`unrealizedPnl`）為**原幣**，幣別見 `currency`。需要跨標的比較或計算權重時請用 `marketValueInBase`（已折算為使用者基準幣）。今日欄位（`previousClose`、`dayPricePnl`、`dayPnlBasis`）同為原幣。
+> 既有金額欄位（`avgCost`、`costBasis`、`marketPrice`、`marketValue`、`realizedPnl`、`unrealizedPnl`）為**原幣**，幣別見 `currency`。需要跨標的比較或計算權重時請用 `marketValueInBase`（已折算為使用者基準幣）；跨標的比較損益（例如 Top movers 排行）請用 `unrealizedPnlInBase`。今日欄位（`previousClose`、`dayPricePnl`、`dayPnlBasis`）同為原幣。
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|
@@ -151,6 +151,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | `sector` | string \| null | 產業分類；`null` 代表未分類，由前端顯示「未分類」（後端不回在地化字串） |
 | `baseCurrency` | string | 使用者基準幣；`marketValueInBase` 的幣別 |
 | `marketValueInBase` | number \| null | `marketValue` 折算為 `baseCurrency` 的值；**換不到匯率時為 `null`** |
+| `unrealizedPnlInBase` | number \| null | 〔quick-261106-fbs〕`unrealizedPnl` 以**目前匯率**折算為 `baseCurrency` 的值（scale 8、HALF_UP，與 `marketValueInBase` 同一條折算路徑）；與 `marketValueInBase` **同條件為 `null`**（`currency` 為 `null` 或換不到匯率，語意同 summary 的 `fxExcludedCount`：不計入任何基準幣總額 / 排行）。跨標的比較 / 排行請用此欄 |
 | `previousClose` | number \| null | 前收（原幣）：該標的所屬市場交易日起點之前的最後一筆成交；沒有前收或查無行情時為 `null` |
 | `dayPricePnl` | number \| null | 單檔今日價格損益（原幣），規則見〈今日價格損益〉；計算所需價格缺失時為 `null` |
 | `dayPricePnlRatio` | number \| null | `dayPricePnl / dayPnlBasis`，**比值而非百分比**；分母為 0 或損益為 `null` 時為 `null` |
@@ -164,7 +165,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 > ⚠️ **2026-10-24 單位語意變更（Phase 04.1 D-05）**：所有金額欄位改以 `baseCurrency`（使用者基準幣）表示；先前版本是未折算的混幣加總（USD 與 TWD 直接相加，錯誤）。欄位名不變，bearer client 與前端須改讀 `baseCurrency` 判斷單位。
 >
-> ⚠️ **2026-10-31 語意變更（Phase 04.2 D-01，〔04.2〕）**：`totalPnl` 改為**含現金股利**（`realizedPnl + unrealizedPnl + dividendIncome`）；`roi` 公式不變（`totalPnl / totalCostBasis`），因此 `roi` 也隨之**含股利**——欄位名不變但數值語意改變。新增 `dividendIncome`、`dividendTaxWithheld`；快取鍵升 `v3`（見〈快取與一致性〉）。
+> ⚠️ **2026-11-01 語意變更（Phase 04.2 D-01，〔04.2〕；04.2-02 決策閘門裁決日）**：`totalPnl` 改為**含現金股利**（`realizedPnl + unrealizedPnl + dividendIncome`）；`roi` 公式不變（`totalPnl / totalCostBasis`），因此 `roi` 也隨之**含股利**——欄位名不變但數值語意改變。新增 `dividendIncome`、`dividendTaxWithheld`；快取鍵升 `v3`（見〈快取與一致性〉）。
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|
@@ -172,8 +173,8 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | `totalCostBasis` | number | 所有持倉 costBasis 逐筆折算為基準幣後加總（同上） |
 | `realizedPnl` | number | **含已平倉部位**；逐資產依各自幣別折算為基準幣後加總（不是 SQL 跨幣別 sum） |
 | `unrealizedPnl` | number | totalMarketValue − totalCostBasis（基準幣） |
-| `totalPnl` | number | realizedPnl + unrealizedPnl + dividendIncome（基準幣）。〔04.2〕2026-10-31 起含現金股利；此前為 realizedPnl + unrealizedPnl |
-| `roi` | number | totalPnl / totalCostBasis（兩者同為基準幣；totalCostBasis 為 0 時為 0）。公式不變，但因 `totalPnl` 含股利，〔04.2〕2026-10-31 起 **`roi` 含股利**（語意變更，Overview「總報酬率」即綁此欄）。**不含現金** |
+| `totalPnl` | number | realizedPnl + unrealizedPnl + dividendIncome（基準幣）。〔04.2〕2026-11-01 起含現金股利；此前為 realizedPnl + unrealizedPnl |
+| `roi` | number | totalPnl / totalCostBasis（兩者同為基準幣；totalCostBasis 為 0 時為 0）。公式不變，但因 `totalPnl` 含股利，〔04.2〕2026-11-01 起 **`roi` 含股利**（語意變更，Overview「總報酬率」即綁此欄）。**不含現金** |
 | `dividendIncome` | number | 〔04.2〕現金股利收入（基準幣）：Σ 各標的**實領淨額**（`amount`，沖銷列反號）× **目前匯率**；換不到匯率的標的不計入並列入 `unconvertedCurrencies`（與 realizedPnl 同規則）；沒有股利時為 0 |
 | `dividendTaxWithheld` | number | 〔04.2〕預扣稅合計（基準幣）：Σ 各標的 `withholdingTax`（沖銷列反號）× 目前匯率；僅供顯示，**不**計入 `totalPnl`（`amount` 已是扣稅後實領） |
 | `holdingCount` | number | 持有數量大於 0 的標的數（含換不到匯率而未計入總額者） |
@@ -182,7 +183,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | `unconvertedCurrencies` | string[] | 換不到匯率的幣別代碼（持倉、已實現損益、今日損益、現金或〔04.2〕股利），字母排序、去重；全部可換算時為空陣列 |
 | `dayPricePnl` | number \| null | 今日價格損益總額（基準幣、以目前匯率折算）；`null` = 缺資料，`0` = 真實的零，規則見〈今日價格損益〉 |
 | `dayPricePnlRatio` | number \| null | 今日價格損益比率 = Σ損益 / Σ前收時市值與買入成本（皆基準幣），**比值而非百分比**；總額為 `null` 或分母為 0 時為 `null` |
-| `dayPnlExcludedCount` | number | 因計算所需價格缺失而未計入今日損益的檔數；換不到匯率者改計入 `fxExcludedCount` / `unconvertedCurrencies`，不在此數內 |
+| `dayPnlExcludedCount` | number | 因計算所需價格缺失而未計入今日損益的檔數；換不到匯率者改計入 `fxExcludedCount` / `unconvertedCurrencies`，不在此數內（持有中但查無資產屬性的持倉同理，只計入 `fxExcludedCount`）。〔quick-261106-fbs〕今天賣光但查無資產屬性的平倉候選也計入此數 |
 | `cash` | number | 可用現金合計（基準幣）：各幣別現金餘額以目前匯率折算後加總；**可為負**；不含在 `roi` 內，規則見〈可用現金〉 |
 | `totalEquity` | number | 總資產 = `totalMarketValue + cash`（基準幣） |
 | `cashBalances` | `CashBalanceDto[]` | 各幣別的原幣現金餘額，依 `CurrencyCode` 宣告順序（`USD`、`TWD`、`EUR`、`JPY`），只含有過入出金或交易的幣別；沒有任何紀錄時為空陣列（不是 `null`） |
@@ -359,7 +360,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | `symbol` | string | 是 | 不得空白、最多 32 字；須為 **active 且 tradeable** 的標的，否則 404 `ASSET_NOT_FOUND`（`fields.symbol`） |
 | `amount` | number | 是 | **實領總額**（扣稅後、標的幣別）：0.00000001 ≤ x ≤ 1,000,000,000,000；整數最多 13 位、小數最多 8 位 |
 | `withholdingTax` | number | 否 | 預扣稅（標的幣別）：0 ≤ x ≤ 1,000,000,000,000；整數最多 13 位、小數最多 8 位；省略視為 0 |
-| `paidAt` | string（ISO-8601） | 否 | 入帳時間；省略視為伺服器現在；晚於伺服器時間 5 分鐘以上 → 400 `fields.paidAt` |
+| `paidAt` | string（ISO-8601） | 否 | 入帳時間；省略視為伺服器現在；晚於伺服器時間 5 分鐘以上 → 400 `fields.paidAt`；〔quick-261106-fbs〕早於 `1900-01-01T00:00:00Z`（含帶號擴充年份如 `-10000-01-01T00:00:00Z`）→ 400 `fields.paidAt`（`must not be before 1900-01-01`，下限含邊界） |
 | `note` | string | 否 | 最多 500 字；不納入冪等比對 |
 | `reversalOfId` | string（UUID） | 否 | 最多 36 字；帶值代表這是一筆**沖銷**，見下 |
 
@@ -394,7 +395,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 | HTTP | code | 情境 |
 |---|---|---|
-| 400 | `VALIDATION_FAILED` | `error.fields` 的鍵：`Idempotency-Key`、`symbol`、`amount`、`withholdingTax`、`paidAt`（`must not be in the future`）、`note`、`reversalOfId`（`invalid format`）；沖銷值不符時指名不符欄位 |
+| 400 | `VALIDATION_FAILED` | `error.fields` 的鍵：`Idempotency-Key`、`symbol`、`amount`、`withholdingTax`、`paidAt`（`must not be in the future` / `must not be before 1900-01-01`）、`note`、`reversalOfId`（`invalid format`）；沖銷值不符時指名不符欄位 |
 | 400 | `VALIDATION_FAILED` | body 不是合法 JSON 或欄位型別錯；訊息固定、無 `error.fields` |
 | 404 | `ASSET_NOT_FOUND` | 標的不存在、inactive 或不可交易（`fields.symbol`） |
 | 404 | `DIVIDEND_NOT_FOUND` | 沖銷對象不存在或屬於他人 |
@@ -434,6 +435,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 - `effective_at = TradingDay.of(assetType, market).startOf(effectiveDate)`：除權日**該市場交易日的起點**（股票為交易所時區午夜、外匯紐約 17:00、加密 UTC 00:00，與今日損益同一條規則）。
 - `effective_at` 晚於伺服器時間 5 分鐘以上 → 400 `fields.effectiveDate`。
+- 〔quick-261106-fbs〕`effectiveDate` 早於 `1900-01-01`（下限含邊界）→ 400 `fields.effectiveDate`（`must not be before 1900-01-01`），在解析標的之前擋下；先前 DB 存不下的極端日期會變成 500。
 - `effective_at` 早於該標的最晚一筆「**未被沖銷且非沖銷列**」調整的 `effective_at` → 400 `fields.effectiveDate`（調整只能依時間往後記；要補記更早的，先沖銷較晚者）。
 - **同一除權日可記多筆調整，依記錄順序疊加**（2026-11-04 裁決）：與最晚有效調整同一 `effective_at` 不算「早於」；後記錄者的 `Q_asOf` 包含同一 `effective_at`、已先記錄的調整。例：100 股同一除權日記兩次 2:1 拆股 → 第一筆 ΔQ +100、第二筆 ΔQ +200，結果 400 股。「最晚」依 (`effective_at` DESC, 記錄順序 DESC) 排序。
 - 事件日起點持股 `Q_asOf` = `executed_at` **早於** `effective_at` 的交易淨股數 + `effective_at` **不晚於**本筆生效瞬間的既有調整淨股數（沖銷列反號；本筆尚未寫入，因此只含先記錄者）。`Q_asOf` ≤ 0，或目前持倉不存在 / ≤ 0 → 409 `TRADE_INSUFFICIENT_HOLDING`（D-06 / D-09）。
@@ -482,7 +484,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 | HTTP | code | 情境 |
 |---|---|---|
-| 400 | `VALIDATION_FAILED` | `error.fields` 的鍵：`Idempotency-Key`、`symbol`、`type`、`quantity`、`ratio`（相等）/ `ratioNew` / `ratioOld`、`effectiveDate`（未來、早於最晚調整）、`note`、`reversalOfId`；沖銷值不符時指名不符欄位 |
+| 400 | `VALIDATION_FAILED` | `error.fields` 的鍵：`Idempotency-Key`、`symbol`、`type`、`quantity`、`ratio`（相等）/ `ratioNew` / `ratioOld`、`effectiveDate`（未來、早於 1900-01-01、早於最晚調整）、`note`、`reversalOfId`；沖銷值不符時指名不符欄位 |
 | 400 | `VALIDATION_FAILED` | body 不是合法 JSON 或欄位型別錯；訊息固定、無 `error.fields` |
 | 404 | `ASSET_NOT_FOUND` | 標的不存在、inactive 或不可交易（`fields.symbol`） |
 | 404 | `SHARE_ADJUSTMENT_NOT_FOUND` | 沖銷對象不存在或屬於他人 |
@@ -553,11 +555,12 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 ## 快取與一致性
 
-- 持倉與摘要有 60 秒 Redis 快取，鍵為 `portfolio:valuation:v2:{userId}:{assetId}`（存**原幣**估值，`baseCurrency` / `marketValueInBase` 於回應時才補上）與 `portfolio:summary:v3:{userId}:{baseCurrency}`（〔04.2〕2026-10-31 由 `v2` 升 `v3`：summary 新增 `dividendIncome` / `dividendTaxWithheld` 且 `totalPnl` 含股利，換前綴使部署前後兩種形狀互不讀取；持倉鍵維持 `v2`）。
+- 持倉與摘要有 60 秒 Redis 快取，鍵為 `portfolio:valuation:v2:{userId}:{assetId}`（存**原幣**估值，`baseCurrency` / `marketValueInBase` / `unrealizedPnlInBase` 於回應時才補上，所以新增欄位不需換鍵）與 `portfolio:summary:v3:{userId}:{baseCurrency}`（〔04.2〕2026-11-01 由 `v2` 升 `v3`：summary 新增 `dividendIncome` / `dividendTaxWithheld` 且 `totalPnl` 含股利，換前綴使部署前後兩種形狀互不讀取；持倉鍵維持 `v2`）。
 - summary 依基準幣分鍵：使用者切換基準幣（`PATCH /api/v1/me/preferences`）後，下一次讀取直接 miss、立即拿到新幣別的值，不必等 60 秒。
 - 成交後在交易 **commit 之後**失效持倉鍵與 `USD` / `TWD` / `EUR` / `JPY` 四把 summary 鍵，所以成交後立即重讀一定看得到新交易。
 - 入出金分錄（含沖銷）在寫入 **commit 之後**只失效上述四把 summary 鍵，**不影響持倉鍵**（分錄不改變持倉估值）；現金項因此留在 summary 快取之內，入金後立即重讀就看得到新的 `cash`。冪等命中與被拒絕的請求（資料未變）不失效。
 - 〔04.2〕現金股利（含沖銷）在 commit 之後**只失效 summary 鍵**（股利不動股數與均價）；股數調整（含沖銷）在 commit 之後失效**該標的持倉鍵 + summary 鍵**（與成交相同）。冪等命中與被拒絕的請求不失效。
+- 讀取的快照一致性：`GET /trades`、`GET /portfolio/cash-entries` 與 summary 的計算在 `REPEATABLE_READ` 唯讀交易內執行（quick-261106-fbs，04.1 REVIEW WR-03），同一回應內的多道查詢（例如分頁的 count 與 items、summary 的各項加總）看到同一份快照。
 - 殘餘競態（與成交路徑相同、已接受）：讀者若在 commit 前讀了資料庫、於失效之後才寫回快取，舊值最長停留 60 秒。
 - 鍵中的版本（持倉 `v2`、summary `v3`）讓部署瞬間新舊程式不會讀到對方形狀的 JSON；舊鍵 60 秒內自然過期。
 - （歷史，Phase 04.1）**摘要 JSON 在 Phase 04.1 內陸續追加欄位（今日損益、現金、配置）但鍵維持 `v2`**：Phase 04.1 作為一次部署上線，`v2` 鍵在此之前不存在，所以不會有舊形狀的 `v2` JSON。只有「部署過 04.1 中途版本的共用環境」才會有最多 60 秒的視窗，期間命中的舊 `v2` summary 缺新欄位（Jackson 以 `null` 讀入，`allocation` / `sectorAllocation` / `cashBalances` 可能是 `null` 而非空陣列），60 秒 TTL 到期後自動恢復。bearer client 對這些欄位仍應容錯 `null`。
@@ -584,5 +587,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 ## 變更紀錄
 
+- 2026-11-06（quick-261106-fbs，文件掃描）：〈快取與一致性〉補「讀取的快照一致性」（`listTrades` / `summary` 改 `REPEATABLE_READ`，04.1 WR-03）；檔首 〔04.2〕 凍結提示改為「已實作、程式為事實來源」；D-01 語意變更（`totalPnl` / `roi` 含股利、summary 鍵升 `v3`）的日期由 2026-10-31 對齊 04.2-02 裁決日 2026-11-01（04.2 G2）。
+- 2026-11-06（quick-261106-fbs）：holdings 新增 `unrealizedPnlInBase`（基準幣未實現損益；與 `marketValueInBase` 同條件為 `null`、回應時補上、不寫入持倉快取，持倉鍵維持 `portfolio:valuation:v2`，summary 與 `portfolio:summary:v3` 不變），供前端 Top movers 以基準幣排序。`dayPnlExcludedCount` 補計「今天賣光但查無資產屬性的平倉候選」（先前既不計入總額也不計入排除數）；持有中且查無資產屬性的持倉只計入 `fxExcludedCount`，不再於價格缺失時被重複計入（04.1 REVIEW IN-05）。`POST /portfolio/dividends` 的 `paidAt` 與 `POST /portfolio/share-adjustments` 的 `effectiveDate` 新增下限 1900-01-01（含）：早於者回 400 `fields.paidAt` / `fields.effectiveDate`，不再以 500 結束（04.2 REVIEW WR-04）。
 - 2026-11-04（Phase 04.2，04.2-08）：股數調整〈生效時間與時序規則〉明定**同一除權日的多筆調整依記錄順序疊加**（Yuan 裁決「同日依記錄順序疊加」）：`Q_asOf` 的調整段改為含同一 `effective_at`、已先記錄者（交易段仍為嚴格早於）；沖銷依記錄順序倒著來。修正前同日第二筆拆股的 `Q_asOf` 不含第一筆（100 股兩次 2:1 → 300 而非 400）。
 - 2026-11-01（Phase 04.2，04.2-02）：凍結 `POST /portfolio/dividends`、`POST /portfolio/share-adjustments`、`GET /portfolio/activities` 三節，summary 新增 `dividendIncome` / `dividendTaxWithheld`、`totalPnl` 與 `roi` 含股利（語意變更）、summary 快取鍵 `v3`、`POST /trades` 新增 `fields.executedAt` 早於最晚股數調整的 400。股利與股數調整**實作為新表 `cash_dividends` / `share_adjustments`，而非擴充 `transactions.type`**（先前〈尚未提供〉的「`transactions.type` 擴充」敘述已刪除；裁決見 `.planning/phases/04.2-dividends-share-adjustments-watchlist/04.2-02-SUMMARY.md`）。Watchlist 契約另立 [watchlist-contract.md](watchlist-contract.md)。

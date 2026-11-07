@@ -386,6 +386,22 @@ class ShareAdjustmentApiIT extends ContainerIT {
         assertThat(adjustmentRows(email)).isZero();
     }
 
+    @Test
+    @DisplayName("除權日早於 1900-01-01（1800-01-01）：400 VALIDATION_FAILED、error.fields.effectiveDate，不再 500（04.2 WR-04）")
+    void effectiveDateBeforeFloorIsRejectedWithFieldError() throws Exception {
+        String email = "adj-floor-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "adjfloor" + UUID.randomUUID().toString().substring(0, 8));
+        buy(accessToken, 100, 100, threeDaysAgo());
+
+        postAdjustment(accessToken, UUID.randomUUID().toString(), dividendBody(10, "1800-01-01", null))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields.effectiveDate", notNullValue()));
+
+        assertThat(adjustmentRows(email)).isZero();
+        assertHolding(accessToken, 100);
+    }
+
     private void assertHolding(String accessToken, int expectedQuantity) throws Exception {
         mockMvc.perform(get("/api/v1/portfolio/holdings")
                 .header("Authorization", "Bearer " + accessToken))

@@ -62,10 +62,6 @@ public class PortfolioCache {
         this.objectMapper = objectMapper;
     }
 
-    public Optional<HoldingDto> readHolding(Long userId, Long assetId) {
-        return read(holdingKey(userId, assetId), HoldingDto.class);
-    }
-
     /**
      * 一次 MGET 讀多筆持倉快取。
      *
