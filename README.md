@@ -30,7 +30,7 @@ Stock Web V2 是股票交易 Web 應用的後端。它以 Java 21 / Spring Boot 
 需求:
 
 - JDK 21
-- Docker(只有整合 / E2E 測試的 Testcontainers 需要)
+- Docker(整合 / E2E 測試的 Testcontainers 需要;`stock-start` 裡 7 個舊的 `*E2ETest` 會在 `./mvnw test` 時一起執行,所以完整的 `./mvnw test` 也需要)
 - 一套連得到的 PostgreSQL(含 TimescaleDB extension)、Redis 與 Kafka
 
 repo 已附 Maven Wrapper,不必另外安裝 Maven:
@@ -98,7 +98,7 @@ curl http://localhost:11180/api/v1/portfolio/holdings \
 
 ```bash
 ./mvnw -B spotless:check                                   # 格式檢查(import 順序、空白衛生)
-./mvnw test                                                # Unit + Web 層(不需 Docker)
+./mvnw test                                                # Unit + Web 層;stock-start 的 7 個舊 *E2ETest 也會跑,需 Docker(見 docs/testing/overview.md)
 ./mvnw -pl stock-start -am verify                          # 加上 *IT.java 整合測試(Testcontainers,需 Docker)
 ./mvnw -pl stock-start -am test -Pe2e                      # 後端 E2E(*E2E.java)
 ```
