@@ -111,19 +111,22 @@ public interface WatchlistRepository {
     boolean containsItem(Long watchlistId, Long assetId);
 
     /**
-     * 計算清單目前的項目列數（含已 inactive 的資產，上限以實際儲存的列計）。
+     * 計算清單目前<strong>可見</strong>的項目數：只計資產 active 的項目——與 {@link #itemsByWatchlist} /
+     * {@link #itemAssetIdsByUuid} 同一集合（04.2 WR-03；先前連下架資產一起計，使用者看到 97 檔卻被擋在 100）。
      *
      * <p>100 檔上限的計數來源：呼叫端必須先以 {@link #findByUuidForUpdate} 鎖住清單列，<strong>之後</strong>
      * 再呼叫本方法——READ COMMITTED 下每個語句各自取快照，鎖後的這個獨立查詢才看得到前一個持鎖交易剛 commit 的項目。</p>
      *
      * @param watchlistId 清單 id
-     * @return 項目列數
+     * @return 可見項目數
      */
-    int countItems(Long watchlistId);
+    int countVisibleItems(Long watchlistId);
 
     /**
      * 把資產加到清單尾端（{@code position = coalesce(max(position), 0) + 1}），
      * 以 {@code ON CONFLICT (watchlist_id, asset_id) DO NOTHING} 吸收重複。
+     *
+     * <p>{@code max(position)} 刻意涵蓋全部列（含隱藏列）：新項目排在隱藏列之後，位置仍確定。</p>
      *
      * @param watchlistId 清單 id（呼叫端已鎖列）
      * @param assetId     資產 id
@@ -163,4 +166,16 @@ public interface WatchlistRepository {
      * @param assetIdsInOrder  新順序的資產 id
      */
     void rewritePositions(Long watchlistId, List<Long> assetIdsInOrder);
+
+    /**
+     * 把清單中<strong>隱藏</strong>（資產 {@code active = false}）的列重編到可見項目之後：依原相對順序
+     * （{@code position, asset_id}）編為 {@code visibleCount + 1 ..}。
+     *
+     * <p>V18 的 position 沒有唯一約束；重排只重寫可見項目的 1..n，隱藏列原本保留過時的 position 而與 1..n 撞號，
+     * 資產重新上架時位置不確定（04.2 WR-03）。重編後重新上架的資產確定出現在尾端。</p>
+     *
+     * @param watchlistId  清單 id（呼叫端已鎖列）
+     * @param visibleCount 可見項目數（剛重寫為 1..n 的 n）
+     */
+    void renumberHiddenItemsAfter(Long watchlistId, int visibleCount);
 }

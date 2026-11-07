@@ -44,7 +44,7 @@ public class WatchlistService {
     /** 每位使用者的清單上限（D-17）。 */
     public static final int MAX_WATCHLISTS = 20;
 
-    /** 每份清單的項目上限（D-17）。 */
+    /** 每份清單的項目上限（D-17）；只計可見（active 資產）項目（04.2 WR-03）。 */
     public static final int MAX_ITEMS = 100;
 
     /** 清單名稱 trim 後的長度上限（以 code point 計，與 PostgreSQL VARCHAR(30) 的字元計數一致）。 */
@@ -138,7 +138,9 @@ public class WatchlistService {
      * 把資產加到清單尾端（D-15、D-17、D-18）。
      *
      * <p>順序：{@code findByUuidForUpdate} 鎖清單列 → 解析 symbol（只要求 active，不要求 tradeable）→
-     * 已在清單中則原樣回傳 → 以<strong>鎖後另起</strong>的 {@code countItems} 檢查 100 檔上限 → 插入尾端。
+     * 已在清單中則原樣回傳 → 以<strong>鎖後另起</strong>的 {@code countVisibleItems} 檢查 100 檔上限 → 插入尾端。
+     * 上限只計可見（active 資產）項目，與回給前端的 items 同一集合（04.2 WR-03）；資產重新上架可能讓可見項目暫時
+     * 超過 100，此時加入回 400 直到低於 100。新項目以 {@code max(position) + 1}（涵蓋隱藏列）排在最後。
      * 計數不能沿用鎖查詢本身的結果：READ COMMITTED 下鎖查詢的快照在等鎖前取得，看不到前一個持鎖交易剛
      * commit 的項目，會讓並發加入超過上限。</p>
      *
@@ -148,7 +150,7 @@ public class WatchlistService {
      *                      與 {@code DividendService} / {@code ShareAdjustmentService} / {@code ActivityQueryService} 一致）
      * @return 加入後的清單（含項目與報價）；已在清單中時為原樣
      * @throws BusinessException 清單不存在或屬於他人（404 {@code WATCHLIST_NOT_FOUND}）、資產不存在或 inactive
-     *                           （404 {@code ASSET_NOT_FOUND}，{@code fields.symbol}）、清單已有 100 檔
+     *                           （404 {@code ASSET_NOT_FOUND}，{@code fields.symbol}）、清單已有 100 檔可見項目
      *                           （400 {@code VALIDATION_FAILED}，{@code fields.items}）
      */
     @Transactional
@@ -164,7 +166,7 @@ public class WatchlistService {
             return toDto(watchlist);
         }
         // 必須是鎖之後的另一個查詢：READ COMMITTED 下鎖查詢的快照在等鎖前取得，看不到剛 commit 的項目。
-        if (watchlistRepository.countItems(watchlist.id()) >= MAX_ITEMS) {
+        if (watchlistRepository.countVisibleItems(watchlist.id()) >= MAX_ITEMS) {
             throw new FieldValidationException("Watchlist item limit reached", Map.of("items", "at most 100 items"));
         }
         watchlistRepository.insertItemAtEnd(watchlist.id(), assetId);
@@ -191,7 +193,8 @@ public class WatchlistService {
 
     /**
      * 整份重排（D-15）：送來的 UUID 須恰為清單目前全部可見項目（不多、不少、不重複），
-     * 於同一交易內依序把 position 重寫為 1..n。
+     * 於同一交易內依序把 position 重寫為 1..n，再把隱藏列（下架資產）依原相對順序重編為 n+1..
+     * （04.2 WR-03：否則隱藏列與 1..n 撞號，重新上架時位置不確定）。
      *
      * <p>先鎖清單列再讀目前集合：與並發的加入 / 移除序列化，集合比對不會讀到過時狀態；
      * 集合不符代表另一分頁已變更清單，回 409 讓前端重讀。</p>
@@ -217,6 +220,7 @@ public class WatchlistService {
                 ErrorCode.WATCHLIST_ORDER_CONFLICT.defaultMessage());
         }
         watchlistRepository.rewritePositions(watchlist.id(), assetUuids.stream().map(current::get).toList());
+        watchlistRepository.renumberHiddenItemsAfter(watchlist.id(), assetUuids.size());
         return toDto(watchlist);
     }
 

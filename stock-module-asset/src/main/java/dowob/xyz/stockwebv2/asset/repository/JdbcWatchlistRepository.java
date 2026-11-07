@@ -187,8 +187,14 @@ public class JdbcWatchlistRepository implements WatchlistRepository {
     }
 
     @Override
-    public int countItems(Long watchlistId) {
-        return jdbcClient.sql("select count(*) from watchlist_items where watchlist_id = :watchlistId")
+    public int countVisibleItems(Long watchlistId) {
+        return jdbcClient.sql("""
+                select count(*)
+                from watchlist_items wi
+                join assets a on a.id = wi.asset_id
+                where wi.watchlist_id = :watchlistId
+                  and a.active = true
+                """)
             .param("watchlistId", watchlistId)
             .query(Integer.class)
             .single();
@@ -266,6 +272,32 @@ public class JdbcWatchlistRepository implements WatchlistRepository {
                 .param("assetId", assetIdsInOrder.get(index))
                 .update();
         }
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>單一 {@code UPDATE ... FROM}：子查詢以 {@code row_number()} 為隱藏列編號（排序與讀取端的
+     * {@code position, a.id} 一致），沒有隱藏列時不更新任何列。</p>
+     */
+    @Override
+    public void renumberHiddenItemsAfter(Long watchlistId, int visibleCount) {
+        jdbcClient.sql("""
+                update watchlist_items target
+                set position = :visibleCount + hidden.rn
+                from (
+                    select wi.asset_id, row_number() over (order by wi.position, wi.asset_id) as rn
+                    from watchlist_items wi
+                    join assets a on a.id = wi.asset_id
+                    where wi.watchlist_id = :watchlistId
+                      and a.active = false
+                ) hidden
+                where target.watchlist_id = :watchlistId
+                  and target.asset_id = hidden.asset_id
+                """)
+            .param("visibleCount", visibleCount)
+            .param("watchlistId", watchlistId)
+            .update();
     }
 
     /**
