@@ -64,7 +64,15 @@
   - 小型修補(D-02)、文件與設定一致性(D-03、D-21 ~ D-23)、`it-shared-containers`(D-04)可以和兩個 wave 平行,由 planner 安排。
 - **D-25:** **每個 wave 一組 PR**:Wave 1 先開一組前後端同名分支 PR,合進 `develop`、在 develop 上證明是綠的;之後才開 Wave 2 那組。平行的小項目由 planner 決定歸到哪一組。
 
+### Research 後補充裁決(Yuan 2026-11-07,plan-phase 中回答 research Open Questions)
+- **D-26:** **`apiClient.ts` 把 fetch reject 統一轉成 `NETWORK_ERROR`**:網路中斷時六頁一致顯示 `NETWORK_ERROR`(目前 Overview / Positions / Trades / Cash 顯示 `UNKNOWN_ERROR`);`baseCurrencyErrorKey` 等依錯誤碼分流的地方同步調整;補 `apiClient` 單元測試。SC5 網路中斷組斷言 `NETWORK_ERROR`。
+- **D-27:** **D-23 命名守門不設例外**:3 個抽象基底類別 `Abstract*E2ETest` 一併改名(例如 `Abstract*E2E`,名稱由 planner 定),守門規則對 `start/e2e` 套件內所有類別一律禁止 `*Test` 結尾,不豁免 abstract。
+- **D-28:** **D-02c 擴大為全部錯誤樣式改用新的固定色 `--danger` token**:Ops 失敗燈、SessionBanner、AuthPanel、表單錯誤框等所有失敗 / 錯誤樣式改用 `--danger`(紅漲綠跌對調時不變);`--up` / `--dn` 只留給漲跌語意;寫死的 `rgba` 字面色(如 `.pill.buy`)改用會跟著對調的 token。
+- **D-29:** **D-04 共用容器全部共用,包括 `BackfillJobIT`**:不保留獨立 Kafka 容器;以每個 IT 唯一的 topic 名稱與 consumer group 隔離,並處理 `createTopics` 重複建立(`TopicExistsException`)、`MarketDataIngestServiceIT.pollOne` 讀到他人殘留訊息、`BackfillJobIT` listener 從 earliest 讀的風險;以 `-Dfailsafe.runOrder=random` 在 CI 證明無順序相依。
+- **D-15 補充(research 事實):** 後端 repo 為 public,前端 CI 跨 repo checkout 用預設 `github.token` 即可,**不需要** Yuan 建 PAT / deploy key 的人工 checkpoint。
+
 ### Claude's Discretion
+- 請求端是否拒收 JSON number 形式的金額:採 Jackson 預設(接受),不另加拒收邏輯(research Open Question 3 建議)。
 - SC1 / SC2 稽核表的格式與存放位置(建議放 phase 目錄,如 `05-COVERAGE-AUDIT.md`,逐條列 SC → 測試檔 / 方法 → 已涵蓋 / 缺口 → 補上的測試)。
 - decimal 套件選型(research 比較 bundle size、API、授權、TS 型別)。
 - BigDecimal 字串化的後端實作方式(逐欄位 `@JsonSerialize(using = ToStringSerializer.class)`,或全域 Jackson 設定只套用在 API DTO);以 D-09 的守門測試能驗證為準。
