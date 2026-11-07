@@ -37,7 +37,7 @@
 | Redis | `ai-docs/redis-convention.md` |
 | Git | `ai-docs/git-convention.md` |
 | 模型調度/交辦 | `ai-docs/model-dispatch.md`、`ai-docs/task-briefs.md` |
-| 前端(Vue repo) | `../../vue/stock-v2/AGENTS.md` 或其 `docs/`(前端 repo 的教訓記在 `../../vue/stock-v2/docs/LEARNINGS.md`)|
+| 前端(Vue repo) | 前端 repo 根的 `AGENTS.md` 或 `docs/`(教訓記在其 `docs/LEARNINGS.md`;路徑定義見 judgment.md §8)|
 
 ## 4. 檔案所有權:誰可以改什麼
 
