@@ -337,3 +337,162 @@ Part 2 **沒有新增或刪除任何 i18n 鍵**(`QUICK_261107_1J4_KEYS` 不變,�
 
 - 工作樹乾淨,HEAD = `60541f0`;Task 2 共 14 個 commit(`9a63391..60541f0`),全部在 `claude/epic-curie-lj8alo`,未 push。
 - 本報告未 commit;未建立 SUMMARY;未改 STATE.md / ROADMAP.md。
+
+---
+
+## Addendum E2 / E3
+
+執行者:E2 / E3 executor(sequential,主工作樹,接在 `60541f0` 之後),2026-11-07。範圍:PLAN〈Orchestrator addendum〉E2、E2 補充(UTC fallback)、E3。
+狀態:**完成**。4 個 commit(`60541f0..3d8ae15`),未 push;本段報告未 commit。
+
+### Commits(皆 scope `quick-261107-1j4`)
+
+| 子項 | 類型 | Hash | Subject |
+|---|---|---|---|
+| E2 | RED | `8d4a84c` | test: 持股事件對話框改用持倉 market 與 UTC fallback 的失敗測試 |
+| E2 | GREEN | `91c4d1c` | feat: 持股事件對話框改用持倉 market 決定市場今天,未知市場改 UTC |
+| E3 | RED | `56fb0db` | test: 其餘以 accent 當文字色的用法改用 --accent-text 的失敗測試 |
+| E3 | GREEN | `3d8ae15` | style: 其餘以 accent 當文字色的 25 處改用 --accent-text |
+
+RED 證據:
+- E2:14 個失敗(marketDate fallback 2、HoldingEventDialog 7、Positions 2、portfolioApi 2、tradingApi 1)。失敗原因都對得上:`/assets` 呼叫數為 1(應為 0)、mock `searchAssets` 被呼叫、typeahead 未選定時仍是紐約 `2026-11-04`、Positions 台股列提示仍是美東、mock 持倉沒有 market。
+- E3:21 個失敗。「style 區塊不得有 `color: var(--accent)`」列出 25 個 offender,另外 20 個代表性選擇器各自是 `expected 'var(--accent)' to be 'var(--accent-text)'`。E3 的膠囊對比度量測(14 個)與「accent 底不得誤配 accent-text」守護測試在 RED 時就通過,因為 token 值沒變,屬守護測試。
+
+### 測試數字
+
+| 項目 | 動工前(`60541f0`) | E2 後(`91c4d1c`) | E3 後(`3d8ae15`) |
+|---|---|---|---|
+| `npm test`(mock) | 64 檔 / 1262 | 64 檔 / 1271(+9) | 64 檔 / **1308**(+37) |
+| `VITE_DATA_MODE=api npm test` | 1262 | 1271 | **1308** 全綠 |
+| `npm run lint` | 0 errors / 40 warnings | 0 / 40 | **0 errors / 40 warnings**(沒有增加) |
+| `npm run build`(含 vue-tsc) | 通過 | 通過 | **通過** |
+| `npx playwright test e2e/tests/layout.spec.ts` | 101 | — | **101 passed**(在 `3d8ae15` 跑;E2 有改 `e2e/support/portfolioStubs.ts`,一併涵蓋) |
+
+E2 的 +9:HoldingEventDialog 刪 4 個舊 WR-09 測試(恰好查一次、查詢失敗退回紐約、aria-describedby、台股查詢回來後更新)、新增 7 個(淨 +3);marketDate +1;Positions +2;portfolioApi +2;tradingApi +1。
+E3 的 +37:contrastTokens +23(全域 1、模板白名單 1、代表性 20、accent 底守護 1);accentTokens +14(7 個 preset × 2 個主題)。
+
+### grep 閘門(Task 2 G1–G7 重跑,皆達標)
+
+- G1 i18n 訂單類型鍵 0;OrderTicket `trade-ord-type|trade-tif` 0
+- G2 styles.css `--accent-text` 3、`--success` 3、`#a1a1aa|#62605a` 0
+- G3 `th.s { color: var(--accent); }` 0;Markets `tab-count.*color: var(--accent);` 0
+- G4 兩個對話框的 `padding: 8px 24px; min-height: 44px` 都是 0
+- G5 HoldingEventDialog `todayLocalDate` 0、`marketDayRuleOf` 3;`MIN_EVENT_INSTANT_MS` 在 eventTimeBounds.ts
+- G6 portfolioApi `ForTests` 0;WatchlistPicker `isConnected`、quoteStream `WELCOME_TIMEOUT_MS`、useTweaks `accentTextFor` 都還在
+- G7 `git diff --name-only 9a63391..HEAD -- vue-app/src/services/apiClient.ts` 為空(鐵律 1);`vue-app/src` 沒有新增任何 `fetch(`
+- E2 新增:HoldingEventDialog `lookupLockedAsset|lockedLookupSeq` 0;`searchAssets(` 1(只剩 typeahead)
+- E3 新增:`.vue` 中 `color: ?var(--accent)` 只剩 3 處,都是模板裡的圖表容器(見下表的保留列)
+
+### E2 — 行為與實作
+
+- **型別**:`apiTypes.ts` 的 `HoldingDto` 在 `sector` 後新增必填 `market: string | null`(對應後端 E1)。這會讓型別檢查擋下所有沒寫 market 的 HoldingDto fixture,實際補了 OrderTicket.test、Positions.test 的 2 個 fixture,以及 `e2e/support/portfolioStubs.ts`(TW / US / DE / JP / CRYPTO)。
+- **對話框**:`HoldingEventDialog` 新增並 export `HoldingEventHolding` 型別(`totalQuantity`、`currency?`、`name?`、`assetType?: string | null`、`market?: string | null`),Positions 改 import 這個型別,不再自己宣告一份。`marketRule` 的規則:
+  - typeahead:用選定資產的 `assetType` / `market`;還沒選 → `FALLBACK_MARKET_DAY_RULE`
+  - 從持倉開啟:用 `props.holding.assetType` / `props.holding.market`;沒有 holding → fallback
+  - 沖銷模式:不使用(日期取自原列),沒有變
+  - 已刪除 `lockedAsset`、`lockedLookupSeq`、`resetLockedAsset()`、`lookupLockedAsset()`,以及 `resetForm` 裡呼叫它們的兩行。
+- **fallback 改 UTC(E2 補充)**:`marketDate.ts` 的 `FALLBACK_MARKET_DAY_RULE = UTC_RULE`,註解改為說明與後端 `TradingDay.UTC` 一致。提示文字經 `marketZoneLabelKey` 照實顯示「以UTC日期計 / Uses the UTC date」,沒有新增 i18n 鍵。
+- **對照後端規則**:`marketDayRuleOf` 原本就涵蓋 E1 報告的全部規則(CRYPTO → UTC、FX → 紐約 17:00、US / NASDAQ / NYSE / AMEX、TW / TWSE / TPEX、JP / TSE、DE / XETRA、其他或 null → UTC、market 先 trim 再轉大寫),所以這次沒改。另外補了別名大小寫與空白的測試,以及「股票帶 market `CRYPTO` 或空字串 → UTC」的測試。
+- **mock**:
+  - `types.ts` 的 `Position` 新增選填 `assetType?`、`market?`;`data.ts` 的 `POSITIONS` 種子 6 筆都補上(AAPL / NVDA / MSFT 為 STOCK/US、2330.TW 為 STOCK/TW、BTC / ETH 為 CRYPTO/CRYPTO,與 mock market adapter 的值域相同)。
+  - `portfolioApi` 的 mock `holdingFrom` 改為 `assetType: position.assetType ?? 'STOCK'`、`market: position.market ?? null`。原本 assetType 寫死 STOCK,所以 mock 持倉 BTC / ETH 現在是 CRYPTO;summary 的 allocation 仍是單一 STOCK 區塊,沒動。
+  - `mockPortfolio.executeOrder` 新增選填 `assetType` / `market`;mock `tradingApi` 新建持倉時以 `cat.toUpperCase()` 和 `mockMarketOf` 帶入。`mockMarketOf` 從 `marketApi.ts` export 出來共用,兩處的值域因此一致。
+- **Positions**:`apiHoldingOf` 原樣帶入 `h.assetType` / `h.market`;`mockHoldingOf` 帶入 `p.assetType ?? null` / `p.market ?? null`。
+
+### E2 — 新測試涵蓋
+
+- 從持倉開啟、API mode(`/assets` 有路由,所以呼叫會留下紀錄):美股 → `2026-11-04` + 美東;台股 → `2026-11-05` + 台北;加密(assetType CRYPTO、market 故意填 US)→ `2026-11-05` + UTC;market 為 null、無法辨識(`LSE`)或沒有這個欄位 → `2026-11-05` + UTC,而且沒有錯誤區塊。每一個都斷言 `/assets` 呼叫數為 0。
+- 從持倉開啟、mock mode:對快取中的 `getRuntimeApiClients().market.searchAssets` 做 `vi.spyOn`,斷言沒被呼叫,且台股提示為台北。
+- typeahead:還沒選 → UTC `2026-11-05`;選 AAPL → 未動過的值跟著變成 `2026-11-04`;使用者改過再選 2330 → 不覆寫,max 變 `2026-11-05`,提示變台北。原本「持倉查詢回來後更新」的測試語意移到這裡。
+- Positions 整合:API 從 market TW 的列開啟 → 台北;market null 的列 → UTC;`/assets` 0 次。mock 的 2330.TW / AAPL / BTC 三列分別是台北 / 美東 / UTC,`searchAssets` 0 次。
+- 沖銷(「沖銷不需要搜尋標的」)與 typeahead 既有測試沒改,全數通過。
+- 為了配合預設持倉帶 market US,既有測試的預設 holding 和 `HOLDING_1000` 加上 `assetType: 'STOCK', market: 'US'`,4 處「查詢未路由 → fallback 紐約」的註解改為「持倉 market US → 紐約」;`exDateIsADateInputCappedAtTodayAndSentVerbatim` 拿掉已經用不到的 `/assets` 路由。
+
+### E3 — `var(--accent)` 文字用法歸類表
+
+動工前 `.vue` / css / ts(不含測試)共 150 處 `var(--accent)`。其中 28 處是 `color` 屬性(文字色);其餘 122 處是 background、border(-color / -bottom-color)、outline、box-shadow、color-mix 膠囊底、SVG fill / stroke / stop-color、圖表色票、圓點與長條 fill,全部維持 `--accent`,不逐列列出。28 處 `color` 的判斷如下(行號為改動後;文字底色依該規則或父層判斷):
+
+**改為 `var(--accent-text)`(25 處)**
+
+| file:line | 選擇器 | 用途 / 文字所在底色 | 同規則保留 accent 的宣告 |
+|---|---|---|---|
+| `components/CmdK.vue:256` | `.grp-row.active .grp-icon` | 啟用列的圖示字形(→ / $ / ⚡),在 `--surface2` 上 | — |
+| `components/settings/SettingsAiAccess.vue:132` | `.micro:hover` | 小按鈕 hover 文字,在 `--surface` 上 | — |
+| `components/settings/SettingsAiAccess.vue:138` | `.btn-ghost:hover:not(:disabled)` | ghost 鈕 hover 文字 | `border-color` |
+| `components/settings/SettingsAiAccess.vue:208` | `.call-tool code` | 工具名稱 code 文字 | — |
+| `components/settings/SettingsBrokers.vue:170` | `.chip.sandbox` | sandbox 膠囊文字,在 accent 14% 上 | `background` 14% |
+| `components/settings/SettingsBrokers.vue:178` | `.micro:hover` | 同 AiAccess | — |
+| `components/settings/SettingsBrokers.vue:184` | `.btn-ghost:hover:not(:disabled)` | 同上 | `border-color` |
+| `components/settings/SettingsDataSources.vue:138` | `.chip.sandbox` | 同 Brokers | `background` 14% |
+| `components/settings/SettingsDataSources.vue:176` | `.micro:hover` | 同上 | — |
+| `components/settings/SettingsDataSources.vue:184` | `.btn-ghost:hover:not(:disabled)` | 同上 | `border-color` |
+| `components/StrategyEditor.vue:177` | `.api-list code` | API 名稱 code 文字,在 `--surface` 上 | — |
+| `pages/Ops.vue:161` | `.run-status` | 執行狀態文字,在 accent 8% 上 | `border` color-mix 35%、`background` 8% |
+| `pages/Notifications.vue:503` | `.day-pin` | 日期篩選膠囊文字,在 `rgba(99,102,241,0.1)` 靛色淡底上 | (邊框 / 底色本來就是寫死的靛色,不是 accent) |
+| `pages/Notifications.vue:506` | `.day-pin .x` | 膠囊內的 ✕ 字形 | — |
+| `pages/Alerts.vue:667` | `.al-target` | 警示目標價強調字 | — |
+| `pages/Alerts.vue:754` | `.ch-toggle.on` | 通知管道開啟中的文字,在 accent 12% 混 surface 上 | `border-color`、`background` 12% |
+| `pages/Markets.vue:545` | `.star-btn.on` | 已加入觀察清單的 ★ 字形 | — |
+| `pages/Markets.vue:555` | `.row:hover .quick-order` | 列 hover 時「下單」鈕文字 | `border-color` color-mix 35% |
+| `pages/Analytics.vue:742` | `.tab.on` | 啟用中分頁文字 | `border-bottom-color` |
+| `pages/Analytics.vue:764` | `.slider-row .num.edited` | 調整過的滑桿數值 | — |
+| `pages/Chart.vue:501` | `.btn-watch.on .watch-glyph` | 已觀察的 ★ 字形 | — |
+| `pages/Backtest.vue:435` | `.preview-badge` | Preview 徽章文字,在 accent 10% 上 | `border` color-mix 45%、`background` 10% |
+| `pages/Backtest.vue:453` | `.btn-ghost.active` | 啟用中 ghost 鈕文字,在 accent 8% 上 | `border-color`、`background` 8% |
+| `pages/Settings.vue:414` | `.soon` | 「Soon」小膠囊文字,在 accent 18% 上 | `background` 18% |
+| `pages/Settings.vue:437` | `.btn-ghost:hover:not(:disabled)` | ghost 鈕 hover 文字 | `border-color` |
+
+- **自行判斷:★ / ✕ / 圖示字形也改**。這些用 `color` 以字形呈現狀態,依 WCAG 1.4.11 至少要 3:1。預設 `#ff6600` 白底約 2.94:1,`#f59e0b` 白底約 2.1:1,兩者都不到;`--accent-text` 全部 ≥ 4.5。代價是淺色主題的星號比原本深一些。Yuan 若希望星號維持品牌原色,把 `Markets .star-btn.on` / `Chart .watch-glyph` 兩條改回 `--accent`,同時從 `contrastTokens.test.ts` 的 REPRESENTATIVE 刪掉這兩列即可。
+
+**保留 `var(--accent)`(3 處,模板 inline style)**
+
+| file:line | 用途 | 理由 |
+|---|---|---|
+| `pages/Positions.vue:166` | 權益曲線 `LineChart` 容器 `color:var(--accent)` | color 只驅動 SVG `currentColor` 線條;容器內唯一的文字 `.sm-pill` 自帶白字紫底 |
+| `pages/Markets.vue:142` | 債券殖利率 `Bars` 容器 | 長條 fill 用 currentColor;Bars 的標籤文字固定 `fill="var(--fg-dim)"` |
+| `pages/Overview.vue:166` | 權益曲線 `LineChart` 容器 | 同 Positions |
+
+**容易誤判、刻意不改的非 `color` 用法**:Analytics waterfall 的 total `color = 'var(--accent)'`(長條 fill;total 標籤在模板裡固定用 `var(--fg)`);Alerts `distanceColor()` 回傳的 `'var(--accent)'`(距離長條的 background);Overview / Analytics / Positions 的分類與產業色票(圓環、色塊);OrderTicket 報價 LineChart 的 `color` / `fill` 屬性(SVG 線條)。
+
+**測試涵蓋**:
+- `contrastTokens.test.ts` 新增 describe「E3 其餘 accent 文字用法改用 --accent-text」:(1) 所有 `.vue` style 區塊都不得有 `color: var(--accent)`;(2) 模板中的 `color:var(--accent)` 白名單只有上表 3 個圖表容器,每個附理由;(3) 20 個代表性選擇器斷言文字為 `--accent-text`,並同時斷言同規則的 accent 背景 / 邊框沒被誤改;(4) 背景是 `var(--accent)` 的規則不得配 `--accent-text`(要用 `--on-accent`)。
+- `accentTokens.test.ts` 新增 describe「E3 --accent-text 在遷移後的膠囊底色上」:7 個 preset × 淺 / 深主題,在 accent 8% / 10% / 12% / 14% 與靛色 10%(day-pin)疊在 `--bg` / `--surface` / `--surface2` 上,全部 ≥ 4.5。
+
+### 待 CI(非 layout 的 Playwright,需要真後端,本機未跑)
+
+- `holding-event-journey.spec.ts`:逐一確認了用到的 testid(`holding-event-*`、`positions-*`、`trades-*`、`overview-kpi-dividend-income`),都還在 `src` 裡;`holding-event-symbol-option-${symbol}`、`nav-*`、`trades-chip-*` 是動態產生,那些檔案沒動。從持倉開啟 AAPL 時,前端現在直接用真後端 `HoldingDto.market`(E1,AAPL = US → 紐約),不再打 `/assets?query=AAPL`。`:145` 以瀏覽器本地昨天填除權日:在紐約規則下與 part 1 的分析相同;如果 CI 的後端還沒有 E1(market 為 null → UTC),本地昨天在任何時區都 ≤ UTC 今天,仍然合法。spec 沒有斷言市場日期提示的文字,也沒有斷言 `/assets` 請求。**待 CI 確認**。
+- `trade.spec.ts`、`cash-journey.spec.ts`、`watchlist-journey.spec.ts`、`watchlist-live.spec.ts`:E3 只改文字顏色,這些 spec 沒有任何顏色斷言(`grep accent|rgb(255, 102|ff6600 e2e/tests` 只出現在 layout.spec 的按鈕選擇器名稱);E2 沒有刪除或改名任何 testid。**待 CI 確認**。
+- 後端 `TradingApiIT` 的 `$.data[0].market == "US"`(E1 報告)仍待 CI;前後端在 market 欄位名上已一致。
+
+### 偏離計畫(Deviations)
+
+1. **[Rule 2 — 正確性] mock 新建持倉也帶 market**:計畫只寫「mock holdings 種子資料補 market」。但 mock 下單買進不在種子裡的代號(例如 TSLA)時,新持倉會沒有 market,美股會以 UTC 日期計。所以 `executeOrder` 加了選填 `assetType` / `market`,mock tradingApi 帶入,並 export `mockMarketOf` 共用。
+2. **[Rule 1 — mock 資料錯誤] mock HoldingDto 的 assetType 改為依持倉帶入**:原本寫死 `'STOCK'`(BTC / ETH 也是 STOCK)。如果只補 market,`marketDayRuleOf('STOCK', 'CRYPTO')` 會走到 UTC fallback,答案剛好對但理由錯。現在是 `position.assetType ?? 'STOCK'`。
+3. **`HoldingDto.market` 宣告為必填 `string | null`**(而不是選填),與後端欄位一定出現的契約相同,讓型別檢查擋下沒寫 market 的 fixture。`Position.market` 則是選填:mock 測試裡大量手寫的 Position 字面值沒有這個欄位,缺值時退回 null / UTC,與 API 的語意一致。
+4. **★ / ✕ / 圖示字形歸為文字、改用 --accent-text**(理由見歸類表);計畫只說「文字色」,沒有點名字形。
+5. E3 GREEN commit 類型用 `style`:只換 CSS 變數,沒有邏輯改動。
+
+### 給 Task 3(文件)的註記
+
+- **04.2 UI-SPEC U-07(除權日市場日期)**:
+  1. 從持倉開啟時的市場來源由「開啟時以 `market.searchAssets` 查一次」改為「`HoldingDto.market` + `assetType`」,不再有額外請求;
+  2. 市場未知(typeahead 尚未選定、market 為 null 或無法辨識)的 fallback 由**紐約**改為 **UTC**,提示顯示「以UTC日期計 / Uses the UTC date」(沿用既有 `marketZoneUtc` 鍵,i18n 沒有增刪);
+  3. part 1 報告中「查不到退回紐約日期」「API 模式多一次 `/api/v1/assets?query=<symbol>`」兩句已經過時,寫 UI-SPEC / SUMMARY 時請改用本段。
+- **前端契約文件**:如果有列 HoldingDto 欄位的地方(例如 `docs/api-contracts/` 或 04.1 UI-SPEC 的型別段),補上 `market: string | null`(放在 `sector` 後)。後端 `trading-portfolio-contract.md` 已由 E1 更新。
+- **跨 repo 同步註記**:`marketDate.ts` 檔頭已寫明鏡像 `TradingDay.of`;現在 fallback 也一致(UTC)。後端 `TradingDay.java` 檔頭若要反向註明「前端 marketDate.ts 需同步」,由 Task 3[BE] 決定。
+- **token 使用規則(UI-SPEC / 設計系統段)**:「accent 當文字一律 `--accent-text`」現在全站適用(style 區塊 0 例外);例外只有圖表容器的 inline `color`(只驅動 SVG currentColor)。★ / ✕ / 圖示字形算文字。背景、邊框、外框、SVG fill / stroke 維持 `--accent`;accent 底上的文字仍用 `--on-accent`。
+- **part 2「給 Yuan 的觀察」的「仍有約 16 處 `color: var(--accent)` 當文字」已處理**(實際 25 處,另有 3 處圖表容器保留),SUMMARY 可標為已解決。
+- **LEARNINGS 候選**:
+  - 要在 mock mode 斷言某個 runtime adapter 方法「沒被呼叫」:先 `vi.stubEnv('VITE_DATA_MODE','mock')` + `resetRuntimeApiClientsForTests()`,再對 `getRuntimeApiClients().market` 做 `vi.spyOn`,然後才掛載元件。client 依 mode 快取,元件拿到的是同一個實例。
+  - 測試「元件不再呼叫某端點」時,要讓 fetch double **路由**該端點(回成功),而不是讓它丟錯。丟錯的呼叫如果被元件吞掉,呼叫紀錄雖然還在,但很容易被誤寫成只檢查畫面。
+
+### 給 Yuan 的觀察(不在本次範圍,未改)
+
+- typeahead(從 Trades 開啟)還沒選定標的時,除權日預設 / max 現在是 UTC 今天(原本是紐約)。UTC 凌晨到紐約午夜之間,這會比美股的市場今天晚一天;選定標的後,未動過的值會自動跟著改。後端仍會依真正的市場驗證。
+- Notifications `.day-pin` 的底色與邊框寫死為靛色 `rgba(99,102,241,…)`,沒有跟著 accent;文字現在是 accent-text(橘系),兩者色系不同。是既有樣式,要統一可另外處理。
+- mock 持倉 BTC / ETH 的 `assetType` 現在是 CRYPTO;mock summary 的 allocation 仍是寫死的單一 STOCK 區塊(既有註解說 mock KPI 是寫死值),沒動。
+
+### 交接
+
+- 工作樹乾淨,HEAD = `3d8ae15`;Task 2 合計 18 個 commit(`9a63391..3d8ae15`),全部在 `claude/epic-curie-lj8alo`,未 push。
+- 本段報告未 commit;未改 PLAN / SUMMARY / STATE / ROADMAP。
