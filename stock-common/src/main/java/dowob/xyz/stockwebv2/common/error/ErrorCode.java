@@ -64,7 +64,7 @@ public enum ErrorCode {
     SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED(409, "Idempotency key was reused with a different share adjustment payload"),
     SHARE_ADJUSTMENT_NOT_FOUND(404, "Share adjustment not found"),
     SHARE_ADJUSTMENT_ALREADY_REVERSED(409, "Share adjustment has already been reversed"),
-    SHARE_ADJUSTMENT_NOT_REVERSIBLE(409, "Only the latest share adjustment of an asset can be reversed"),
+    SHARE_ADJUSTMENT_NOT_REVERSIBLE(409, "Share adjustment cannot be reversed (not the latest, or itself a reversal)"),
 
     INTERNAL_ERROR(500, "Internal server error");
 
