@@ -267,6 +267,9 @@ Plans:
 - [ ] `05-24-PLAN.md` — 回測 Decimal 化、E2E helper 改字串、decimal 邊界守門與文件(wave 12,frontend)
 - [ ] `05-25-PLAN.md` — Wave 2 閘門:PR、CI 證據、Yuan 依宣告順序同時窗合併(前端先、後端緊接)+ develop 綠(D-07)(wave 13,checkpoint)
 
+**Cross-cutting constraints:**
+- npm test(mock 與 api 兩種 mode)、npm run build、layout.spec 全綠
+
 ## Progress
 
 **Execution Order:**
