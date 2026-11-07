@@ -143,10 +143,14 @@ public class ShareAdjustmentService {
      * 記一筆配股或拆股 / 合股並改寫目前持倉，或（帶 {@code reversalOfId}）沖銷最晚一筆調整；
      * 同一使用者的同一把冪等鍵只會寫入一列。
      *
-     * <p>順序：零 I/O 的驗證先行（冪等鍵、type、依 type 的形狀）→ 解析標的 → 換算生效瞬間並擋超前 →
-     * 冪等快路徑（命中不鎖、不改、不失效）→ <strong>先鎖持倉</strong>再做時序規則、{@code Q_asOf}、持倉檢查與計算
+     * <p>順序：零 I/O 的驗證先行（冪等鍵、type、依 type 的形狀）→ 解析標的（只要求存在、不檢查狀態）→
+     * 換算生效瞬間並擋超前 → 解析沖銷原列 → 冪等快路徑（命中不鎖、不改、不失效）→ 沖銷走 {@link #reverse} →
+     * 新建一般紀錄才要求標的 active + tradeable → <strong>先鎖持倉</strong>再做時序規則、{@code Q_asOf}、持倉檢查與計算
      * → insert-first 宣告這把鍵 → 更新持倉（version 檢查）→ commit 後失效快取。
      * 「寫帳本早於改持倉」與 {@code createTrade} 同理：insert 落空（重送 / 併發）時持倉連碰都不碰。</p>
+     *
+     * <p>〔04.2 WR-01〕沖銷與同一把 key 的冪等重送<strong>不檢查標的狀態</strong>：標的下架或停止交易後仍須能更正既有調整，
+     * 逾時重送也必須拿回同一列。市場屬性（換算生效瞬間用）不論狀態都可用。</p>
      *
      * <p>每請求的 Facade 往返為 2 次（{@code findBySymbol} 解析標的與市場、{@code findProfiles} 取幣別）。</p>
      *
@@ -155,7 +159,8 @@ public class ShareAdjustmentService {
      * @param idempotencyKey 冪等鍵，由 {@code Idempotency-Key} header 原樣傳入
      * @return 新建立的紀錄；重送時為既有紀錄
      * @throws BusinessException 欄位 / 冪等鍵非法、除權日超前或早於最晚未沖銷調整（400 {@code VALIDATION_FAILED}）、
-     *                           標的不存在或不可交易（404 {@code ASSET_NOT_FOUND}）、除權日起點或目前無持倉、
+     *                           標的不存在，或新建一般紀錄時標的 inactive / 不可交易（404 {@code ASSET_NOT_FOUND}；
+     *                           沖銷與同 key 重送不檢查標的狀態）、除權日起點或目前無持倉、
      *                           調整後持股 ≤ 0（409 {@code TRADE_INSUFFICIENT_HOLDING}）、
      *                           insert 落空且以 key 重讀也落空（409 {@code DUPLICATE_RESOURCE}）、
      *                           持倉併發更新衝突（409 {@code TRADE_CONFLICT}）；沖銷時另有 reversalOfId 格式錯或
@@ -179,8 +184,8 @@ public class ShareAdjustmentService {
         }
         UUID reversalUuid = parseReversalOfId(request.reversalOfId());
         OffsetDateTime now = OffsetDateTime.now(clock);
-        // Facade 往返 1/2：解析標的（只有 active + tradeable 可記），同時取得換算生效瞬間所需的市場屬性。
-        AssetSummary asset = resolveTradeableAsset(request.symbol());
+        // Facade 往返 1/2：解析標的（只要求存在；狀態只在新建一般紀錄時檢查），同時取得換算生效瞬間所需的市場屬性。
+        AssetSummary asset = resolveExistingAsset(request.symbol());
         // 生效瞬間由後端以標的市場的交易日起點換算（與日 K / 前收 / 今日損益同一切點），
         // 不可用伺服器或客戶端的本地午夜：台北午夜會把美股除權日算到前一個紐約交易日（Pitfall 3）。
         OffsetDateTime effectiveAt = OffsetDateTime.ofInstant(
@@ -201,8 +206,11 @@ public class ShareAdjustmentService {
             return resolveIdempotentHit(known.get(), type, request, asset.id(), original);
         }
         if (original != null) {
+            // 沖銷不檢查標的狀態：下架或停止交易後仍可更正既有調整（WR-01）。
             return reverse(userId, request, idempotencyKey, asset, original, now);
         }
+        // 只有新建一般紀錄要求可交易，且排在鎖持倉之前：被拒的請求不取鎖。
+        requireTradeable(asset);
 
         // 先鎖持倉：ΔQ 依持倉與帳本計算，鎖住後同標的的交易寫入才不會在計算與更新之間交錯（T-04.2-15）。
         Optional<Holding> current = tradingRepository.findHoldingForUpdate(userId, asset.id());
@@ -519,25 +527,35 @@ public class ShareAdjustmentService {
     }
 
     /**
-     * 解析可記調整的標的：必須存在、active 且 tradeable（語意與 fields 同 {@code TradingService}）。
+     * 解析請求的標的：只要求存在，<strong>不</strong>檢查 active / tradeable
+     * （{@link AssetFacade#findBySymbol} 本身不篩 active）。狀態由 {@link #requireTradeable} 在新建一般紀錄時另外檢查。
      *
      * @param symbol 請求中的標的代號，大小寫不敏感
      * @return 標的摘要
      * @throws BusinessException 代號空白時 {@code VALIDATION_FAILED}（fields.symbol）；
-     *                           不存在、inactive 或不可交易時 {@code ASSET_NOT_FOUND}（fields.symbol）
+     *                           不存在時 {@code ASSET_NOT_FOUND}（fields.symbol = {@code not found}）
      */
-    private AssetSummary resolveTradeableAsset(String symbol) {
+    private AssetSummary resolveExistingAsset(String symbol) {
         if (StringUtils.isBlank(symbol)) {
             throw new FieldValidationException("symbol is required", Map.of(SYMBOL_FIELD, "must not be blank"));
         }
-        AssetSummary asset = assetFacade.findBySymbol(symbol.trim().toUpperCase(Locale.ROOT))
+        return assetFacade.findBySymbol(symbol.trim().toUpperCase(Locale.ROOT))
             .orElseThrow(() -> new BusinessException(ErrorCode.ASSET_NOT_FOUND, "Asset not found",
                 Map.of(SYMBOL_FIELD, "not found")));
+    }
+
+    /**
+     * 新建一般調整時要求標的 active 且 tradeable（語意、訊息與 fields 同 {@code TradingService}）。
+     * 沖銷與冪等重送不呼叫本方法（04.2 WR-01）。
+     *
+     * @param asset 已解析的標的
+     * @throws BusinessException inactive 或不可交易時 {@code ASSET_NOT_FOUND}（fields.symbol = {@code not tradeable}）
+     */
+    private static void requireTradeable(AssetSummary asset) {
         if (!asset.active() || !asset.tradeable()) {
             throw new BusinessException(ErrorCode.ASSET_NOT_FOUND, "Asset is not tradeable",
                 Map.of(SYMBOL_FIELD, "not tradeable"));
         }
-        return asset;
     }
 
     /**

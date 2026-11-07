@@ -359,7 +359,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 | 欄位 | 型別 | 必填 | 規則 |
 |---|---|---|---|
-| `symbol` | string | 是 | 不得空白、最多 32 字；須為 **active 且 tradeable** 的標的，否則 404 `ASSET_NOT_FOUND`（`fields.symbol`） |
+| `symbol` | string | 是 | 不得空白、最多 32 字；須為存在的標的，否則 404 `ASSET_NOT_FOUND`（`fields.symbol = not found`）。〔quick-261107-1j4，04.2 WR-01〕**新紀錄**須 active 且 tradeable（否則 404 `fields.symbol = not tradeable`）；帶 `reversalOfId` 的沖銷與同 key 冪等重送**不檢查標的狀態**（下架後仍可更正、重送仍拿回同一列） |
 | `amount` | number | 是 | **實領總額**（扣稅後、標的幣別）：0.00000001 ≤ x ≤ 1,000,000,000,000；整數最多 13 位、小數最多 8 位 |
 | `withholdingTax` | number | 否 | 預扣稅（標的幣別）：0 ≤ x ≤ 1,000,000,000,000；整數最多 13 位、小數最多 8 位；省略視為 0 |
 | `paidAt` | string（ISO-8601） | 否 | 入帳時間；省略視為伺服器現在；晚於伺服器時間 5 分鐘以上 → 400 `fields.paidAt`；〔quick-261106-fbs〕早於 `1900-01-01T00:00:00Z`（含帶號擴充年份如 `-10000-01-01T00:00:00Z`）→ 400 `fields.paidAt`（`must not be before 1900-01-01`，下限含邊界） |
@@ -399,7 +399,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 |---|---|---|
 | 400 | `VALIDATION_FAILED` | `error.fields` 的鍵：`Idempotency-Key`、`symbol`、`amount`、`withholdingTax`、`paidAt`（`must not be in the future` / `must not be before 1900-01-01`）、`note`、`reversalOfId`（`invalid format`）；沖銷值不符時指名不符欄位 |
 | 400 | `VALIDATION_FAILED` | body 不是合法 JSON 或欄位型別錯；訊息固定、無 `error.fields` |
-| 404 | `ASSET_NOT_FOUND` | 標的不存在、inactive 或不可交易（`fields.symbol`） |
+| 404 | `ASSET_NOT_FOUND` | 標的不存在（`fields.symbol = not found`）；或新紀錄的標的 inactive / 不可交易（`fields.symbol = not tradeable`）。沖銷與同 key 冪等重送不檢查標的狀態（04.2 WR-01） |
 | 404 | `DIVIDEND_NOT_FOUND` | 沖銷對象不存在或屬於他人 |
 | 409 | `DIVIDEND_IDEMPOTENCY_KEY_REUSED` | 同一把鍵搭配不同 payload |
 | 409 | `DIVIDEND_ALREADY_REVERSED` | 沖銷對象已被沖銷（含併發落敗） |
@@ -425,7 +425,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 | 欄位 | 型別 | 必填 | 規則 |
 |---|---|---|---|
-| `symbol` | string | 是 | 不得空白、最多 32 字；active + tradeable，否則 404 `ASSET_NOT_FOUND`（`fields.symbol`） |
+| `symbol` | string | 是 | 不得空白、最多 32 字；須為存在的標的，否則 404 `ASSET_NOT_FOUND`（`fields.symbol = not found`）。〔quick-261107-1j4，04.2 WR-01〕**新紀錄**須 active + tradeable（否則 404 `fields.symbol = not tradeable`，在鎖持倉之前）；帶 `reversalOfId` 的沖銷與同 key 冪等重送**不檢查標的狀態** |
 | `type` | string | 是 | `STOCK_DIVIDEND`（配股）或 `SPLIT`（拆股 / 合股）；白名單外 → 400 `fields.type` |
 | `quantity` | number | `STOCK_DIVIDEND` 必填 | 實領股數：0.00000001 ≤ x ≤ 1,000,000,000；整數最多 10 位、小數最多 8 位 |
 | `ratioNew` / `ratioOld` | integer | `SPLIT` 必填 | 比例 new:old，各 1–1000；兩者相等 → 400 `fields.ratio`（例：1 拆 4 = `4:1`；10 合 1 = `1:10`） |
@@ -488,7 +488,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 |---|---|---|
 | 400 | `VALIDATION_FAILED` | `error.fields` 的鍵：`Idempotency-Key`、`symbol`、`type`、`quantity`、`ratio`（相等）/ `ratioNew` / `ratioOld`、`effectiveDate`（未來、早於 1900-01-01、早於最晚調整）、`note`、`reversalOfId`；沖銷值不符時指名不符欄位 |
 | 400 | `VALIDATION_FAILED` | body 不是合法 JSON 或欄位型別錯；訊息固定、無 `error.fields` |
-| 404 | `ASSET_NOT_FOUND` | 標的不存在、inactive 或不可交易（`fields.symbol`） |
+| 404 | `ASSET_NOT_FOUND` | 標的不存在（`fields.symbol = not found`）；或新紀錄的標的 inactive / 不可交易（`fields.symbol = not tradeable`）。沖銷與同 key 冪等重送不檢查標的狀態（04.2 WR-01） |
 | 404 | `SHARE_ADJUSTMENT_NOT_FOUND` | 沖銷對象不存在或屬於他人 |
 | 409 | `TRADE_INSUFFICIENT_HOLDING` | 除權日起點或目前無持倉；沖銷後持股 ≤ 0 |
 | 409 | `SHARE_ADJUSTMENT_IDEMPOTENCY_KEY_REUSED` | 同一把鍵搭配不同 payload |
@@ -589,6 +589,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 ## 變更紀錄
 
+- 2026-11-07（quick-261107-1j4，04.2 WR-01）：`POST /portfolio/dividends` 與 `POST /portfolio/share-adjustments` 的標的狀態檢查只套用在**新紀錄**：帶 `reversalOfId` 的沖銷與同 key 冪等重送不再要求標的 active + tradeable（先前標的下架後無法更正既有紀錄，逾時重送也會被 404 擋下）。新紀錄的 404 `ASSET_NOT_FOUND` 訊息與 `fields.symbol` 不變；活動列表的 `reversible` 仍只看帳本。
 - 2026-11-07（quick-261107-1j4）：`POST /trades` 的 `executedAt` 與 `POST /portfolio/cash-entries` 的 `occurredAt` 新增下限 1900-01-01T00:00:00Z（含邊界、比較 instant）：早於者回 400 `VALIDATION_FAILED`，`fields.executedAt` / `fields.occurredAt` = `must not be before 1900-01-01`，在資產解析與寫入之前擋下（先前 DB 存不下的極端值會變成 500；形狀同 quick-261106-fbs 的 `paidAt` / `effectiveDate`）。`executedAt` 晚於現在的既有錯誤不變（仍無 `fields`）。
 - 2026-11-06（quick-261106-fbs，文件掃描）：〈快取與一致性〉補「讀取的快照一致性」（`listTrades` / `summary` 改 `REPEATABLE_READ`，04.1 WR-03）；檔首 〔04.2〕 凍結提示改為「已實作、程式為事實來源」；D-01 語意變更（`totalPnl` / `roi` 含股利、summary 鍵升 `v3`）的日期由 2026-10-31 對齊 04.2-02 裁決日 2026-11-01（04.2 G2）。
 - 2026-11-06（quick-261106-fbs）：holdings 新增 `unrealizedPnlInBase`（基準幣未實現損益；與 `marketValueInBase` 同條件為 `null`、回應時補上、不寫入持倉快取，持倉鍵維持 `portfolio:valuation:v2`，summary 與 `portfolio:summary:v3` 不變），供前端 Top movers 以基準幣排序。`dayPnlExcludedCount` 補計「今天賣光但查無資產屬性的平倉候選」（先前既不計入總額也不計入排除數）；持有中且查無資產屬性的持倉只計入 `fxExcludedCount`，不再於價格缺失時被重複計入（04.1 REVIEW IN-05）。`POST /portfolio/dividends` 的 `paidAt` 與 `POST /portfolio/share-adjustments` 的 `effectiveDate` 新增下限 1900-01-01（含）：早於者回 400 `fields.paidAt` / `fields.effectiveDate`，不再以 500 結束（04.2 REVIEW WR-04）。
