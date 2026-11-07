@@ -20,6 +20,12 @@ source: Yuan 2026-11-07 待辦裁決第 1、2、3C-2、3C-8 題;quick-261107-1j4
 4. **`@extended` 每次 PR 一起跑**(目前 `run-e2e.sh` 無參數預設只跑 `@smoke`,`@extended` 需 `--grep @extended`)。
 5. **金額精度**:前端引入 decimal 套件;金額 / 數量 / 價格欄位在請求與回應都改字串;service 層轉 decimal。細節見 `2026-11-06-cash-amount-string-serialization.md`〈決定〉。
 
+6. **quick-261107-1j4 留下的觀察一併處理**(Yuan 2026-11-07 追加裁決,來源見 `.planning/quick/261107-1j4-small-fixes-batch-b-04-2-review-closeout/261107-1j4-SUMMARY.md`〈需 Yuan 處理 / 決定〉):
+   - 交易 `executedAt`「晚於現在」的錯誤補 `fields.executedAt`(前端顯示欄位錯誤,與 1900 下限一致)。
+   - 觀察清單名稱 DB CHECK 擴充到不換行空白(新 migration;目前只擋在服務層,04.2 IN-04)。
+   - 紅漲綠跌模式下 Ops 失敗狀態燈不應變綠(失敗 / 錯誤語意比照 `--success` 另立固定色);寫死的 `rgba` 字面色底(如 `.pill.buy`)改用會跟著對調的 token。
+   - CashEntryDialog / OrderTicket 的「未來時間」判斷改用 `useNow`,隨時間更新(與 04.2 IN-09 同類)。
+
 ## 維持現狀(不排工作)
 
 - **DB 計數**(3C-8):分頁的 `count(*)` 與觀察清單 100 檔上限的 count 維持現狀。Yuan 追問「直接呼叫 DB 計數對服務的影響」,影響分析已在 2026-11-07 討論中回答,裁決為不改。
