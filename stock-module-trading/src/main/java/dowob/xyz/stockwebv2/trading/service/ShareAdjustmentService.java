@@ -207,7 +207,7 @@ public class ShareAdjustmentService {
         }
         if (original != null) {
             // 沖銷不檢查標的狀態：下架或停止交易後仍可更正既有調整（WR-01）。
-            return reverse(userId, request, idempotencyKey, asset, original, now);
+            return reverse(userId, type, request, idempotencyKey, asset, original, now);
         }
         // 只有新建一般紀錄要求可交易，且排在鎖持倉之前：被拒的請求不取鎖。
         requireTradeable(asset);
@@ -297,6 +297,7 @@ public class ShareAdjustmentService {
      * 一律取自原列（V17 的 {@code validate_share_adjustment_reversal} trigger 逐欄比對）。</p>
      *
      * @param userId         擁有者
+     * @param type           {@link #create} 已解析的請求調整類型（不在此重複解析）
      * @param request        沖銷請求
      * @param idempotencyKey 冪等鍵
      * @param asset          請求 symbol 解析出的標的
@@ -308,8 +309,9 @@ public class ShareAdjustmentService {
      *                           值與原列不同（400 {@code VALIDATION_FAILED}，fields 指名）、
      *                           沖銷後持股 ≤ 0 或無持倉（409 {@code TRADE_INSUFFICIENT_HOLDING}）
      */
-    private ShareAdjustmentDto reverse(Long userId, CreateShareAdjustmentRequest request, String idempotencyKey,
-                                       AssetSummary asset, ShareAdjustmentEntry original, OffsetDateTime now) {
+    private ShareAdjustmentDto reverse(Long userId, ShareAdjustmentType type, CreateShareAdjustmentRequest request,
+                                       String idempotencyKey, AssetSummary asset, ShareAdjustmentEntry original,
+                                       OffsetDateTime now) {
         Optional<Holding> current = tradingRepository.findHoldingForUpdate(userId, original.assetId());
         if (repository.isReversed(original.id())) {
             throw new BusinessException(ErrorCode.SHARE_ADJUSTMENT_ALREADY_REVERSED,
@@ -319,7 +321,7 @@ public class ShareAdjustmentService {
             throw new BusinessException(ErrorCode.SHARE_ADJUSTMENT_NOT_REVERSIBLE,
                 ErrorCode.SHARE_ADJUSTMENT_NOT_REVERSIBLE.defaultMessage());
         }
-        validateMirrorsOriginal(original, asset.id(), request);
+        validateMirrorsOriginal(original, asset.id(), type, request);
         // 撤銷已記錄的 ΔQ（不是以今天的持股重算比例）：調整後才發生的買賣不影響撤銷量。
         Holding next = calculator.applyShareAdjustment(current.orElse(null), original.quantityDelta().negate(), now);
 
@@ -372,15 +374,15 @@ public class ShareAdjustmentService {
      * 沖銷請求的值必須與原列相同（symbol / type / 配股 quantity 或拆股 ratioNew + ratioOld / effectiveDate）；
      * 不同的欄位全部列在 fields 中。配股的 quantity 以 compareTo 比較（scale 不同、數值相等視為相同）。
      *
-     * @param original 原列
-     * @param assetId  請求 symbol 解析出的標的主鍵
-     * @param request  沖銷請求（形狀已驗證）
+     * @param original      原列
+     * @param assetId       請求 symbol 解析出的標的主鍵
+     * @param requestedType {@link #create} 已解析的請求調整類型
+     * @param request       沖銷請求（形狀已驗證）
      * @throws FieldValidationException 任一欄位不同時
      */
-    private void validateMirrorsOriginal(ShareAdjustmentEntry original, Long assetId,
+    private void validateMirrorsOriginal(ShareAdjustmentEntry original, Long assetId, ShareAdjustmentType requestedType,
                                          CreateShareAdjustmentRequest request) {
         Map<String, String> mismatches = new LinkedHashMap<>();
-        ShareAdjustmentType requestedType = ShareAdjustmentType.fromApiValue(request.type());
         if (!original.assetId().equals(assetId)) {
             mismatches.put(SYMBOL_FIELD, MUST_MATCH_ORIGINAL);
         }
