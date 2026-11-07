@@ -142,6 +142,8 @@ class TradingApiIT extends ContainerIT {
             .andExpect(jsonPath("$.data[0].currency", equalTo("USD")))
             .andExpect(jsonPath("$.data[0].assetType", equalTo("STOCK")))
             .andExpect(jsonPath("$.data[0].sector", equalTo("Tech")))
+            // quick-261107-1j4 E1：交易市場與 sector 同取自資產屬性（V2 seed AAPL 的 market = US）。
+            .andExpect(jsonPath("$.data[0].market", equalTo("US")))
             .andExpect(jsonPath("$.data[0].baseCurrency", equalTo("USD")))
             .andExpect(jsonPath("$.data[0].marketValueInBase", equalTo(2000.00000000)))
             // quick-261106-fbs：基準幣未實現損益（基準幣 USD，故等於原幣 unrealizedPnl）。

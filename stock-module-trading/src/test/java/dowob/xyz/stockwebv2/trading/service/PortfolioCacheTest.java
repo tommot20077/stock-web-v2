@@ -51,8 +51,12 @@ import tools.jackson.databind.ObjectMapper;
  * {@code totalPnl} 含股利），持倉鍵維持 {@code v2}；原 v2 summary 斷言改為 v3，另鎖舊 v2 鍵不被讀、
  * 兩條失效路徑只刪 v3 summary 鍵。
  *
+ * <p>2026-11-07（quick-261107-1j4 E1）起持倉鍵升 {@code v3}：{@link HoldingDto} 新增隨持倉快取的 {@code market}，
+ * 舊 v2 JSON 缺此欄會被讀成 {@code market = null}；原 v2 持倉鍵斷言改為 v3，另鎖舊 v2 持倉鍵不被讀、
+ * 快取 JSON 帶 {@code market} 往返不遺失。
+ *
  * @author Yuan
- * @version 1.1.0
+ * @version 1.2.0
  */
 @DisplayName("portfolio 快取失效時機")
 class PortfolioCacheTest {
@@ -80,14 +84,14 @@ class PortfolioCacheTest {
 
         cache.invalidateAfterTrade(7L, 42L);
 
-        verify(redisTemplate, never()).delete("portfolio:valuation:v2:7:42");
+        verify(redisTemplate, never()).delete("portfolio:valuation:v3:7:42");
         for (CurrencyCode base : CurrencyCode.values()) {
             verify(redisTemplate, never()).delete("portfolio:summary:v3:7:" + base.name());
         }
 
         TransactionSynchronizationUtils.triggerAfterCommit();
 
-        verify(redisTemplate).delete("portfolio:valuation:v2:7:42");
+        verify(redisTemplate).delete("portfolio:valuation:v3:7:42");
         verify(redisTemplate).delete("portfolio:summary:v3:7:USD");
         verify(redisTemplate).delete("portfolio:summary:v3:7:TWD");
         verify(redisTemplate).delete("portfolio:summary:v3:7:EUR");
@@ -99,7 +103,7 @@ class PortfolioCacheTest {
     void invalidatesImmediatelyWithoutTransaction() {
         cache.invalidateAfterTrade(7L, 42L);
 
-        verify(redisTemplate).delete("portfolio:valuation:v2:7:42");
+        verify(redisTemplate).delete("portfolio:valuation:v3:7:42");
         for (CurrencyCode base : CurrencyCode.values()) {
             verify(redisTemplate).delete("portfolio:summary:v3:7:" + base.name());
         }
@@ -122,7 +126,7 @@ class PortfolioCacheTest {
     }
 
     @Test
-    @DisplayName("股利寫入（含沖銷）只失效 summary：刪該使用者全部基準幣的 v3 summary 鍵，不刪 portfolio:valuation:v2:*")
+    @DisplayName("股利寫入（含沖銷）只失效 summary：刪該使用者全部基準幣的 v3 summary 鍵，不刪任何 portfolio:valuation:* 持倉鍵")
     void summaryOnlyInvalidationDeletesAllV3SummaryKeysAndNoValuationKey() {
         cache.invalidateSummaryAfterCommit(7L);
 
@@ -130,21 +134,22 @@ class PortfolioCacheTest {
             verify(redisTemplate).delete("portfolio:summary:v3:7:" + base.name());
         }
         verify(redisTemplate, times(CurrencyCode.values().length)).delete(anyString());
-        verify(redisTemplate, never()).delete(startsWith("portfolio:valuation:v2:"));
+        verify(redisTemplate, never()).delete(startsWith("portfolio:valuation:"));
         verify(redisTemplate, never()).delete(startsWith("portfolio:summary:v2:"));
     }
 
     @Test
-    @DisplayName("交易失效：刪 portfolio:valuation:v2:{userId}:{assetId} 與全部 v3 summary 鍵（持倉鍵維持 v2）")
-    void tradeInvalidationDeletesV2ValuationKeyAndAllV3SummaryKeys() {
+    @DisplayName("交易失效：刪 portfolio:valuation:v3:{userId}:{assetId} 與全部 v3 summary 鍵，不刪舊 v2 鍵")
+    void tradeInvalidationDeletesV3ValuationKeyAndAllV3SummaryKeys() {
         cache.invalidateAfterTrade(7L, 42L);
 
-        verify(redisTemplate).delete("portfolio:valuation:v2:7:42");
+        verify(redisTemplate).delete("portfolio:valuation:v3:7:42");
         for (CurrencyCode base : CurrencyCode.values()) {
             verify(redisTemplate).delete("portfolio:summary:v3:7:" + base.name());
         }
         verify(redisTemplate, times(CurrencyCode.values().length + 1)).delete(anyString());
         verify(redisTemplate, never()).delete(startsWith("portfolio:summary:v2:"));
+        verify(redisTemplate, never()).delete(startsWith("portfolio:valuation:v2:"));
     }
 
     @Test
@@ -173,7 +178,7 @@ class PortfolioCacheTest {
     void readHoldingsUsesSingleMultiGet() {
         ValueOperations<String, String> valueOps = mock(ValueOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.multiGet(List.of("portfolio:valuation:v2:7:41", "portfolio:valuation:v2:7:42"))).thenReturn(Arrays.asList(
+        when(valueOps.multiGet(List.of("portfolio:valuation:v3:7:41", "portfolio:valuation:v3:7:42"))).thenReturn(Arrays.asList(
             null,
             "{\"assetId\":\"u\",\"symbol\":\"MSFT\",\"assetName\":\"MSFT\",\"totalQuantity\":5,\"avgCost\":200,"
                 + "\"costBasis\":1000,\"marketPrice\":210,\"marketValue\":1050,\"realizedPnl\":0,\"unrealizedPnl\":50,"
@@ -183,7 +188,42 @@ class PortfolioCacheTest {
 
         assertThat(cached).containsOnlyKeys(42L);
         assertThat(cached.get(42L).symbol()).isEqualTo("MSFT");
-        verify(valueOps, times(1)).multiGet(List.of("portfolio:valuation:v2:7:41", "portfolio:valuation:v2:7:42"));
+        verify(valueOps, times(1)).multiGet(List.of("portfolio:valuation:v3:7:41", "portfolio:valuation:v3:7:42"));
+    }
+
+    @Test
+    @DisplayName("升 v3 後舊 v2 持倉鍵即使存在也不讀（舊 JSON 缺 market，會被讀成 market = null）")
+    @SuppressWarnings("unchecked")
+    void legacyV2ValuationKeyIsNeverRead() {
+        ValueOperations<String, String> valueOps = mock(ValueOperations.class);
+        when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        when(valueOps.multiGet(List.of("portfolio:valuation:v3:7:43"))).thenReturn(Arrays.asList((String) null));
+        when(valueOps.multiGet(List.of("portfolio:valuation:v2:7:43"))).thenReturn(List.of(
+            "{\"assetId\":\"u\",\"symbol\":\"2330.TW\",\"currency\":\"TWD\",\"assetType\":\"STOCK\"}"));
+
+        assertThat(cache.readHoldings(7L, List.of(43L))).isEmpty();
+        verify(valueOps).multiGet(List.of("portfolio:valuation:v3:7:43"));
+        verify(valueOps, never()).multiGet(List.of("portfolio:valuation:v2:7:43"));
+    }
+
+    @Test
+    @DisplayName("持倉快取 JSON 帶 market：寫入 v3 鍵後讀回，market 不遺失")
+    @SuppressWarnings("unchecked")
+    void holdingMarketSurvivesCacheRoundTrip() {
+        ValueOperations<String, String> valueOps = mock(ValueOperations.class);
+        when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        HoldingDto dto = new HoldingDto("u", "2330.TW", "TSMC",
+            new BigDecimal("2"), new BigDecimal("900"), new BigDecimal("1800"), new BigDecimal("1000"),
+            new BigDecimal("2000"), BigDecimal.ZERO, new BigDecimal("200"), new BigDecimal("0.11111111"),
+            null, null, "TWD", "STOCK", "Tech", "TW", null, null, null, null, null, null, null);
+
+        cache.writeHolding(7L, 43L, dto);
+
+        org.mockito.ArgumentCaptor<String> json = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(valueOps).set(eq("portfolio:valuation:v3:7:43"), json.capture(), eq(Duration.ofSeconds(60)));
+        assertThat(json.getValue()).contains("\"market\":\"TW\"");
+        when(valueOps.multiGet(List.of("portfolio:valuation:v3:7:43"))).thenReturn(List.of(json.getValue()));
+        assertThat(cache.readHoldings(7L, List.of(43L)).get(43L).market()).isEqualTo("TW");
     }
 
     @Test

@@ -47,6 +47,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -170,7 +171,7 @@ class PortfolioQueryServiceTest {
             new BigDecimal("5"), new BigDecimal("200"), new BigDecimal("1000"), new BigDecimal("210"),
             new BigDecimal("1050"), BigDecimal.ZERO, new BigDecimal("50"), new BigDecimal("0.05"),
             OffsetDateTime.parse("2026-09-04T10:00:00+08:00"), OffsetDateTime.parse("2026-09-01T00:00:00+08:00"),
-            "USD", "STOCK", "Tech", null, null, null, null, null, null, null);
+            "USD", "STOCK", "Tech", "US", null, null, null, null, null, null, null);
         when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of(42L, cachedMsft));
         when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of(
             41L, quote(new BigDecimal("150"), null, OffsetDateTime.parse("2026-09-04T10:00:00+08:00")),
@@ -644,7 +645,7 @@ class PortfolioQueryServiceTest {
             new BigDecimal("2"), new BigDecimal("900"), new BigDecimal("1800"), new BigDecimal("1000"),
             new BigDecimal("2000"), BigDecimal.ZERO, new BigDecimal("200"), new BigDecimal("0.11111111"),
             OffsetDateTime.parse("2026-09-04T10:00:00+08:00"), OffsetDateTime.parse("2026-09-01T00:00:00+08:00"),
-            "TWD", "STOCK", "Tech", null, null, null, null, null, null, null);
+            "TWD", "STOCK", "Tech", "TW", null, null, null, null, null, null, null);
         when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of(43L, cachedOriginal));
 
         HoldingDto dto = service.listHoldings(7L).getFirst();
@@ -687,7 +688,7 @@ class PortfolioQueryServiceTest {
             new BigDecimal("10"), new BigDecimal("100"), new BigDecimal("1000"), new BigDecimal("200"),
             new BigDecimal("2000"), BigDecimal.ZERO, new BigDecimal("1000"), new BigDecimal("1"),
             OffsetDateTime.parse("2026-09-04T10:00:00+08:00"), OffsetDateTime.parse("2026-09-01T00:00:00+08:00"),
-            "USD", "STOCK", "Tech", null, null, null, null, null, null, null);
+            "USD", "STOCK", "Tech", "US", null, null, null, null, null, null, null);
         when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of(41L, cached));
 
         service.listHoldings(7L);
@@ -713,6 +714,66 @@ class PortfolioQueryServiceTest {
         assertThat(dto.sector()).isNull();
         assertThat(dto.assetType()).isEqualTo("FX");
         assertThat(dto.currency()).isEqualTo("TWD");
+    }
+
+    @Test
+    @DisplayName("持倉帶資產屬性的交易市場 market（與 sector 同一份 profile），寫入快取的原幣 DTO 也帶 market")
+    void holdingsCarryMarketFromAssetProfile() {
+        /*
+         * 前端從持倉開啟股利 / 股數調整對話框時，需依「該標的市場的今天」決定日期預設與提示；
+         * 先前 HoldingDto 沒有 market，前端只能再以代號查一次資產（quick-261107-1j4 E1）。
+         */
+        HoldingPosition aapl = position(1L, 41L, "AAPL", new BigDecimal("10"), new BigDecimal("100"));
+        HoldingPosition tsmc = position(2L, 43L, "2330.TW", new BigDecimal("2"), new BigDecimal("900"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(aapl, tsmc));
+        when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of());
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(profiles());
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of());
+
+        List<HoldingDto> holdings = service.listHoldings(7L);
+
+        assertThat(holdings).extracting(HoldingDto::symbol, HoldingDto::market)
+            .containsExactly(tuple("AAPL", "US"), tuple("2330.TW", "TW"));
+        ArgumentCaptor<HoldingDto> written = ArgumentCaptor.forClass(HoldingDto.class);
+        verify(portfolioCache).writeHolding(eq(7L), eq(43L), written.capture());
+        assertThat(written.getValue().market()).as("market 屬原幣估值的一部分，隨持倉寫入快取").isEqualTo("TW");
+    }
+
+    @Test
+    @DisplayName("查無資產屬性時 market 與 currency / assetType / sector 同為 null，持倉照常回傳且不寫快取")
+    void holdingMarketIsNullWhenProfileMissing() {
+        HoldingPosition orphan = position(1L, 45L, "GONE", new BigDecimal("3"), new BigDecimal("50"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(orphan));
+        when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of());
+        when(assetFacade.findProfiles(anyCollection())).thenReturn(Map.of());
+        when(marketDataFacade.findDailyQuotes(anyMap())).thenReturn(Map.of());
+
+        HoldingDto dto = service.listHoldings(7L).getFirst();
+
+        assertThat(dto.symbol()).isEqualTo("GONE");
+        assertThat(dto.market()).isNull();
+        assertThat(dto.currency()).isNull();
+        assertThat(dto.assetType()).isNull();
+        assertThat(dto.sector()).isNull();
+        verify(portfolioCache, never()).writeHolding(anyLong(), anyLong(), any(HoldingDto.class));
+    }
+
+    @Test
+    @DisplayName("快取命中的持倉保留快取內的 market，補基準幣折算時不遺失")
+    void cachedHoldingKeepsMarketThroughBaseValuation() {
+        HoldingPosition tsmc = position(2L, 43L, "2330.TW", new BigDecimal("2"), new BigDecimal("900"));
+        when(repository.listHoldings(7L)).thenReturn(List.of(tsmc));
+        HoldingDto cached = new HoldingDto("u", "2330.TW", "TSMC",
+            new BigDecimal("2"), new BigDecimal("900"), new BigDecimal("1800"), new BigDecimal("1000"),
+            new BigDecimal("2000"), BigDecimal.ZERO, new BigDecimal("200"), new BigDecimal("0.11111111"),
+            OffsetDateTime.parse("2026-09-04T10:00:00+08:00"), OffsetDateTime.parse("2026-09-01T00:00:00+08:00"),
+            "TWD", "STOCK", "Tech", "TW", null, null, null, null, null, null, null);
+        when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of(43L, cached));
+
+        HoldingDto dto = service.listHoldings(7L).getFirst();
+
+        assertThat(dto.market()).isEqualTo("TW");
+        assertThat(dto.baseCurrency()).isEqualTo("TWD");
     }
 
     @Test
@@ -1013,7 +1074,7 @@ class PortfolioQueryServiceTest {
             new BigDecimal("10"), new BigDecimal("100"), new BigDecimal("1000"), new BigDecimal("200"),
             new BigDecimal("2000"), BigDecimal.ZERO, new BigDecimal("1000"), new BigDecimal("1"),
             PRICE_TIME, OffsetDateTime.parse("2026-09-01T00:00:00+08:00"),
-            "USD", "STOCK", "Tech", null, null, null,
+            "USD", "STOCK", "Tech", "US", null, null, null,
             new BigDecimal("190"), new BigDecimal("100"), new BigDecimal("0.05263158"), new BigDecimal("1900"));
         when(portfolioCache.readHoldings(eq(7L), anyCollection())).thenReturn(Map.of(41L, cached));
 
