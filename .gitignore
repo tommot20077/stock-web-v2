@@ -47,3 +47,6 @@ logs/
 
 # gsd-core 自動產生的狀態快照(每次執行重寫,以 STATE.md 為準)
 .planning/state.json
+
+### GSD scratch ###
+.planning/tmp/
