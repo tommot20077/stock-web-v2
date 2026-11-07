@@ -47,7 +47,7 @@
 |------|--------|------|
 | `AGENTS.md`、`.planning/codebase/*` | **GSD 機器管理** | 禁止手改。改來源(codebase 類跑 `/gsd-map-codebase`;project 類改 `PROJECT.md`)再 `/gsd-docs-update` 同步。`.planning/codebase/` 會被整目錄覆寫——手寫判斷永遠別放那。 |
 | `CLAUDE.md`(repo root) | Yuan(本機孤本,不在 git) | 模型要改:先把現版全文與 diff 貼給 Yuan 同意。它不進版控,改壞沒有 git 可救。上限 ~150 行,只當路由。 |
-| `ai-docs/*.md` | Yuan 審核,模型可提案 | 走 branch+PR 或明示同意。**新增檔案必須 `git add -f`**(`/ai-docs/` 在 `.git/info/exclude`,不強制加會默默不進版控)。 |
+| `ai-docs/*.md` | Yuan 審核,模型可提案 | 走 branch+PR 或明示同意。 |
 | `ai-docs/bug-reports/LESSONS.md`、bug reports | 模型可自行 append | 追加不需審;修改/刪除既有條目要問。 |
 | `.planning/PROJECT.md` | Yuan 審核,模型可提案 | 改 Constraints 影響常載層,PR 或明示同意;改完必跑 `/gsd-docs-update`。 |
 | `SecurityConfig`、`GlobalExceptionHandler`、`apiClient.ts`、契約檔 | 動前先問 | 這些是唯一邊界,見 `judgment.md` §9-10。 |
@@ -56,7 +56,7 @@
 ## 5. 同步流程 checklist(改規範後)
 
 1. 改的是來源檔(不是 AGENTS.md 本體)?
-2. 新檔案 `git add -f` 過了?(`git ls-files <檔>` 有輸出才算)
+2. 新檔案已進版控(`git ls-files <檔>` 有輸出)?
 3. 動了 PROJECT.md → 跑 `/gsd-docs-update` → read-back AGENTS.md 對應區塊。
 4. CLAUDE.md 的 Guidelines Index 有沒有指到新檔?
 5. 常載預算:CLAUDE.md ≤150 行(官方建議 <200);超了就把內容下放按需檔,只留一行路由。
