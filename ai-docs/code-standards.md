@@ -114,7 +114,7 @@ As implemented (2026-09-27), derived portfolio data is **computed on read and ca
 
 | Data | Redis Key Pattern | TTL | Invalidation |
 |------|------------------|-----|--------------|
-| Holding valuation | `portfolio:valuation:v2:{userId}:{assetId}` | 60 s | after trade commit; after share-adjustment commit (including reversals) |
+| Holding valuation | `portfolio:valuation:v3:{userId}:{assetId}` | 60 s | after trade commit; after share-adjustment commit (including reversals) |
 | Portfolio summary | `portfolio:summary:v3:{userId}:{baseCurrency}` | 60 s | after trade commit; after cash-entry commit (all four `baseCurrency` keys, holding keys untouched); cash dividend (including reversals): summary keys only; share adjustment (including reversals): holding key + summary keys. `v3` since 2026-11-01 (Phase 04.2, frozen in 04.2-02: `dividendIncome` / `dividendTaxWithheld` added and `totalPnl` includes dividends) |
 | Latest price (market-data) | `market:latest:{assetId}` | 5 min | overwritten per tick |
 

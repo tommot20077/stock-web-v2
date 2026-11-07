@@ -151,6 +151,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | `currency` | string \| null | 標的計價幣別（`USD` / `TWD` / `EUR` / `JPY`），即上列原幣金額的幣別；資產屬性缺失（理論上不會發生）時為 `null`，該持倉不計入基準幣總額並計入 `fxExcludedCount` |
 | `assetType` | string \| null | 資產類型（`STOCK` / `CRYPTO` / `FX` / `BOND`）；資產屬性缺失時為 `null` |
 | `sector` | string \| null | 產業分類；`null` 代表未分類，由前端顯示「未分類」（後端不回在地化字串） |
+| `market` | string \| null | 〔quick-261107-1j4〕交易市場代號，即資產的 `assets.market`（如 `US` / `TW` / `JP` / `DE` / `CRYPTO` / `FX`，與 `GET /assets` 的 `market` 同值域），與 `sector` 取自同一份資產屬性；前端可配合 `assetType` 決定「該市場的今天」（交易日規則見〈GET /api/v1/assets — 標的報價欄位〉），不必再以代號查一次資產。資產屬性缺失（理論上不會發生，此時與 `currency` / `assetType` / `sector` 同為 `null`）或資產未設定市場（`assets.market` 欄位可為 NULL；種子資料皆有值）時為 `null`，前端應退回預設日期規則 |
 | `baseCurrency` | string | 使用者基準幣；`marketValueInBase` 的幣別 |
 | `marketValueInBase` | number \| null | `marketValue` 折算為 `baseCurrency` 的值；**換不到匯率時為 `null`** |
 | `unrealizedPnlInBase` | number \| null | 〔quick-261106-fbs〕`unrealizedPnl` 以**目前匯率**折算為 `baseCurrency` 的值（scale 8、HALF_UP，與 `marketValueInBase` 同一條折算路徑）；與 `marketValueInBase` **同條件為 `null`**（`currency` 為 `null` 或換不到匯率，語意同 summary 的 `fxExcludedCount`：不計入任何基準幣總額 / 排行）。跨標的比較 / 排行請用此欄 |
@@ -557,14 +558,14 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 ## 快取與一致性
 
-- 持倉與摘要有 60 秒 Redis 快取，鍵為 `portfolio:valuation:v2:{userId}:{assetId}`（存**原幣**估值，`baseCurrency` / `marketValueInBase` / `unrealizedPnlInBase` 於回應時才補上，所以新增欄位不需換鍵）與 `portfolio:summary:v3:{userId}:{baseCurrency}`（〔04.2〕2026-11-01 由 `v2` 升 `v3`：summary 新增 `dividendIncome` / `dividendTaxWithheld` 且 `totalPnl` 含股利，換前綴使部署前後兩種形狀互不讀取；持倉鍵維持 `v2`）。
+- 持倉與摘要有 60 秒 Redis 快取，鍵為 `portfolio:valuation:v3:{userId}:{assetId}`（存**原幣**估值，`baseCurrency` / `marketValueInBase` / `unrealizedPnlInBase` 於回應時才補上，所以這三欄的新增不需換鍵；2026-11-07 quick-261107-1j4 由 `v2` 升 `v3`：`market` 隨原幣估值寫入快取，舊 `v2` JSON 缺此欄會被讀成 `null`，換前綴使部署前後兩種形狀互不讀取）與 `portfolio:summary:v3:{userId}:{baseCurrency}`（〔04.2〕2026-11-01 由 `v2` 升 `v3`：summary 新增 `dividendIncome` / `dividendTaxWithheld` 且 `totalPnl` 含股利，換前綴使部署前後兩種形狀互不讀取）。
 - summary 依基準幣分鍵：使用者切換基準幣（`PATCH /api/v1/me/preferences`）後，下一次讀取直接 miss、立即拿到新幣別的值，不必等 60 秒。
 - 成交後在交易 **commit 之後**失效持倉鍵與 `USD` / `TWD` / `EUR` / `JPY` 四把 summary 鍵，所以成交後立即重讀一定看得到新交易。
 - 入出金分錄（含沖銷）在寫入 **commit 之後**只失效上述四把 summary 鍵，**不影響持倉鍵**（分錄不改變持倉估值）；現金項因此留在 summary 快取之內，入金後立即重讀就看得到新的 `cash`。冪等命中與被拒絕的請求（資料未變）不失效。
 - 〔04.2〕現金股利（含沖銷）在 commit 之後**只失效 summary 鍵**（股利不動股數與均價）；股數調整（含沖銷）在 commit 之後失效**該標的持倉鍵 + summary 鍵**（與成交相同）。冪等命中與被拒絕的請求不失效。
 - 讀取的快照一致性：`GET /trades`、`GET /portfolio/cash-entries` 與 summary 的計算在 `REPEATABLE_READ` 唯讀交易內執行（quick-261106-fbs，04.1 REVIEW WR-03），同一回應內的多道查詢（例如分頁的 count 與 items、summary 的各項加總）看到同一份快照。
 - 殘餘競態（與成交路徑相同、已接受）：讀者若在 commit 前讀了資料庫、於失效之後才寫回快取，舊值最長停留 60 秒。
-- 鍵中的版本（持倉 `v2`、summary `v3`）讓部署瞬間新舊程式不會讀到對方形狀的 JSON；舊鍵 60 秒內自然過期。
+- 鍵中的版本（持倉 `v3`、summary `v3`）讓部署瞬間新舊程式不會讀到對方形狀的 JSON；舊鍵 60 秒內自然過期。
 - （歷史，Phase 04.1）**摘要 JSON 在 Phase 04.1 內陸續追加欄位（今日損益、現金、配置）但鍵維持 `v2`**：Phase 04.1 作為一次部署上線，`v2` 鍵在此之前不存在，所以不會有舊形狀的 `v2` JSON。只有「部署過 04.1 中途版本的共用環境」才會有最多 60 秒的視窗，期間命中的舊 `v2` summary 缺新欄位（Jackson 以 `null` 讀入，`allocation` / `sectorAllocation` / `cashBalances` 可能是 `null` 而非空陣列），60 秒 TTL 到期後自動恢復。bearer client 對這些欄位仍應容錯 `null`。
 - 前端成交後應重讀 summary、holdings 與 trades（Phase 4 post-trade refetch）；〔04.2〕記股利或股數調整（含沖銷）後同樣重讀 summary、holdings 與活動列表。
 
@@ -589,6 +590,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 ## 變更紀錄
 
+- 2026-11-07（quick-261107-1j4，Yuan 裁決）：holdings 新增 `market`（string | null，JSON 位置緊接 `sector` 之後）：交易市場代號，與 `sector` 取自同一份資產屬性，資產屬性缺失或資產未設定市場時為 `null`。前端從持倉開啟股利 / 股數調整對話框時直接以 `market` + `assetType` 決定該市場的今天，不再額外依代號查資產。`market` 隨原幣估值寫入持倉快取，所以持倉鍵由 `portfolio:valuation:v2` 升 `portfolio:valuation:v3`（舊鍵 60 秒內自然過期）；summary 形狀與 `portfolio:summary:v3` 不變。純新增欄位，既有 client 不受影響。
 - 2026-11-07（quick-261107-1j4，04.2 WR-01）：`POST /portfolio/dividends` 與 `POST /portfolio/share-adjustments` 的標的狀態檢查只套用在**新紀錄**：帶 `reversalOfId` 的沖銷與同 key 冪等重送不再要求標的 active + tradeable（先前標的下架後無法更正既有紀錄，逾時重送也會被 404 擋下）。新紀錄的 404 `ASSET_NOT_FOUND` 訊息與 `fields.symbol` 不變；活動列表的 `reversible` 仍只看帳本。
 - 2026-11-07（quick-261107-1j4）：`POST /trades` 的 `executedAt` 與 `POST /portfolio/cash-entries` 的 `occurredAt` 新增下限 1900-01-01T00:00:00Z（含邊界、比較 instant）：早於者回 400 `VALIDATION_FAILED`，`fields.executedAt` / `fields.occurredAt` = `must not be before 1900-01-01`，在資產解析與寫入之前擋下（先前 DB 存不下的極端值會變成 500；形狀同 quick-261106-fbs 的 `paidAt` / `effectiveDate`）。`executedAt` 晚於現在的既有錯誤不變（仍無 `fields`）。
 - 2026-11-06（quick-261106-fbs，文件掃描）：〈快取與一致性〉補「讀取的快照一致性」（`listTrades` / `summary` 改 `REPEATABLE_READ`，04.1 WR-03）；檔首 〔04.2〕 凍結提示改為「已實作、程式為事實來源」；D-01 語意變更（`totalPnl` / `roi` 含股利、summary 鍵升 `v3`）的日期由 2026-10-31 對齊 04.2-02 裁決日 2026-11-01（04.2 G2）。

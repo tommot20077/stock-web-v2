@@ -28,7 +28,7 @@ import java.time.OffsetDateTime;
  * @param assetType         資產類型（STOCK / CRYPTO / FX / BOND）；查無資產屬性時為 null
  * @param sector            產業分類；可為 null，由前端顯示「未分類」
  * @param market            交易市場代號（如 US / TW / CRYPTO，即 {@code assets.market}），與 {@code sector} 取自同一份
- *                          資產屬性、隨持倉寫入快取；查無資產屬性時為 null。前端據此決定「該市場的今天」
+ *                          資產屬性、隨持倉寫入快取；查無資產屬性或資產未設定市場時為 null。前端據此決定「該市場的今天」
  * @param baseCurrency      使用者基準幣代碼；快取中的原幣 DTO 為 null
  * @param marketValueInBase 折算成基準幣的市值；換不到匯率時為 null
  * @param unrealizedPnlInBase 以目前匯率把 {@code unrealizedPnl} 折算成基準幣的未實現損益；與 {@code marketValueInBase}
