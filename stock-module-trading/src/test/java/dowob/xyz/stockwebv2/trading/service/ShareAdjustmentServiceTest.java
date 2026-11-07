@@ -18,6 +18,8 @@ import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.transaction.annotation.Transactional;
@@ -410,7 +412,9 @@ class ShareAdjustmentServiceTest {
                 assertThat(ex.errorCode()).isEqualTo(ErrorCode.ASSET_NOT_FOUND);
                 assertThat(ex.fields()).containsKey("symbol");
             });
-        verifyNoInteractions(repository, tradingRepository, portfolioCache);
+        /* WR-01：冪等快路徑排在可交易檢查之前，因此只驗證未鎖持倉、未寫入。 */
+        verify(repository, never()).insertIfAbsent(any());
+        verifyNoInteractions(tradingRepository, portfolioCache);
     }
 
     @Test
@@ -783,6 +787,83 @@ class ShareAdjustmentServiceTest {
         assertThat(ShareAdjustmentService.class
             .getMethod("create", Long.class, CreateShareAdjustmentRequest.class, String.class)
             .isAnnotationPresent(Transactional.class)).isTrue();
+    }
+
+    @ParameterizedTest(name = "tradeable={0}, active={1}")
+    @CsvSource({"false, true", "true, false"})
+    @DisplayName("〔WR-01〕標的不可交易或已下架後沖銷最晚一筆拆股：仍成功，持倉扣回 400 → 100、失效一次")
+    void reversingLatestSplitSucceedsAfterAssetBecomesUntradeableOrInactive(boolean tradeable, boolean active) {
+        when(assetFacade.findBySymbol("AAPL")).thenReturn(Optional.of(
+            new AssetSummary(AAPL_ID, "AAPL", "Apple Inc.", AssetType.STOCK, "US", tradeable, active)));
+        holding("400", "25");
+        ShareAdjustmentEntry original = split(90L, "300", YESTERDAY, YESTERDAY_START_US, null);
+        stubOriginal(original);
+        when(repository.findLatestActive(USER_ID, AAPL_ID)).thenReturn(Optional.of(original));
+
+        ShareAdjustmentDto dto = service.create(USER_ID,
+            reverseSplitRequest(4, 1, YESTERDAY, original.uuid(), null), "k-reverse-halt");
+
+        ArgumentCaptor<ShareAdjustmentEntry> written = ArgumentCaptor.forClass(ShareAdjustmentEntry.class);
+        verify(repository).insertIfAbsent(written.capture());
+        assertThat(written.getValue().reversalOfId()).isEqualTo(90L);
+        ArgumentCaptor<Holding> updated = ArgumentCaptor.forClass(Holding.class);
+        verify(tradingRepository).updateHolding(updated.capture());
+        assertThat(updated.getValue().totalQuantity()).isEqualByComparingTo("100");
+        verify(portfolioCache, times(1)).invalidateAfterTrade(USER_ID, AAPL_ID);
+        assertThat(dto.reversalOfId()).isEqualTo(original.uuid().toString());
+    }
+
+    @Test
+    @DisplayName("〔WR-01〕標的已下架後以同一把 key 重送一般調整：回既有列，不鎖持倉、不寫入、不失效")
+    void replayAfterAssetBecomesInactiveReturnsExistingWithoutLockingHolding() {
+        when(assetFacade.findBySymbol("AAPL")).thenReturn(Optional.of(
+            new AssetSummary(AAPL_ID, "AAPL", "Apple Inc.", AssetType.STOCK, "US", true, false)));
+        ShareAdjustmentEntry known = existing(78L, TODAY, TODAY_START_US);
+        when(repository.findByIdempotencyKey(USER_ID, "k-known-gone")).thenReturn(Optional.of(known));
+
+        ShareAdjustmentDto dto = service.create(USER_ID,
+            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null, null),
+            "k-known-gone");
+
+        assertThat(dto.id()).isEqualTo(known.uuid().toString());
+        verify(tradingRepository, never()).findHoldingForUpdate(anyLong(), anyLong());
+        verifyNothingWritten();
+    }
+
+    @Test
+    @DisplayName("〔WR-01〕標的不可交易後重送已成功的沖銷：回同一筆沖銷列，不鎖持倉、不寫入")
+    void replayedReversalAfterAssetBecomesUntradeableReturnsTheReversalRow() {
+        when(assetFacade.findBySymbol("AAPL")).thenReturn(Optional.of(
+            new AssetSummary(AAPL_ID, "AAPL", "Apple Inc.", AssetType.STOCK, "US", false, true)));
+        ShareAdjustmentEntry original = split(90L, "300", YESTERDAY, YESTERDAY_START_US, null);
+        stubOriginal(original);
+        when(repository.isReversed(90L)).thenReturn(true);
+        ShareAdjustmentEntry reversalRow = split(94L, "300", YESTERDAY, YESTERDAY_START_US, 90L);
+        when(repository.findByIdempotencyKey(USER_ID, "k-reverse-replay")).thenReturn(Optional.of(reversalRow));
+
+        ShareAdjustmentDto dto = service.create(USER_ID,
+            reverseSplitRequest(4, 1, YESTERDAY, original.uuid(), null), "k-reverse-replay");
+
+        assertThat(dto.id()).isEqualTo(reversalRow.uuid().toString());
+        verify(tradingRepository, never()).findHoldingForUpdate(anyLong(), anyLong());
+        verifyNothingWritten();
+    }
+
+    @Test
+    @DisplayName("〔WR-01〕標的已下架時新建調整：仍 404 ASSET_NOT_FOUND fields.symbol = not tradeable，未鎖持倉、未寫入")
+    void newAdjustmentForInactiveAssetIsRejectedBeforeLockingHolding() {
+        when(assetFacade.findBySymbol("AAPL")).thenReturn(Optional.of(
+            new AssetSummary(AAPL_ID, "AAPL", "Apple Inc.", AssetType.STOCK, "US", true, false)));
+
+        assertThatThrownBy(() -> service.create(USER_ID,
+            new CreateShareAdjustmentRequest("AAPL", "STOCK_DIVIDEND", new BigDecimal("5"), null, null, TODAY, null, null),
+            "k-new-gone"))
+            .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                assertThat(ex.errorCode()).isEqualTo(ErrorCode.ASSET_NOT_FOUND);
+                assertThat(ex.fields()).containsEntry("symbol", "not tradeable");
+            });
+        verify(tradingRepository, never()).findHoldingForUpdate(anyLong(), anyLong());
+        verifyNothingWritten();
     }
 
     private void holding(String quantity, String avgCost) {

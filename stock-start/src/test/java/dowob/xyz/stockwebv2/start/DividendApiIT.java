@@ -326,6 +326,53 @@ class DividendApiIT extends ContainerIT {
         assertThat(dividendRows(email)).isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("〔WR-01〕標的下架後：既有股利的沖銷 200、同 key 重送回同一列；新建一般股利 404 ASSET_NOT_FOUND（quick-261107-1j4）")
+    void reversalAndReplaySucceedAfterAssetIsDeactivated() throws Exception {
+        String email = "div-gone-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "divgone" + UUID.randomUUID().toString().substring(0, 8));
+        String body = """
+            {"symbol":"AMZN","amount":50,"withholdingTax":5,"paidAt":"2026-10-30T09:15:00+08:00"}
+            """;
+        String originalKey = UUID.randomUUID().toString();
+        String originalId = dividendIdOf(postDividend(accessToken, originalKey, body).andExpect(status().isOk()));
+
+        /* 用種子資產 AMZN 而非暫存資產：cash_dividends 是 append-only，引用它的暫存資產刪不掉，會破壞資產總數斷言。 */
+        setAssetActive("AMZN", false);
+        try {
+            postDividend(accessToken, originalKey, body)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id", equalTo(originalId)));
+
+            String reversalKey = UUID.randomUUID().toString();
+            String reversalBody = """
+                {"symbol":"AMZN","amount":50,"withholdingTax":5,"reversalOfId":"%s"}
+                """.formatted(originalId);
+            String reversalId = dividendIdOf(postDividend(accessToken, reversalKey, reversalBody)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reversalOfId", equalTo(originalId))));
+            postDividend(accessToken, reversalKey, reversalBody)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id", equalTo(reversalId)));
+
+            postDividend(accessToken, UUID.randomUUID().toString(), body)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code", equalTo("ASSET_NOT_FOUND")))
+                .andExpect(jsonPath("$.error.fields.symbol", equalTo("not tradeable")));
+
+            assertThat(dividendRows(email)).isEqualTo(2);
+        } finally {
+            setAssetActive("AMZN", true);
+        }
+    }
+
+    private void setAssetActive(String symbol, boolean active) {
+        jdbcClient.sql("update assets set active = :active where symbol = :symbol")
+            .param("active", active)
+            .param("symbol", symbol)
+            .update();
+    }
+
     private void assertFieldError(String accessToken, String key, String body, String field) throws Exception {
         String response = postDividend(accessToken, key, body)
             .andExpect(status().isBadRequest())

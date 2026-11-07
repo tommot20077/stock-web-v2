@@ -16,6 +16,8 @@ import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -198,7 +200,9 @@ class DividendServiceTest {
             () -> service.createDividend(USER_ID,
                 new CreateDividendRequest("HALT", new BigDecimal("1"), null, null, null, null), "k-halt"),
             ErrorCode.ASSET_NOT_FOUND, "symbol");
-        verifyNoInteractions(repository);
+        /* WR-01：冪等快路徑排在可交易檢查之前（同 key 重送在下架後仍回既有列），因此只驗證未寫入。 */
+        verify(repository, never()).insertIfAbsent(any());
+        verifyNoInteractions(portfolioCache);
     }
 
     @Test
@@ -211,7 +215,9 @@ class DividendServiceTest {
             () -> service.createDividend(USER_ID,
                 new CreateDividendRequest("GONE", new BigDecimal("1"), null, null, null, null), "k-gone"),
             ErrorCode.ASSET_NOT_FOUND, "symbol");
-        verifyNoInteractions(repository);
+        /* WR-01：冪等快路徑排在可交易檢查之前（同 key 重送在下架後仍回既有列），因此只驗證未寫入。 */
+        verify(repository, never()).insertIfAbsent(any());
+        verifyNoInteractions(portfolioCache);
     }
 
     @Test
@@ -588,6 +594,83 @@ class DividendServiceTest {
             new CreateDividendRequest("AAPL", new BigDecimal("120"), new BigDecimal("5"), null, null, null),
             "k-race-diff"),
             ErrorCode.DIVIDEND_IDEMPOTENCY_KEY_REUSED);
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @ParameterizedTest(name = "tradeable={0}, active={1}")
+    @CsvSource({"true, false", "false, true"})
+    @DisplayName("〔WR-01〕標的已下架或不可交易後沖銷既有股利：仍成功寫入沖銷列（reversalOfId = 原列 id）並失效 summary")
+    void reversalSucceedsAfterAssetBecomesInactiveOrUntradeable(boolean tradeable, boolean active) {
+        when(assetFacade.findBySymbol("AAPL")).thenReturn(Optional.of(
+            new AssetSummary(AAPL_ID, "AAPL", "Apple Inc.", AssetType.STOCK, "US", tradeable, active)));
+        stubOriginal(originalDividend(null));
+        when(repository.findByIdempotencyKey(USER_ID, "k-rev-gone")).thenReturn(Optional.empty());
+        when(repository.isReversed(ORIGINAL_ID)).thenReturn(false);
+        when(repository.insertIfAbsent(any(CashDividend.class))).thenAnswer(invocation ->
+            Optional.of(persisted(invocation.getArgument(0), 35L)));
+        when(repository.uuidOf(ORIGINAL_ID)).thenReturn(Optional.of(ORIGINAL_UUID));
+
+        DividendDto dto = service.createDividend(USER_ID,
+            reversalRequest("AAPL", "120", "30", ORIGINAL_UUID.toString()), "k-rev-gone");
+
+        ArgumentCaptor<CashDividend> captor = ArgumentCaptor.forClass(CashDividend.class);
+        verify(repository).insertIfAbsent(captor.capture());
+        assertThat(captor.getValue().reversalOfId()).isEqualTo(ORIGINAL_ID);
+        assertThat(dto.reversalOfId()).isEqualTo(ORIGINAL_UUID.toString());
+        verify(portfolioCache).invalidateSummaryAfterCommit(USER_ID);
+    }
+
+    @Test
+    @DisplayName("〔WR-01〕標的已下架後以同一把 key 重送一般股利：回既有列，不 insert、不失效")
+    void replayAfterAssetBecomesInactiveReturnsExistingRow() {
+        when(assetFacade.findBySymbol("AAPL")).thenReturn(Optional.of(
+            new AssetSummary(AAPL_ID, "AAPL", "Apple Inc.", AssetType.STOCK, "US", true, false)));
+        CashDividend existing = existingDividend(23L, "k-replay-gone");
+        when(repository.findByIdempotencyKey(USER_ID, "k-replay-gone")).thenReturn(Optional.of(existing));
+
+        DividendDto dto = service.createDividend(USER_ID,
+            new CreateDividendRequest("AAPL", new BigDecimal("120"), null, null, null, null), "k-replay-gone");
+
+        assertThat(dto.id()).isEqualTo(existing.uuid().toString());
+        verify(repository, never()).insertIfAbsent(any());
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("〔WR-01〕標的不可交易後重送已成功的沖銷：回既有沖銷列，不 insert、不失效")
+    void replayedReversalAfterAssetBecomesUntradeableReturnsExistingRow() {
+        when(assetFacade.findBySymbol("AAPL")).thenReturn(Optional.of(
+            new AssetSummary(AAPL_ID, "AAPL", "Apple Inc.", AssetType.STOCK, "US", false, true)));
+        stubOriginal(originalDividend(null));
+        CashDividend reversal = new CashDividend(36L, UUID.randomUUID(), USER_ID, AAPL_ID,
+            new BigDecimal("120.00000000"), new BigDecimal("30.00000000"), null, ORIGINAL_PAID_AT.plusDays(1),
+            ORIGINAL_PAID_AT.plusDays(1), "k-replay-halt", ORIGINAL_ID);
+        when(repository.findByIdempotencyKey(USER_ID, "k-replay-halt")).thenReturn(Optional.of(reversal));
+        when(repository.isReversed(36L)).thenReturn(false);
+        when(repository.uuidOf(ORIGINAL_ID)).thenReturn(Optional.of(ORIGINAL_UUID));
+
+        DividendDto dto = service.createDividend(USER_ID,
+            reversalRequest("AAPL", "120", "30", ORIGINAL_UUID.toString()), "k-replay-halt");
+
+        assertThat(dto.id()).isEqualTo(reversal.uuid().toString());
+        verify(repository, never()).insertIfAbsent(any());
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("〔WR-01〕標的已下架時新建一般股利：仍 ASSET_NOT_FOUND fields.symbol = not tradeable，不 insert")
+    void newDividendForInactiveAssetIsStillRejectedWithoutInsert() {
+        when(assetFacade.findBySymbol("AAPL")).thenReturn(Optional.of(
+            new AssetSummary(AAPL_ID, "AAPL", "Apple Inc.", AssetType.STOCK, "US", true, false)));
+        when(repository.findByIdempotencyKey(USER_ID, "k-new-gone")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.createDividend(USER_ID,
+            new CreateDividendRequest("AAPL", new BigDecimal("120"), null, null, null, null), "k-new-gone"))
+            .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                assertThat(ex.errorCode()).isEqualTo(ErrorCode.ASSET_NOT_FOUND);
+                assertThat(ex.fields()).containsEntry("symbol", "not tradeable");
+            });
+        verify(repository, never()).insertIfAbsent(any());
         verifyNoInteractions(portfolioCache);
     }
 
