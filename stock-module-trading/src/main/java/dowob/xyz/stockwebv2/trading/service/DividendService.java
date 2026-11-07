@@ -124,9 +124,14 @@ public class DividendService {
      * 記一筆現金股利；同一使用者的同一把冪等鍵只會寫入一列。
      *
      * <p>順序與 {@code CashLedgerService#createEntry} 一致：零 I/O 的驗證先行（冪等鍵、入帳時間），
-     * 接著解析標的，再走冪等鍵快路徑，最後 insert-first。整條路徑靠 {@code ON CONFLICT DO NOTHING}
+     * 接著解析標的（只要求存在、<strong>不</strong>檢查狀態）與沖銷原列，再走冪等鍵快路徑，之後<strong>只有新建一般紀錄</strong>
+     * 才要求標的 active + tradeable，最後 insert-first。整條路徑靠 {@code ON CONFLICT DO NOTHING}
      * 避開唯一約束例外，因此<strong>不需要也不可以</strong>在本交易內 catch 例外後重讀
      * （PostgreSQL 在例外後該交易已中止）。</p>
+     *
+     * <p>〔04.2 WR-01〕帶 {@code reversalOfId} 的沖銷與同一把 key 的冪等重送<strong>不檢查標的狀態</strong>：
+     * 標的下架或停止交易後，使用者仍須能更正（沖銷）既有紀錄，網路逾時後的重送也必須拿回同一列，
+     * 而不是被「不可交易」擋成 404。只有新建一般紀錄才要求標的 active + tradeable。</p>
      *
      * <p>每請求的 Facade 往返為 2 次（{@code findBySymbol} 解析標的、{@code findProfiles} 取幣別），
      * 在 ≤ 3 的預算內；持倉相關的資料存取一次都沒有（D-01 / D-03）。</p>
@@ -144,7 +149,8 @@ public class DividendService {
      * @return 新建立的紀錄；重送時為既有紀錄
      * @throws BusinessException 請求為 null、冪等鍵空白或過長、入帳時間在未來、reversalOfId 格式錯、
      *                           沖銷值與原列不符（400 {@code VALIDATION_FAILED}，fields 指名）、
-     *                           標的不存在 / inactive / 不可交易（404 {@code ASSET_NOT_FOUND}）、
+     *                           標的不存在，或新建一般紀錄時標的 inactive / 不可交易（404 {@code ASSET_NOT_FOUND}；
+     *                           沖銷與同 key 重送不檢查標的狀態）、
      *                           沖銷對象不存在或屬於他人（404 {@code DIVIDEND_NOT_FOUND}）、
      *                           沖銷對象已被沖銷，含併發沖銷落敗（409 {@code DIVIDEND_ALREADY_REVERSED}）、
      *                           沖銷對象本身是沖銷（409 {@code DIVIDEND_NOT_REVERSIBLE}）、
@@ -169,18 +175,21 @@ public class DividendService {
             .orElseGet(() -> now.truncatedTo(ChronoUnit.MICROS));
         BigDecimal withholdingTax = Optional.ofNullable(request.withholdingTax()).orElse(BigDecimal.ZERO);
         UUID reversalUuid = parseReversalOfId(request.reversalOfId());
-        // Facade 往返 1/2：解析標的（只有 active + tradeable 可記）。
-        AssetSummary asset = resolveTradeableAsset(request.symbol());
+        // Facade 往返 1/2：解析標的（只要求存在；狀態只在新建一般紀錄時檢查，見下方 requireTradeable）。
+        AssetSummary asset = resolveExistingAsset(request.symbol());
         // 沖銷對象以使用者範圍解析（查無即 404，別人的與不存在的無法區分）。
         CashDividend original = resolveOriginal(userId, reversalUuid);
 
         Optional<CashDividend> known = repository.findByIdempotencyKey(userId, idempotencyKey);
         if (known.isPresent()) {
-            // 快路徑：資料完全沒有變動，不失效快取；payload 不同則 409。
+            // 快路徑：資料完全沒有變動，不失效快取；payload 不同則 409。不論標的目前狀態（WR-01）。
             return resolveIdempotentHit(known.get(), asset.id(), request.amount(), withholdingTax, requestedPaidAt,
                 original);
         }
-        if (original != null) {
+        if (original == null) {
+            // 只有新建一般紀錄要求可交易；沖銷讓下架後仍可更正既有紀錄（WR-01）。
+            requireTradeable(asset);
+        } else {
             validateReversalRules(original, asset.id(), request.amount(), withholdingTax);
         }
         Optional<CashDividend> inserted = repository.insertIfAbsent(new CashDividend(
@@ -362,25 +371,35 @@ public class DividendService {
     }
 
     /**
-     * 解析可記股利的標的：必須存在、active 且 tradeable（語意與 fields 同 {@code TradingService}）。
+     * 解析請求的標的：只要求存在，<strong>不</strong>檢查 active / tradeable
+     * （{@link AssetFacade#findBySymbol} 本身不篩 active）。狀態由 {@link #requireTradeable} 在新建一般紀錄時另外檢查。
      *
      * @param symbol 請求中的標的代號，大小寫不敏感
      * @return 標的摘要
      * @throws BusinessException 代號空白時 {@code VALIDATION_FAILED}（fields.symbol）；
-     *                           不存在、inactive 或不可交易時 {@code ASSET_NOT_FOUND}（fields.symbol）
+     *                           不存在時 {@code ASSET_NOT_FOUND}（fields.symbol = {@code not found}）
      */
-    private AssetSummary resolveTradeableAsset(String symbol) {
+    private AssetSummary resolveExistingAsset(String symbol) {
         if (StringUtils.isBlank(symbol)) {
             throw new FieldValidationException("symbol is required", Map.of(SYMBOL_FIELD, "must not be blank"));
         }
-        AssetSummary asset = assetFacade.findBySymbol(symbol.trim().toUpperCase(Locale.ROOT))
+        return assetFacade.findBySymbol(symbol.trim().toUpperCase(Locale.ROOT))
             .orElseThrow(() -> new BusinessException(ErrorCode.ASSET_NOT_FOUND, "Asset not found",
                 Map.of(SYMBOL_FIELD, "not found")));
+    }
+
+    /**
+     * 新建一般股利時要求標的 active 且 tradeable（語意、訊息與 fields 同 {@code TradingService}）。
+     * 沖銷與冪等重送不呼叫本方法（04.2 WR-01）。
+     *
+     * @param asset 已解析的標的
+     * @throws BusinessException inactive 或不可交易時 {@code ASSET_NOT_FOUND}（fields.symbol = {@code not tradeable}）
+     */
+    private static void requireTradeable(AssetSummary asset) {
         if (!asset.active() || !asset.tradeable()) {
             throw new BusinessException(ErrorCode.ASSET_NOT_FOUND, "Asset is not tradeable",
                 Map.of(SYMBOL_FIELD, "not tradeable"));
         }
-        return asset;
     }
 
     /**

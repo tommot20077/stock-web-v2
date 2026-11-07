@@ -417,6 +417,62 @@ class WatchlistApiIT extends ContainerIT {
     }
 
     @Test
+    @DisplayName("〔WR-03〕種 100 檔、其中 3 檔下架 → GET 顯示 97 檔；上限只計可見項目，再加入一檔成功（quick-261107-1j4）")
+    void hundredItemCapCountsOnlyVisibleItems() throws Exception {
+        String token = registerAndLogin("watch-cap-visible-" + UUID.randomUUID() + "@example.com",
+            "watchcapvis" + UUID.randomUUID().toString().substring(0, 8));
+        String id = getWatchlists(token).get(0).get("id").asText();
+        Long watchlistId = watchlistId(id);
+        try {
+            createTempAssets("WLVIS-", 101);
+            seedTempItems(watchlistId, "WLVIS-", 100);
+            setTempAssetsActive(List.of("WLVIS-001", "WLVIS-002", "WLVIS-003"), false);
+
+            assertThat(getWatchlists(token).get(0).get("items").size()).isEqualTo(97);
+            addItem(token, id, "WLVIS-101")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()", equalTo(98)))
+                .andExpect(jsonPath("$.data.items[-1].symbol", equalTo("WLVIS-101")));
+        } finally {
+            dropTempAssets("WLVIS-");
+        }
+    }
+
+    @Test
+    @DisplayName("〔WR-03〕重排後把隱藏（下架）資產重新上架 → 依原相對順序出現在可見項目尾端（quick-261107-1j4）")
+    void reactivatedHiddenItemAppearsAtTheEndAfterReorder() throws Exception {
+        String token = registerAndLogin("watch-hidden-" + UUID.randomUUID() + "@example.com",
+            "watchhidden" + UUID.randomUUID().toString().substring(0, 8));
+        String id = getWatchlists(token).get(0).get("id").asText();
+        Long watchlistId = watchlistId(id);
+        try {
+            createTempAssets("WLHID-", 4);
+            seedTempItems(watchlistId, "WLHID-", 4);
+            setTempAssetsActive(List.of("WLHID-002"), false);
+            JsonNode items = getWatchlists(token).get(0).get("items");
+            assertThat(symbols(items)).containsExactly("WLHID-001", "WLHID-003", "WLHID-004");
+            String first = items.get(0).get("uuid").asText();
+            String third = items.get(1).get("uuid").asText();
+            String fourth = items.get(2).get("uuid").asText();
+
+            reorder(token, id, List.of(fourth, third, first)).andExpect(status().isOk());
+            setTempAssetsActive(List.of("WLHID-002"), true);
+
+            assertThat(symbols(getWatchlists(token).get(0).get("items")))
+                .containsExactly("WLHID-004", "WLHID-003", "WLHID-001", "WLHID-002");
+        } finally {
+            dropTempAssets("WLHID-");
+        }
+    }
+
+    private void setTempAssetsActive(List<String> symbols, boolean active) {
+        jdbcClient.sql("update assets set active = :active where symbol in (:symbols)")
+            .param("active", active)
+            .param("symbols", symbols)
+            .update();
+    }
+
+    @Test
     @DisplayName("IT 11：加入 A、B、C → PUT order [C, A, B] → 200 且順序 C, A, B；GET 也是（持久化）；PUT [A, B] → 409")
     void reorderPersistsAndRejectsDifferentSet() throws Exception {
         String token = registerAndLogin("watch-order@example.com", "watchorder");

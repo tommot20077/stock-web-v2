@@ -27,6 +27,8 @@ import java.time.OffsetDateTime;
  * @param currency          標的計價幣別代碼；查無資產屬性時為 null
  * @param assetType         資產類型（STOCK / CRYPTO / FX / BOND）；查無資產屬性時為 null
  * @param sector            產業分類；可為 null，由前端顯示「未分類」
+ * @param market            交易市場代號（如 US / TW / CRYPTO，即 {@code assets.market}），與 {@code sector} 取自同一份
+ *                          資產屬性、隨持倉寫入快取；查無資產屬性或資產未設定市場時為 null。前端據此決定「該市場的今天」
  * @param baseCurrency      使用者基準幣代碼；快取中的原幣 DTO 為 null
  * @param marketValueInBase 折算成基準幣的市值；換不到匯率時為 null
  * @param unrealizedPnlInBase 以目前匯率把 {@code unrealizedPnl} 折算成基準幣的未實現損益；與 {@code marketValueInBase}
@@ -38,7 +40,7 @@ import java.time.OffsetDateTime;
  * @param dayPnlBasis       今日損益比率的分母（原幣）= 前收時市值 + 今日買入成本；供 summary 折算後計算總額比率，
  *                          隨持倉一起快取，所以快取命中的持倉也能參與總額
  * @author Yuan
- * @version 3.1
+ * @version 3.2
  */
 public record HoldingDto(
     String assetId,
@@ -57,6 +59,7 @@ public record HoldingDto(
     String currency,
     String assetType,
     String sector,
+    String market,
     String baseCurrency,
     BigDecimal marketValueInBase,
     BigDecimal unrealizedPnlInBase,
@@ -76,7 +79,7 @@ public record HoldingDto(
      */
     public HoldingDto withBaseValuation(String baseCurrency, BigDecimal valueInBase, BigDecimal unrealizedPnlInBase) {
         return new HoldingDto(assetId, symbol, assetName, totalQuantity, avgCost, costBasis, marketPrice, marketValue,
-            realizedPnl, unrealizedPnl, roi, priceTime, lastUpdated, currency, assetType, sector,
+            realizedPnl, unrealizedPnl, roi, priceTime, lastUpdated, currency, assetType, sector, market,
             baseCurrency, valueInBase, unrealizedPnlInBase, previousClose, dayPricePnl, dayPricePnlRatio, dayPnlBasis);
     }
 }

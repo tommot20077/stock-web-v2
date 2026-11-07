@@ -64,14 +64,19 @@
 
 **規則**(來源:code-standards.md):價格事件驅動的計算(估值/ROI/dashboard)→ 先寫 Redis、批次回寫 DB、API 只讀 Redis。`holdings`/`transactions`/`assets`/`users` 低頻 → 直寫 DB。Facade 呼叫以每請求跨模組往返計,預設 ≤ 3;超過的條件見 code-standards.md §Facade Call Rules(不在此另寫第二套條件)。
 
-**正例**:portfolio 估值查 `portfolio:valuation:v2:{userId}:{assetId}`(鍵表見 redis-convention.md)。
+**正例**:portfolio 估值查 `portfolio:valuation:v3:{userId}:{assetId}`(鍵表見 redis-convention.md)。
 **反例**:price tick 進來就 UPDATE DB 的估值表,或 API 為了「即時」直接對 DB 算總市值。
 
 ## 8. 何時算「真完成」
 
+**兩個 repo 的路徑(唯一定義處)**:
+- 前端 repo 根 = Yuan 本機 `../../vue/stock-v2`、cloud 環境 `../stock-web-v2-front-end`(皆相對後端 repo 根);程式在其 `vue-app/`。
+- 反方向,後端 repo 根 = Yuan 本機 `../../java/stock-web-v2`、cloud 環境 `../stock-web-v2`(皆相對前端 repo 根)。
+- 其他文件一律寫「前端 repo 根」/「後端 repo 根」並指回本節,不再各自寫相對路徑(Yuan 2026-11-07 裁決 3C-1)。
+
 一項工作宣稱完成前,必須全部成立:
 1. 對應層級測試綠——層級要求與豁免以 testing-standards.md 為準(unit/web/IT 皆必要;E2E 豁免只有 Yuan 能給)。
-2. 跨 repo 變更時,兩邊驗證都跑過:backend `./mvnw test`(或 focused `-pl` 模組);frontend `cd ../../vue/stock-v2/vue-app && npm test && npm run build`(Git Bash 語法),涉 API mode 加 `VITE_DATA_MODE=api`。
+2. 跨 repo 變更時,兩邊驗證都跑過:backend `./mvnw test`(或 focused `-pl` 模組);frontend `cd <前端 repo 根>/vue-app && npm run lint && npm test && npm run build`(Git Bash 語法),涉 API mode 加 `VITE_DATA_MODE=api npm test`。
 3. read-back:程式碼改動自己重讀即可;制度/文件類產出派 fresh-context subagent 讀(分工見 model-dispatch.md §5)。
 4. 宣稱行為有證據(測試輸出/log/檔案內容),不是「應該可以」。
 

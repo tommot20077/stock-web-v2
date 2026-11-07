@@ -56,8 +56,10 @@ public class JdbcCashLedgerRepository implements CashLedgerRepository {
      * 另一個撞上時仍會拋唯一約束例外，在 PostgreSQL 把交易中止後變成 500。不指定目標則兩者都被吸收成
      * 「回零列」，由呼叫端以冪等鍵重讀區分：命中 → 冪等；落空 → 被另一筆沖銷搶先。
      * 代價是無法在這一句內分辨原因，換來整條路徑不依賴例外。
-     * 其他約束（uuid 唯一、CHECK、外鍵）不受影響，違反時仍照常拋例外；沖銷驗證 trigger
-     * （{@code validate_cash_ledger_reversal}）在 insert 前執行，亦不受影響，是應用層檢查之外的最後防線。</p>
+     * 不指定目標也會吸收<strong>所有</strong>唯一約束，包含 uuid 唯一；只有 CHECK、外鍵與 trigger 的錯誤照常拋出。
+     * uuid 是隨機 v4，真的碰撞時會變成回零列 → 呼叫端以 key 重讀落空 → {@code DUPLICATE_RESOURCE} 或
+     * {@code CASH_ENTRY_ALREADY_REVERSED}（機率可忽略，不另行處理）。沖銷驗證 trigger
+     * （{@code validate_cash_ledger_reversal}）在 insert 前執行，不受影響，是應用層檢查之外的最後防線。</p>
      *
      * @param entry 待寫入的分錄
      * @return 實際建立的分錄；任一唯一約束衝突時回傳空 Optional

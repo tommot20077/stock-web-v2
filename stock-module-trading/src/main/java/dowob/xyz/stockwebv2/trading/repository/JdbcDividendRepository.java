@@ -50,8 +50,12 @@ public class JdbcDividendRepository implements DividendRepository {
      * <p><strong>衝突子句刻意不指定目標</strong>：本表有兩個會讓正常請求撞上的唯一約束 ——
      * {@code uk_cash_dividends_user_idempotency}（冪等重送／同 key 併發）與 {@code uk_cash_dividends_reversal_of}
      * （兩個不同 key 的請求併發沖銷同一筆）。指定其中一個為目標，另一個撞上時仍會拋例外並變成 500；
-     * 不指定則兩者都被吸收成「回零列」，由呼叫端以冪等鍵重讀區分。其他約束（uuid 唯一、CHECK、外鍵）
-     * 與沖銷驗證 trigger 不受影響，違反時照常拋例外。</p>
+     * 不指定則兩者都被吸收成「回零列」，由呼叫端以冪等鍵重讀區分。</p>
+     *
+     * <p>注意：不指定目標的 {@code on conflict do nothing} 會吸收<strong>所有</strong>唯一約束，包含
+     * {@code uk_cash_dividends_uuid}；只有 CHECK、外鍵與 trigger（含沖銷驗證 trigger）的錯誤照常拋出。
+     * uuid 是隨機 v4，真的碰撞時會變成回零列 → 呼叫端以 key 重讀落空 → {@code DUPLICATE_RESOURCE}
+     * 或 {@code DIVIDEND_ALREADY_REVERSED}（機率可忽略，不另行處理）。</p>
      *
      * @param dividend 待寫入的紀錄
      * @return 實際建立的紀錄；任一唯一約束衝突時回傳空 Optional

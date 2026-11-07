@@ -402,6 +402,59 @@ class ShareAdjustmentApiIT extends ContainerIT {
         assertHolding(accessToken, 100);
     }
 
+    @Test
+    @DisplayName("〔WR-01〕標的設為不可交易後：沖銷最晚一筆拆股 200、持倉扣回、同 key 重送回同一列；新建調整 404 ASSET_NOT_FOUND（quick-261107-1j4）")
+    void reversalAndReplaySucceedAfterAssetBecomesUntradeable() throws Exception {
+        String email = "adj-halt-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "adjhalt" + UUID.randomUUID().toString().substring(0, 8));
+        mockMvc.perform(post("/api/v1/trades")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + accessToken)
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .content("""
+                    {"symbol":"META","type":"BUY","quantity":100,"price":400,"fee":0,"executedAt":"%s"}
+                    """.formatted(threeDaysAgo())))
+            .andExpect(status().isOk());
+        String yesterday = LocalDate.now(NEW_YORK).minusDays(1).toString();
+        String split = """
+            {"symbol":"META","type":"SPLIT","ratioNew":4,"ratioOld":1,"effectiveDate":"%s"%s}
+            """;
+        String splitId = createdId(postAdjustment(accessToken, UUID.randomUUID().toString(),
+            split.formatted(yesterday, "")).andExpect(status().isOk()));
+
+        /* 用種子資產 META 而非暫存資產：share_adjustments 是 append-only，引用它的暫存資產刪不掉，會破壞資產總數斷言。 */
+        setAssetTradeable("META", false);
+        try {
+            String reversalKey = UUID.randomUUID().toString();
+            String reversal = split.formatted(yesterday, reversalField(splitId));
+            String reversalId = createdId(postAdjustment(accessToken, reversalKey, reversal)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reversalOfId", equalTo(splitId))));
+            assertHolding(accessToken, 100);
+
+            postAdjustment(accessToken, reversalKey, reversal)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id", equalTo(reversalId)));
+            assertHolding(accessToken, 100);
+
+            postAdjustment(accessToken, UUID.randomUUID().toString(), split.formatted(yesterday, ""))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code", equalTo("ASSET_NOT_FOUND")))
+                .andExpect(jsonPath("$.error.fields.symbol", equalTo("not tradeable")));
+
+            assertThat(adjustmentRows(email)).isEqualTo(2);
+        } finally {
+            setAssetTradeable("META", true);
+        }
+    }
+
+    private void setAssetTradeable(String symbol, boolean tradeable) {
+        jdbcClient.sql("update assets set tradeable = :tradeable where symbol = :symbol")
+            .param("tradeable", tradeable)
+            .param("symbol", symbol)
+            .update();
+    }
+
     private void assertHolding(String accessToken, int expectedQuantity) throws Exception {
         mockMvc.perform(get("/api/v1/portfolio/holdings")
                 .header("Authorization", "Bearer " + accessToken))

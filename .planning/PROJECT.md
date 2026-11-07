@@ -25,11 +25,11 @@ Users can safely sign in, inspect portfolio state, and record trades through one
 - ✓ Cash dividends and share adjustments (stock dividend, split / reverse split) as append-only ledgers with one-click reversal, feeding available cash, summary `dividendIncome` / `totalPnl` / `roi` and split-day day-PnL — Phase 04.2
 - ✓ Unified Trades activity list (`GET /portfolio/activities`: trades + dividends + share adjustments) with backend-filtered tabs and same-source CSV — Phase 04.2
 - ✓ Multi-list watchlists backed by the API (create / rename / delete / reorder, Markets & Chart star picker) with live quotes over the market WebSocket — Phase 04.2
+- ✓ Default ex-date (and its max) in the dividend / share-adjustment dialog is "today" in the asset's market (mirrors backend `TradingDay.of`; market from `HoldingDto.market` or the selected asset, unknown → UTC) with a market-date hint — quick 261107-1j4 (04.2-REVIEW WR-09; 04.2 UI-SPEC U-07 revised)
+- ✓ Reversal and idempotent replay of dividends / share adjustments keep working after an asset becomes inactive or untradeable; only new (non-reversal) records require an active, tradeable asset — quick 261107-1j4 (04.2-REVIEW WR-01)
 
 ### Active
 
-- [ ] Default ex-date in the dividend / share-adjustment dialog should be "today" in the asset's market timezone, not the browser's (04.2-REVIEW WR-09, deferred; needs a UI-SPEC change).
-- [ ] Reversal and idempotent replay of dividends / share adjustments must keep working after an asset becomes inactive or untradeable, and the activity list must not offer an impossible reversal (04.2-REVIEW WR-01, deferred).
 - [ ] Define and implement a browser-safe auth contract using httpOnly refresh/access cookies, `/auth/refresh`, `/me`, logout, and consistent 401/403 behavior.
 - [ ] Add CSRF protection for cookie-authenticated unsafe browser requests using a double-submit token contract.
 - [ ] Keep bearer-token support available for non-browser/API clients where appropriate, without weakening browser cookie safety.
@@ -42,6 +42,7 @@ Users can safely sign in, inspect portfolio state, and record trades through one
 - Real broker integration — current backend trades are manual recorded transactions, not broker orders.
 - Full order lifecycle with pending orders, partial fills, cancellations, time-in-force, and broker execution states — defer until the manual-trade vertical slice is stable.
 - AI-assisted trading policy enforcement and broker credential APIs — the current frontend AI/broker settings are mock UX and need a separate security design.
+- Ops dashboard and AI Access backend APIs (`/api/v1/ops/**`, AI access keys / scopes / audit) — not in v1.0; the frontend pages stay labelled Preview and the frontend contract sections remain proposals. AI Access needs its own security design (key scope, trading permission, audit) before any endpoint. Tracked in `.planning/todos/pending/2026-11-07-ops-and-ai-access-backend.md` (Yuan 2026-11-07 decision 3C-5).
 - Complete API integration for alerts, notifications, analytics, settings, and ops dashboards — defer after auth and core portfolio/trading API mode are reliable. (Watchlists moved in-scope for Phase 04.2 on 2026-09-28; Settings gets only the base-currency field in Phase 04.1.)
 - Replacing the existing Vue visual shell — this milestone is integration-first, not a redesign.
 
@@ -49,7 +50,7 @@ Users can safely sign in, inspect portfolio state, and record trades through one
 
 The backend root is `/mnt/d/end/workspace/java/stock-web-v2`. It is a Java 21, Spring Boot 4.0.4 modular monolith using Maven, PostgreSQL/TimescaleDB migrations, Redis, Kafka, WebSocket, Spring Batch, and hand-written SQL through `JdbcClient`.
 
-The frontend lives in the sibling repository `/mnt/d/end/workspace/vue/stock-v2/vue-app`. It is a Vue 3, Pinia, Vue Router, Vite, TypeScript app with existing mock portfolio behavior and runtime data-mode selection. API mode exists for some domains but auth, credentials, CSRF, and trading/portfolio adapters are not yet aligned with the backend.
+The frontend lives in the sibling frontend repository (frontend repo root; paths defined once in `ai-docs/judgment.md` §8), code under `vue-app/`. It is a Vue 3, Pinia, Vue Router, Vite, TypeScript app with existing mock portfolio behavior and runtime data-mode selection. API mode exists for some domains but auth, credentials, CSRF, and trading/portfolio adapters are not yet aligned with the backend.
 
 Current backend auth is stateless bearer JWT from the browser perspective: register/login return tokens in JSON, CSRF is disabled, and the security filter reads `Authorization: Bearer ...`. CORS is already credential-ready for the Vue dev origin, so moving refresh tokens into cookies requires explicit CSRF protection and frontend `credentials: "include"` support.
 
@@ -102,4 +103,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-04 after Phase 04.2*
+*Last updated: 2026-11-07 after quick task 261107-1j4*

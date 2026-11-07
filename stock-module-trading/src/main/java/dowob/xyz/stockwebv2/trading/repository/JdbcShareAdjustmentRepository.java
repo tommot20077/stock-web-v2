@@ -48,7 +48,9 @@ public class JdbcShareAdjustmentRepository implements ShareAdjustmentRepository 
      * <p>與 {@code JdbcDividendRepository#insertIfAbsent} 同一個 insert-first 模式：衝突時 do nothing、
      * {@code returning} 回零列。<strong>衝突子句刻意不指定目標</strong>：{@code uk_share_adjustments_user_idempotency}
      * 與 {@code uk_share_adjustments_reversal_of} 都可能被正常請求撞上，指定其一則另一個會變成 500。
-     * 其他約束（uuid 唯一、CHECK、外鍵）與沖銷驗證 trigger 不受影響，違反時照常拋例外。</p>
+     * 不指定目標的代價是它會吸收<strong>所有</strong>唯一約束，包含 {@code uk_share_adjustments_uuid}；只有 CHECK、
+     * 外鍵與 trigger（含沖銷驗證 trigger）的錯誤照常拋出。uuid 是隨機 v4，真的碰撞時會變成回零列 → 呼叫端以 key
+     * 重讀落空 → {@code DUPLICATE_RESOURCE} 或 {@code SHARE_ADJUSTMENT_ALREADY_REVERSED}（機率可忽略，不另行處理）。</p>
      *
      * @param entry 待寫入的紀錄
      * @return 實際建立的紀錄；任一唯一約束衝突時回傳空 Optional

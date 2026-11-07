@@ -137,7 +137,7 @@ grep -nE '(padding|margin|gap)[^:]*:[^;]*[0-9]+px' src/components/OrderTicket.vu
 | 20 | **`.check`** | `margin-bottom: 18px`(`:539`) | **`16px`**(FLAG-B 補入 —— `.check` 已被 §Color `:537` 與 §Accessibility 納入重建) |
 | 21 | **`.filled-sub`** | `margin-top: 6px`(`:544`) | **`8px`**(FLAG-B 同批補入) |
 | 22 | `.ft` | `padding: 16px 22px`(`:547`) | `16px 24px` |
-| 23 | `.btn-accent` / `.btn-ghost` | `padding: 10px 22px` / `10px 18px`(`:548,553`) | `8px 24px` / `8px 16px`,兩者 `min-height: 44px` / `36px` |
+| 23 | `.btn-accent` / `.btn-ghost` | `padding: 10px 22px` / `10px 18px`(`:548,553`) | `8px 24px` / `8px 16px`,兩者 `min-height: 44px` / `36px`(2026-11-07 核對:現行 OrderTicket `.btn-accent` 為 `padding: 8px 16px; min-height: 36px`;quick-261107-1j4 把 CashEntryDialog / HoldingEventDialog 主要按鈕對齊此規格) |
 | — | **`.placing-steps` / `.p-step` / `.p-mark`** | `gap: 10px` / `gap: 10px` / `18px` 方塊(`:525,526,529`) | **不遷移 —— 隨 U-01 移除 `placing` 步驟一併刪除整段 CSS(`:517-532`)。** 別花時間改它 |
 
 Positions / Trades / Overview 的既有版面**不在遷移範圍**(Phase 3 已驗收);本階段只新增 §Post-Trade Refetch 定義的 refresh 指示與 `fresh` 標記。
@@ -238,7 +238,7 @@ grep -nE 'font-(size|weight)' src/components/OrderTicket.vue
 | Secondary (30%) | `var(--surface)` / `var(--surface2)` | ticket 面板、報價卡、輸入框底、footer、下拉、骨架列 |
 | Accent (10%) | `var(--accent)`(`#ff6600`) | 見下方 reserved 清單 |
 | Destructive | `var(--dn)`(`#dc2626`) | 錯誤與 SELL 語意,見下方 |
-| Semantic up | `var(--up)`(`#16a34a`) | BUY 語意與「已記錄」成功標記 |
+| Semantic up | `var(--up)`(`#16a34a`) | BUY 語意(「已記錄」成功標記自 2026-11-07 起改用固定綠 `--success` / `--on-success`,紅漲綠跌不對調;quick-261107-1j4) |
 
 **Accent reserved for(明確列舉,不得擴散):**
 
@@ -327,7 +327,11 @@ grep -nE 'font-(size|weight)' src/components/OrderTicket.vue
 | `price` | `價格必須大於 0,最多 8 位小數。` / `Price must be greater than 0, with at most 8 decimals.` | `tradeErrPrice` |
 | `fee` | `手續費不可為負。` / `Fee cannot be negative.` | `tradeErrFee` |
 | `note` | `備註最多 500 字。` / `Note must be 500 characters or fewer.` | `tradeErrNote` |
-| `executedAt`(前端自檢,不會來自 `fields`) | `成交時間不可晚於現在。` / `Executed at cannot be in the future.` | `tradeErrExecutedAt` |
+| `executedAt`(前端自檢的未來時間;後端 `fields.executedAt` 的股數調整時序錯誤(04.2),以及輸入合法時的其他 `fields.executedAt`) | `成交時間不可晚於現在,也不可早於這檔標的最近一筆股數調整的除權日。` / `Executed at cannot be in the future or earlier than this asset's latest share adjustment ex-date.`(2026-11-07 核對 `vue-app/src/i18n.ts` 實際值;原 Phase 4 文案為 `成交時間不可晚於現在。` / `Executed at cannot be in the future.`) | `tradeErrExecutedAt` |
+| `executedAt` — 空白(前端自檢;2026-11-07 quick-261107-1j4 新增) | `請填寫成交時間。` / `Executed at is required.` | `tradeErrExecutedAtRequired` |
+| `executedAt` — 早於 1900-01-01T00:00Z(前端自檢 + 後端 400 `fields.executedAt = must not be before 1900-01-01`;2026-11-07 quick-261107-1j4 新增,Yuan 3B) | `成交時間不可早於 1900-01-01。` / `Executed at cannot be earlier than 1900-01-01.` | `tradeErrExecutedAtTooEarly` |
+
+> **executedAt 三態(2026-11-07,quick-261107-1j4):** 底部自檢錯誤(`ticket-form-error`)依目前輸入值歸類為 Required / TooEarly / 既有 `tradeErrExecutedAt`(以 **instant** 比較 1900-01-01T00:00Z,`vue-app/src/eventTimeBounds.ts`),三者都讓「確認內容」鈕 disabled;後端 `fields.executedAt` 的欄位節點在輸入歸為過早時顯示 TooEarly,否則維持 `tradeErrExecutedAt`。`executedAt` 晚於現在 5 分鐘以上的後端錯誤仍是**無 `fields`** 的 400(維持現狀),走底部 `VALIDATION_FAILED` 文案。
 
 **Ticket 底部(依 `error.code` 分派,絕不假設錯誤出現順序 —— Q0/PR #15 明文警告)。** 每一條都必須回答「發生什麼 + 下一步做什麼」:
 
@@ -384,7 +388,7 @@ grep -nE 'font-(size|weight)' src/components/OrderTicket.vue
 - **step dots 從 4 顆改為 3 顆**(`OrderTicket.vue:8` 的 `v-for="(_, i) in 4"`)。
 - 送出中**不切換步驟**,仍停在 `review`(這是與現況最大的差異:現況 `step='placing'` 會讓 footer 整塊被替換,導致送出鈕從 DOM 消失 —— 那是 Q6.2 指出的「靠副作用擋連點」,TRAD-04 要求明確的 guard)。
 - `result` 畫面的 `rev-grid` 只能顯示後端回傳的 `TradeDto` 欄位:`id` / `type` / `quantity` / `price` / `fee` / `executedAt` / `symbol`。**不得**出現「成交均價」、「訂單號」、隨機 slippage、或任何前端計算的成交價。`estTotal` 可顯示,但必須標示為 `quantity × price`(不含 fee)且來源是回傳值而非表單值。
-- **mock mode 也走同一個三步機**(U-16,Yuan 已裁定)。mock 保留的只有 D-04 明列的四樣:訂單類型、TIF、交易後現金,以及 mock 的通知推送。
+- **mock mode 也走同一個三步機**(U-16,Yuan 已裁定)。mock 保留的只有 D-04 明列的四樣:訂單類型、TIF、交易後現金,以及 mock 的通知推送。**quick-261107-1j4(Yuan 2026-11-07):訂單類型與有效時間在兩種模式都已移除;mock 保留的只剩交易後現金與通知推送。** review 畫面的訂單類型列一併移除。
 
 ### 2. Symbol typeahead(D-01 + DP-5 + DP-12)
 
@@ -427,7 +431,7 @@ grep -nE 'font-(size|weight)' src/components/OrderTicket.vue
 | 成交時間 | `type="datetime-local"` | 現在(本機時區) | `max` = 現在;送出時轉為帶 offset 的 ISO 字串;下方常駐 `tradeExecutedAtHint` |
 | 備註 | `type="text"` 或 `textarea` | 空 | 500 字上限;取代原本 `note: tif === 'GTC' ? 'GTC' : ''` |
 
-**API mode 隱藏(D-04):** 訂單類型(MKT/LMT)、TIF(DAY/GTC)、「交易後現金」。隱藏方式是 `v-if="live"`(mock 才渲染),**不是** disabled 或 `visibility: hidden` —— 隱藏的欄位不得留下空白版位。
+**API mode 隱藏(D-04):** 訂單類型(MKT/LMT)、TIF(DAY/GTC)、「交易後現金」。**quick-261107-1j4(Yuan 2026-11-07):訂單類型與有效時間在兩種模式都已移除;mock 保留的只剩交易後現金與通知推送。**隱藏方式是 `v-if="live"`(mock 才渲染),**不是** disabled 或 `visibility: hidden` —— 隱藏的欄位不得留下空白版位。
 
 **SELL 預檢(D-15):** side 切到 `SELL` 時載入一次 `portfolio.listHoldings()` 並在該 ticket 生命週期內快取;在數量欄位下方顯示 `可賣數量:N`(`.num`)。狀態:載入中 `sellableQtyLoading`、失敗 `sellableQtyFailed`(**失敗不阻擋送出**,後端仍是權威)。超量時顯示 `tradeErrOversell` 並讓 `canSubmit` 為 false。**預檢只讀 `symbol` 與 `totalQuantity` 兩個欄位**,不得用 `avgCost` 算任何損益預估。交易成功後(`notifyTradeCreated`)ticket 內的 holdings 快取必須失效。
 
@@ -565,7 +569,7 @@ Phase 3 留下的兩條 TODO 註解必須清掉:`Positions.vue:264`、`Trades.vu
 |------|-----------|----------|
 | 標的來源 | `createMockMarketApi()` 由 `data.ts` 組 `AssetDto` 形狀 | `GET /api/v1/assets`(分頁) |
 | 走勢圖 | mock adapter 用 `genSeries()` 組 `KlineDto[]` | `GET /market/{symbol}/klines` |
-| 訂單類型 / TIF / 交易後現金 | **保留**(D-04) | **隱藏**(不留空版位) |
+| 訂單類型 / TIF / 交易後現金 | **保留**(D-04)。quick-261107-1j4(Yuan 2026-11-07):訂單類型與 TIF 兩模式都已移除,mock 只保留交易後現金 | **隱藏**(不留空版位) |
 | 手續費 | 使用者輸入,預設 0(D-02 兩模式一致) | 同 |
 | 成交時間 | 使用者輸入,預設現在(兩模式一致) | 同 |
 | routing/match 三階段假進度 | **移除**(U-16,Yuan 已裁定) | 移除 |
@@ -685,6 +689,7 @@ Phase 3 留下的兩條 TODO 註解必須清掉:`Positions.vue:264`、`Trades.vu
 | `ticket-review-advance` / `ticket-submit` / `ticket-back-to-edit` | footer 動作 |
 | `ticket-submitting-status` | `role="status"` 送出中播報 |
 | `ticket-error` / `ticket-error-code` / `ticket-error-trace-id` | 底部錯誤與診斷 |
+| `ticket-form-error`(2026-11-07 新增,quick-261107-1j4) | 底部前端自檢錯誤(成交時間空白 / 過早 / 未來等,送出前) |
 | `ticket-result` / `ticket-result-trade-id` / `ticket-result-price` / `ticket-result-executed-at` | result 畫面 |
 | `{page}-refreshing` / `{page}-refresh-error` / `{page}-refresh-error-code` / `{page}-refresh-trace-id` / `{page}-refresh-retry` | 三頁 refetch(page ∈ overview/positions/trades,沿用既有前綴慣例) |
 | `trades-not-in-current-view` | D-11 提示 |
@@ -724,7 +729,7 @@ Phase 3 留下的兩條 TODO 註解必須清掉:`Positions.vue:264`、`Trades.vu
 | U-13 | Primary CTA 定為 **`記錄交易` / `Record trade`**,並禁用既有 `placeOrder`/`filled`/`avgFillPx`/`routingMatch`/`placing` 五個 i18n key(在 `OrderTicket.vue` 內) | judgment §1(不得出現下單/成交/撮合語意)+ D-09 |
 | U-14 | 手續費與成交時間各給一條**常駐說明文字**(不是錯誤色) | D-02 的理由(fee 永久進 `avg_cost` 且改不回來)必須讓使用者知道,否則預設 0 只是換一種默默出錯 |
 | U-15 | 字級收斂為 **12/13/16/20 四級、字重 400/600 兩種**,並列出 **18 條**必改的既有宣告(見 §Typography 遷移表);間距列出 **23 條**(見 §Spacing 遷移表) | 模板要求 3-4 級 / 2 重。**實測現況**:`OrderTicket.vue` scoped style block 有 10 個相異字級(10/11/12/13/14/15/16/22/28/30),加上 template inline 的 24px 共 **11 級**;`font-weight: 500` 在 style block 出現 **6 次**、inline 2 次。舊版寫的「7 級」為誤算,已作廢 |
-| U-16 | routing/match 假進度、`Math.random()` slippage、亂數 orderId 在 **mock mode 也一併移除** | **Yuan 已裁定(2026-07-26)** —— 不再是從 D-09 的沉默推論。D-04 明列 mock 保留的四樣(訂單類型 / TIF / 交易後現金 / 通知推送)不含這三項;judgment §1 亦明文點名 routing。**實作範圍見下方展開** |
+| U-16 | routing/match 假進度、`Math.random()` slippage、亂數 orderId 在 **mock mode 也一併移除** | **Yuan 已裁定(2026-07-26)** —— 不再是從 D-09 的沉默推論。D-04 明列 mock 保留的四樣(訂單類型 / TIF / 交易後現金 / 通知推送)不含這三項(quick-261107-1j4(Yuan 2026-11-07):訂單類型與有效時間在兩種模式都已移除;mock 保留的只剩交易後現金與通知推送);judgment §1 亦明文點名 routing。**實作範圍見下方展開** |
 | U-17 | **spacing token 改用值鍵命名**(`s-4` … `s-48`),不沿用 t-shirt 名 | `02-UI-SPEC.md:40` 的 `md = 16px`,Phase 4 需要 `12px` 一級 → 沿用 t-shirt 名會讓整條 scale 位移一格(`lg` 24→16、`xl` 32→24),同名不同值是跨階段誤讀來源。值鍵命名讓兩份文件的名稱空間永不重疊 |
 | U-18 | **每一步恰好一個 Display 級元素**;step 1 的焦點是 **symbol 輸入框 `.inp.big`**(20px/600),報價卡最新價**降為 Heading 16px** | step 1 是兩欄 720px 表單 + 報價卡 + 摘要,約 15 個同級元素,沒有宣告主錨時 executor 只能猜。選輸入框而非最新價:選到標的前右欄是空的,選到標的後下一個動作仍在左欄。降最新價是為了不讓兩個 Display 同框競爭 |
 

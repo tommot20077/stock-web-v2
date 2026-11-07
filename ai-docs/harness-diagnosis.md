@@ -19,6 +19,8 @@
 
 **修法(已落地)**:新制度檔與既有 8 份規範檔(architecture/code-standards/security/testing/git/flyway/event/redis)全部 `git add -f` 進版控(Yuan 2026-07-07 拍板方向,對抗審查後擴及既有檔);維護協議 §4/§5 明文寫入 add -f 規則與 `git ls-files` 驗證;仍留本機的只剩 CLAUDE.md 與 `.claude/`(Yuan 的決定,風險見 letter-to-future-sessions.md)。
 
+**後續(2026-11-07 Yuan 裁決 3C-3)**:`ai-docs/` 已全數進版控,「新增 ai-docs 檔案必須強制加入」的規則撤除(維護協議 §4 / §5 已改為只驗 `git ls-files`);Yuan 需自行從本機 `.git/info/exclude` 移除 `/ai-docs/` 那一行。上方診斷保留作為歷史。
+
 ## 第 3 名(最漏 token + 學習空轉):學習機制三套並存、金礦埋沒、巨檔誘讀
 
 **問題**:

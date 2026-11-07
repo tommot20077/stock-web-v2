@@ -299,6 +299,24 @@ class CashEntryApiIT extends ContainerIT {
     }
 
     @Test
+    @DisplayName("occurredAt 為帶號擴充年份 -10000-01-01T00:00:00Z：400 fields.occurredAt = must not be before 1900-01-01，不回射輸入、帳本無新增（quick-261107-1j4）")
+    void occurredAtBeforeFloorNamesTheField() throws Exception {
+        String email = "cash-val-floor-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashval" + UUID.randomUUID().toString().substring(0, 8));
+
+        String body = postEntry(accessToken, UUID.randomUUID().toString(), """
+            {"type":"DEPOSIT","currency":"TWD","amount":100,"occurredAt":"-10000-01-01T00:00:00Z"}
+            """)
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            .andExpect(jsonPath("$.error.fields.occurredAt", equalTo("must not be before 1900-01-01")))
+            .andReturn().getResponse().getContentAsString();
+
+        assertThat(objectMapper.readTree(body).get("error").toString()).doesNotContain("10000");
+        assertThat(rowCount(email)).isZero();
+    }
+
+    @Test
     @DisplayName("所有錯誤回應的完整 body 都不回射使用者送出的 key 或備註（canary）")
     void errorResponsesNeverEchoUserControlledInput() throws Exception {
         String accessToken = register(

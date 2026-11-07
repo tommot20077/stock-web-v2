@@ -56,6 +56,12 @@ public class CashLedgerService {
     private static final Duration OCCURRED_AT_FUTURE_TOLERANCE = Duration.ofMinutes(5);
 
     /**
+     * 發生時間的下限（含邊界）：1900-01-01T00:00:00Z，與 {@code DividendService#MIN_PAID_AT}、
+     * {@code TradingService#MIN_EXECUTED_AT} 同值。比較的是 instant，不是使用者本地午夜。
+     */
+    static final OffsetDateTime MIN_OCCURRED_AT = OffsetDateTime.parse("1900-01-01T00:00:00Z");
+
+    /**
      * 列表頁碼上限，與 {@code TradingService} 一致；超過上限的 offset 只會讓資料庫白白掃描。
      */
     private static final int MAX_PAGE = 10_000;
@@ -98,7 +104,7 @@ public class CashLedgerService {
      * @param request        建立請求，已通過 bean validation
      * @param idempotencyKey 冪等鍵，由 {@code Idempotency-Key} header 原樣傳入
      * @return 新建立的分錄；重送時為既有分錄
-     * @throws BusinessException 冪等鍵為空白或過長、type 或 currency 不在白名單、發生時間在未來、
+     * @throws BusinessException 冪等鍵為空白或過長、type 或 currency 不在白名單、發生時間在未來或早於 1900-01-01、
      *                           reversalOfId 格式錯誤、沖銷內容與原分錄不鏡像（皆為 400 欄位錯誤）、
      *                           原分錄不存在（404）、原分錄已被沖銷或本身是沖銷（409）、
      *                           同鍵但 payload 不同，或併發下重讀落空時
@@ -120,6 +126,7 @@ public class CashLedgerService {
         OffsetDateTime occurredAt = Optional.ofNullable(requestedOccurredAt)
             .orElseGet(() -> OffsetDateTime.now().truncatedTo(ChronoUnit.MICROS));
         validateNotInFuture(requestedOccurredAt);
+        validateNotBeforeFloor(requestedOccurredAt);
         UUID reversalUuid = parseReversalOfId(request.reversalOfId());
         CashLedgerEntry original = resolveOriginal(userId, reversalUuid);
         Long reversalOfId = original == null ? null : original.id();
@@ -330,6 +337,23 @@ public class CashLedgerService {
             && requestedOccurredAt.isAfter(OffsetDateTime.now().plus(OCCURRED_AT_FUTURE_TOLERANCE))) {
             throw new FieldValidationException("Invalid occurredAt",
                 Map.of("occurredAt", "must not be in the future"));
+        }
+    }
+
+    /**
+     * 擋下早於 {@link #MIN_OCCURRED_AT}（1900-01-01T00:00:00Z，含邊界）的發生時間，在任何 repository
+     * 呼叫之前回 400，不讓 DB 存不下的極端值（例如帶號擴充年份 {@code -10000-01-01}）落到 insert 變成 500。
+     *
+     * <p>比較的是 instant：台北本地 {@code 1900-01-01T00:00+08:00} 等於 {@code 1899-12-31T16:00Z}，同樣被拒。
+     * 只檢查請求明確送出的值；省略時伺服器取「現在」。訊息為靜態英文，不回射輸入。</p>
+     *
+     * @param requestedOccurredAt 請求明確送出的發生時間（已截到微秒）；未送為 null
+     * @throws FieldValidationException 早於下限時，fields 指名 {@code occurredAt}
+     */
+    private void validateNotBeforeFloor(OffsetDateTime requestedOccurredAt) {
+        if (requestedOccurredAt != null && requestedOccurredAt.isBefore(MIN_OCCURRED_AT)) {
+            throw new FieldValidationException("Invalid occurredAt",
+                Map.of("occurredAt", "must not be before 1900-01-01"));
         }
     }
 

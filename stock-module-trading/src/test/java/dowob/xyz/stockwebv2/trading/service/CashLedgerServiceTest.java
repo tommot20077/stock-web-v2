@@ -15,6 +15,8 @@ import dowob.xyz.stockwebv2.trading.repository.CashLedgerRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -338,6 +340,36 @@ class CashLedgerServiceTest {
             7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("100"), null, future, null), "key-v"))
             .satisfies(thrown -> assertFieldRejected(thrown, "occurredAt", "must not be in the future"));
         verifyNoInteractions(repository);
+    }
+
+    @ParameterizedTest(name = "occurredAt = {0}")
+    @ValueSource(strings = {"1899-12-31T23:59:59Z", "-10000-01-01T00:00:00Z", "1900-01-01T00:00:00+08:00"})
+    @DisplayName("occurredAt 早於 1900-01-01T00:00:00Z（含帶號擴充年份、台北本地午夜）：fields.occurredAt，訊息不回射輸入，repository 零互動（quick-261107-1j4）")
+    void occurredAtBeforeFloorIsRejectedBeforeAnyRepositoryCall(String value) {
+        OffsetDateTime ancient = OffsetDateTime.parse(value);
+
+        assertThatThrownBy(() -> service.createEntry(
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("100"), null, ancient, null), "key-v"))
+            .satisfies(thrown -> assertFieldRejected(thrown, "occurredAt", "must not be before 1900-01-01"))
+            .satisfies(thrown -> assertThat(thrown.getMessage()).doesNotContain(value));
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    @DisplayName("occurredAt 恰為 1900-01-01T00:00:00Z：下限含邊界，走到 insert（quick-261107-1j4）")
+    void occurredAtExactlyAtFloorIsAccepted() {
+        OffsetDateTime floor = OffsetDateTime.parse("1900-01-01T00:00:00Z");
+        when(repository.findByIdempotencyKey(7L, "key-v")).thenReturn(Optional.empty());
+        when(repository.insertIfAbsent(any(CashLedgerEntry.class))).thenAnswer(invocation -> {
+            CashLedgerEntry candidate = invocation.getArgument(0);
+            return Optional.of(candidate);
+        });
+
+        CashEntryDto dto = service.createEntry(
+            7L, new CreateCashEntryRequest("DEPOSIT", "TWD", new BigDecimal("100"), null, floor, null), "key-v");
+
+        assertThat(dto.occurredAt()).isEqualTo(floor);
+        verify(repository).insertIfAbsent(any(CashLedgerEntry.class));
     }
 
     @Test

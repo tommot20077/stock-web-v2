@@ -1,7 +1,8 @@
 ---
 created: 2026-09-27
-title: market-data IT 共用 Testcontainers(P2 #16 方案 B,backlog)
+title: market-data IT 共用 Testcontainers(P2 #16 方案 B;Yuan 2026-11-07 併入 Phase 5)
 area: backend-test
+target: Phase 5
 ---
 
 ## Context
@@ -9,6 +10,8 @@ area: backend-test
 P2 #16 已先做方案 A(PR #43:`*IT` 移到 failsafe,`./mvnw test` 不再起容器)。
 方案 B 是讓同一 JVM 的 market-data IT 共用 Postgres / Kafka / Redis 容器,估計 `verify` 可再省約 60 秒
 (5 次 Kafka 啟動變 1 次)。Yuan 於 2026-09-27 決定放 backlog。
+
+**2026-11-07 更新:** Yuan 裁決併入 **Phase 5**(待辦裁決第 2 題;見 `2026-11-07-phase-5-scope-decisions.md`),不再是 backlog。
 
 ## 風險(做之前要處理)
 

@@ -6,8 +6,8 @@
 ## 本專案固定驗證命令(填進驗收條件用)
 
 - Backend 全量:`./mvnw test`(focused:`./mvnw -pl <module> -am test`;IT:`./mvnw -pl stock-start -am verify`)
-- Frontend:`cd ../../vue/stock-v2/vue-app && npm test && npm run build`
-- Frontend API mode:上述命令前加 `VITE_DATA_MODE=api`
+- Frontend:`cd <前端 repo 根>/vue-app && npm run lint && npm test && npm run build`(前端 repo 根的路徑定義見 judgment.md §8)
+- Frontend API mode:加跑 `VITE_DATA_MODE=api npm test`
 - ⚠ 以上為 Git Bash 語法;Windows PowerShell 5.1 不支援 `&&` 與 `VAR=` 前綴——PS 下改用 `mvnw.cmd`、分步執行、`$env:VITE_DATA_MODE='api'`
 
 ---

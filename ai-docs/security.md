@@ -36,8 +36,9 @@ If the order is wrong, `anyRequest()` matches first and shadows the admin rule, 
 | USER | ROLE_USER | WATCHLIST_MANAGE, TRADE_EXECUTE, PORTFOLIO_VIEW, PROFILE_EDIT |
 | ADMIN | ROLE_ADMIN | All permissions (`EnumSet.allOf`; includes `ASSET_ADMIN`, which no endpoint uses yet) |
 
-**Permission overrides** (design only — **not implemented** as of 2026-11-06: there is no `user_permissions` table or loader; permissions come solely from `Role`): a `user_permissions` table would allow per-user GRANT/REVOKE of individual permissions.
-Loading logic: `Role default permissions ∪ Individual GRANTs − Individual REVOKEs = Final permission set`
+Permissions come solely from `Role` (no per-user overrides).
+
+> 尚未實作的設計目標已移至 `.planning/todos/pending/2026-11-07-account-and-security-hardening.md`(Yuan 2026-11-07 裁決)(per-user permission overrides)。
 
 ### 4. Capability vs Ownership Separation
 
@@ -145,7 +146,7 @@ As implemented in `SecurityConfig` (re-verified 2026-11-06; the code is the sour
 Market data (`/api/v1/market/**`), watchlists, trading / portfolio and backtests all **require authentication**. There is no search endpoint (`/api/v1/search*` does not exist; asset search is `GET /api/v1/assets?query=`).
 
 **Notes:**
-- There is no change-password endpoint yet; when added it must **require authentication**
+- Change-password: not implemented — 尚未實作的設計目標已移至 `.planning/todos/pending/2026-11-07-account-and-security-hardening.md`(Yuan 2026-11-07 裁決)
 - `/api/v1/users/**` has been moved to authenticated endpoints (to prevent user enumeration attacks)
 - If a public profile is needed, restrict to `GET /api/v1/users/{uuid}/profile` (authenticated + strict Rate Limiting + `PublicUserProfileDto` with minimal fields)
 - **Swagger UI**: Must be disabled in production (`springdoc.swagger-ui.enabled=false`), only available in dev/demo environments. Controlled via Spring Profile.
@@ -261,23 +262,7 @@ Redis 不可用時無法驗證 WS 身分，一律 fail-closed（與 REST 一致�
 
 ## 11. User Deletion Security Flow
 
-> Design target — **not implemented** as of 2026-11-06 (no user deletion endpoint, soft delete, anonymization job or `user:permissions:*` cache exists).
-
-Soft delete → immediate Redis cleanup → anonymization after 30 days → transaction records retained for 2 years after anonymization.
-
-**Redis Cleanup Steps (executed immediately, synchronous):**
-1. Set `user:auth:{userId}` status = DELETED
-2. Increment token version (invalidates all Access Tokens)
-3. Find all refresh tokens via `user:refresh:index:{userId}` reverse index
-4. Delete all refresh token keys
-5. Delete the reverse index key
-6. Delete `user:permissions:{userId}` cache
-
-**Anonymization Schedule (after 30 days, Spring Batch):**
-- username → `deleted_user_{hash}`
-- email → `deleted_{hash}@anonymized.local`
-- `transactions` table is retained but userId points to anonymized user
-- `transactions` table has DB-level trigger prohibiting UPDATE/DELETE (append-only)
+> 尚未實作的設計目標已移至 `.planning/todos/pending/2026-11-07-account-and-security-hardening.md`(Yuan 2026-11-07 裁決)。
 
 ---
 
@@ -303,15 +288,9 @@ Implement minimal version from Phase 1:
 
 ## 14. Security Testing
 
-> Design target. As of 2026-11-06 none of the tools below is configured (no Dependabot config, SpotBugs, OWASP Dependency-Check, ZAP or Trivy in `pom.xml` / `.github/workflows/ci.yml`); CI runs `spotless:check`, unit tests, `stock-start` IT (`verify`), backend E2E and browser E2E.
+CI today runs `spotless:check`, unit tests, `stock-start` IT (`verify`), backend E2E and browser E2E; no dependency / SAST / DAST / image scanner is configured.
 
-| Phase | Tool | Action |
-|-------|------|--------|
-| Phase 1 | Dependabot | Automated dependency update PRs |
-| Phase 1 | SpotBugs + Find Security Bugs | SAST — High severity = fail build |
-| Phase 1 | OWASP Dependency-Check | Dependency vulnerability scanning |
-| Phase 2 | ZAP | DAST |
-| Phase 2 | Trivy | Container image scanning |
+> 尚未實作的設計目標已移至 `.planning/todos/pending/2026-11-07-account-and-security-hardening.md`(Yuan 2026-11-07 裁決)(security testing toolchain)。
 
 **Spring Boot upgrade strategy**: Apply patches immediately, wait for .1 release on minor versions.
 
@@ -326,7 +305,8 @@ Implement minimal version from Phase 1:
 | `POST /api/v1/auth/login` (also `POST /api/v1/auth/token`, same bucket) | 10 requests/minute | Per IP | HTTP 429 `AUTH_RATE_LIMITED` + `Retry-After` header |
 | `POST /api/v1/auth/register` | 5 requests/hour | Per IP | HTTP 429 |
 | `POST /api/v1/auth/refresh` | 5 requests/minute | Per refresh-token owner (falls back to IP when the token is unknown) | HTTP 429 |
-| `POST /api/v1/auth/change-password` | 3 requests/hour | Per User | HTTP 429 — endpoint **not implemented** yet |
+
+> 尚未實作的設計目標已移至 `.planning/todos/pending/2026-11-07-account-and-security-hardening.md`(Yuan 2026-11-07 裁決)(change-password 限流)。
 
 ### Account Lockout
 

@@ -308,7 +308,7 @@ class ErrorCodeTest {
                 .isEqualTo("Share adjustment has already been reversed");
         assertThat(ErrorCode.SHARE_ADJUSTMENT_NOT_REVERSIBLE.httpStatus()).isEqualTo(409);
         assertThat(ErrorCode.SHARE_ADJUSTMENT_NOT_REVERSIBLE.defaultMessage())
-                .isEqualTo("Only the latest share adjustment of an asset can be reversed");
+                .isEqualTo("Share adjustment cannot be reversed (not the latest, or itself a reversal)");
     }
 
     @Test

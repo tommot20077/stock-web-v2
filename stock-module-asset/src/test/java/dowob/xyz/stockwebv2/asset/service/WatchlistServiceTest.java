@@ -31,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -228,6 +229,27 @@ class WatchlistServiceTest {
     }
 
     @Test
+    @DisplayName("〔IN-04〕建立：名稱只含空白類字元（含不換行空白 U+00A0 / U+2007 / U+202F）→ 400 fields.name，不碰資料庫")
+    void create_nameOfOnlyNonBreakingSpaces_rejected() {
+        for (String invalid : new String[] {"\u00A0\u00A0", "\u2007", "\u202F", "\u00A0\u3000"}) {
+            assertThatThrownBy(() -> service.create(USER_ID, invalid))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> {
+                    BusinessException exception = (BusinessException) error;
+                    assertThat(exception.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                    assertThat(exception.fields()).containsOnlyKeys("name");
+                });
+        }
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    @DisplayName("〔IN-04〕名稱中間含不換行空白（A\\u00A0B）仍合法，原樣保留")
+    void normalizeName_innerNonBreakingSpace_accepted() {
+        assertThat(WatchlistService.normalizeName("A\u00A0B")).isEqualTo("A\u00A0B");
+    }
+
+    @Test
     @DisplayName("建立：30 字（以 code point 計，含補充平面字元）與前後空白合計超過 30 仍可建立")
     void create_thirtyCodePoints_accepted() {
         String emoji = "\uD83D\uDE00".repeat(30);
@@ -326,7 +348,7 @@ class WatchlistServiceTest {
     // ── 加入項目 ──────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("加入：先鎖清單列、鎖後另起 countItems 計數、再 insertItemAtEnd；symbol strip 後解析；回 DTO 尾端為 AAPL")
+    @DisplayName("加入：先鎖清單列、鎖後另起 countVisibleItems 計數、再 insertItemAtEnd；symbol strip 後解析；回 DTO 尾端為 AAPL")
     void addItem_locksThenCountsThenAppends() {
         Watchlist list = watchlist(1L, "我的自選");
         Asset tsla = asset(20L, "TSLA", AssetType.STOCK, "US");
@@ -335,7 +357,7 @@ class WatchlistServiceTest {
         when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
         when(repository.findActiveAssetIdBySymbol("AAPL")).thenReturn(Optional.of(10L));
         when(repository.containsItem(1L, 10L)).thenReturn(false);
-        when(repository.countItems(1L)).thenReturn(2);
+        when(repository.countVisibleItems(1L)).thenReturn(2);
         when(repository.insertItemAtEnd(1L, 10L)).thenReturn(true);
         when(repository.itemsByWatchlist(List.of(1L))).thenReturn(Map.of(1L, List.of(tsla, msft, aapl)));
         when(marketData.findDailyQuotes(any())).thenReturn(Map.of());
@@ -344,7 +366,7 @@ class WatchlistServiceTest {
 
         InOrder order = inOrder(repository);
         order.verify(repository).findByUuidForUpdate(USER_ID, list.uuid());
-        order.verify(repository).countItems(1L);
+        order.verify(repository).countVisibleItems(1L);
         order.verify(repository).insertItemAtEnd(1L, 10L);
         order.verify(repository).itemsByWatchlist(List.of(1L));
         assertThat(dto).isNotNull();
@@ -361,7 +383,7 @@ class WatchlistServiceTest {
         when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
         when(repository.findActiveAssetIdBySymbol("AAPL")).thenReturn(Optional.of(10L));
         when(repository.containsItem(1L, 10L)).thenReturn(false);
-        when(repository.countItems(1L)).thenReturn(0);
+        when(repository.countVisibleItems(1L)).thenReturn(0);
         when(repository.insertItemAtEnd(1L, 10L)).thenReturn(true);
         when(repository.itemsByWatchlist(List.of(1L))).thenReturn(Map.of(1L, List.of(aapl)));
         when(marketData.findDailyQuotes(any())).thenReturn(Map.of());
@@ -381,7 +403,7 @@ class WatchlistServiceTest {
         when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
         when(repository.findActiveAssetIdBySymbol("AAPL")).thenReturn(Optional.of(10L));
         when(repository.containsItem(1L, 10L)).thenReturn(true);
-        when(repository.countItems(1L)).thenReturn(WatchlistService.MAX_ITEMS);
+        when(repository.countVisibleItems(1L)).thenReturn(WatchlistService.MAX_ITEMS);
         when(repository.itemsByWatchlist(List.of(1L))).thenReturn(Map.of(1L, List.of(aapl)));
         when(marketData.findDailyQuotes(any())).thenReturn(Map.of());
 
@@ -400,7 +422,7 @@ class WatchlistServiceTest {
             CurrencyCode.TWD, null, false, true);
         when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
         when(repository.findActiveAssetIdBySymbol("USD/TWD")).thenReturn(Optional.of(12L));
-        when(repository.countItems(1L)).thenReturn(0);
+        when(repository.countVisibleItems(1L)).thenReturn(0);
         when(repository.insertItemAtEnd(1L, 12L)).thenReturn(true);
         when(repository.itemsByWatchlist(List.of(1L))).thenReturn(Map.of(1L, List.of(usdTwd)));
         when(marketData.findDailyQuotes(any())).thenReturn(Map.of());
@@ -430,7 +452,7 @@ class WatchlistServiceTest {
                 assertThat(exception.fields()).containsOnlyKeys("symbol");
                 assertThat(exception.getMessage()).doesNotContain("NOPE");
             });
-        verify(repository, never()).countItems(anyLong());
+        verify(repository, never()).countVisibleItems(anyLong());
         verify(repository, never()).insertItemAtEnd(anyLong(), anyLong());
     }
 
@@ -458,13 +480,13 @@ class WatchlistServiceTest {
         when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
         when(repository.findActiveAssetIdBySymbol("AAPL")).thenReturn(Optional.of(10L));
         when(repository.itemsByWatchlist(List.of(1L))).thenReturn(Map.of());
-        when(repository.countItems(1L)).thenReturn(WatchlistService.MAX_ITEMS - 1);
+        when(repository.countVisibleItems(1L)).thenReturn(WatchlistService.MAX_ITEMS - 1);
         when(repository.insertItemAtEnd(1L, 10L)).thenReturn(true);
 
         assertThat(service.addItem(USER_ID, list.uuid(), "AAPL")).isNotNull();
         verify(repository).insertItemAtEnd(1L, 10L);
 
-        when(repository.countItems(1L)).thenReturn(WatchlistService.MAX_ITEMS);
+        when(repository.countVisibleItems(1L)).thenReturn(WatchlistService.MAX_ITEMS);
         assertThatThrownBy(() -> service.addItem(USER_ID, list.uuid(), "AAPL"))
             .isInstanceOf(BusinessException.class)
             .satisfies(error -> {
@@ -476,12 +498,12 @@ class WatchlistServiceTest {
     }
 
     @Test
-    @DisplayName("加入：上限計數只採用鎖後的 countItems（不依賴鎖查詢的結果，避免 READ COMMITTED 快照過時而超過 100）")
+    @DisplayName("加入：上限計數只採用鎖後的 countVisibleItems（不依賴鎖查詢的結果，避免 READ COMMITTED 快照過時而超過 100）")
     void addItem_capUsesCountTakenAfterLock() {
         Watchlist list = watchlist(1L, "我的自選");
         when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
         when(repository.findActiveAssetIdBySymbol("AAPL")).thenReturn(Optional.of(10L));
-        when(repository.countItems(1L)).thenReturn(WatchlistService.MAX_ITEMS);
+        when(repository.countVisibleItems(1L)).thenReturn(WatchlistService.MAX_ITEMS);
 
         assertThatThrownBy(() -> service.addItem(USER_ID, list.uuid(), "AAPL"))
             .isInstanceOf(BusinessException.class)
@@ -489,7 +511,7 @@ class WatchlistServiceTest {
 
         InOrder order = inOrder(repository);
         order.verify(repository).findByUuidForUpdate(USER_ID, list.uuid());
-        order.verify(repository).countItems(1L);
+        order.verify(repository).countVisibleItems(1L);
         verify(repository, never()).insertItemAtEnd(anyLong(), anyLong());
     }
 
@@ -573,6 +595,26 @@ class WatchlistServiceTest {
     }
 
     @Test
+    @DisplayName("〔WR-03〕重排：rewritePositions 之後以送來的項目數呼叫 renumberHiddenItemsAfter，把隱藏列（inactive 資產）重編到可見項目之後")
+    void reorder_renumbersHiddenItemsAfterVisibleOnes() {
+        Watchlist list = watchlist(1L, "我的自選");
+        Asset a = asset(10L, "A", AssetType.STOCK, "US");
+        Asset b = asset(11L, "B", AssetType.STOCK, "US");
+        Asset c = asset(12L, "C", AssetType.STOCK, "US");
+        when(repository.findByUuidForUpdate(USER_ID, list.uuid())).thenReturn(Optional.of(list));
+        when(repository.itemAssetIdsByUuid(1L)).thenReturn(currentItems(a, b, c));
+        when(repository.itemsByWatchlist(List.of(1L))).thenReturn(Map.of(1L, List.of(b, c, a)));
+        when(marketData.findDailyQuotes(any())).thenReturn(Map.of());
+
+        service.reorder(USER_ID, list.uuid(), List.of(b.uuid(), c.uuid(), a.uuid()));
+
+        InOrder order = inOrder(repository);
+        order.verify(repository).rewritePositions(1L, List.of(11L, 12L, 10L));
+        order.verify(repository).renumberHiddenItemsAfter(1L, 3);
+        order.verify(repository).itemsByWatchlist(List.of(1L));
+    }
+
+    @Test
     @DisplayName("重排：少一個、多一個（不在清單中）、重複、空陣列對非空清單 → 409 WATCHLIST_ORDER_CONFLICT，不重寫")
     void reorder_differentSet_conflict() {
         Watchlist list = watchlist(1L, "我的自選");
@@ -598,6 +640,7 @@ class WatchlistServiceTest {
                 });
         }
         verify(repository, never()).rewritePositions(anyLong(), any());
+        verify(repository, never()).renumberHiddenItemsAfter(anyLong(), anyInt());
     }
 
     @Test
@@ -620,6 +663,7 @@ class WatchlistServiceTest {
                 });
         }
         verify(repository, never()).rewritePositions(anyLong(), any());
+        verify(repository, never()).renumberHiddenItemsAfter(anyLong(), anyInt());
     }
 
     @Test
@@ -634,6 +678,7 @@ class WatchlistServiceTest {
                 .isEqualTo(ErrorCode.WATCHLIST_NOT_FOUND));
         verify(repository, never()).itemAssetIdsByUuid(anyLong());
         verify(repository, never()).rewritePositions(anyLong(), any());
+        verify(repository, never()).renumberHiddenItemsAfter(anyLong(), anyInt());
     }
 
     private static Map<UUID, Long> currentItems(Asset... assets) {

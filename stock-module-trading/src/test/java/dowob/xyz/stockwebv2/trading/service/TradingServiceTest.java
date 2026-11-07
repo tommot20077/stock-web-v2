@@ -25,6 +25,8 @@ import dowob.xyz.stockwebv2.trading.repository.TradingRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -323,7 +325,7 @@ class TradingServiceTest {
     }
 
     @Test
-    @DisplayName("補登舊交易仍被接受：executedAt 刻意不設下界")
+    @DisplayName("補登舊交易仍被接受：executedAt 只擋 1900-01-01 之前的極端值")
     void backdatedExecutedAtIsAccepted() {
         when(assetFacade.findBySymbol("AAPL")).thenReturn(Optional.of(
             new AssetSummary(55L, "AAPL", "Apple Inc.", AssetType.STOCK, "US", true, true)));
@@ -342,6 +344,59 @@ class TradingServiceTest {
         ArgumentCaptor<TradeTransaction> captor = ArgumentCaptor.forClass(TradeTransaction.class);
         verify(repository).insertTransactionIfAbsent(captor.capture());
         assertThat(captor.getValue().executedAt()).isEqualTo(backdated);
+    }
+
+    @ParameterizedTest(name = "executedAt = {0}")
+    @ValueSource(strings = {"1899-12-31T23:59:59Z", "-10000-01-01T00:00:00Z", "1900-01-01T00:00:00+08:00"})
+    @DisplayName("executedAt 早於 1900-01-01T00:00:00Z（含帶號擴充年份、台北本地午夜）：fields.executedAt，訊息不回射輸入，未觸及 Facade 與 repository（quick-261107-1j4）")
+    void executedAtBeforeFloorIsRejectedBeforeAnyIo(String value) {
+        CreateTradeRequest request = new CreateTradeRequest(
+            "AAPL", "BUY", BigDecimal.ONE, BigDecimal.TEN, null, null, OffsetDateTime.parse(value));
+
+        assertThatThrownBy(() -> service.createTrade(7L, request, "key-1"))
+            .isInstanceOfSatisfying(FieldValidationException.class, ex -> {
+                assertThat(ex.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                assertThat(ex.fields()).containsOnlyKeys("executedAt")
+                    .containsEntry("executedAt", "must not be before 1900-01-01");
+                assertThat(ex.getMessage()).doesNotContain(value);
+            });
+
+        verifyNoInteractions(assetFacade);
+        verifyNoInteractions(repository);
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("executedAt 恰為 1900-01-01T00:00:00Z：下限含邊界，照常成交（quick-261107-1j4）")
+    void executedAtExactlyAtFloorIsAccepted() {
+        when(assetFacade.findBySymbol("AAPL")).thenReturn(Optional.of(
+            new AssetSummary(55L, "AAPL", "Apple Inc.", AssetType.STOCK, "US", true, true)));
+        when(repository.findHoldingForUpdate(7L, 55L)).thenReturn(Optional.empty());
+        when(repository.insertHoldingIfAbsent(any(Holding.class)))
+            .thenAnswer(invocation -> Optional.of(invocation.getArgument(0)));
+        when(repository.insertTransactionIfAbsent(any(TradeTransaction.class)))
+            .thenAnswer(invocation -> Optional.of(invocation.getArgument(0)));
+
+        OffsetDateTime floor = OffsetDateTime.parse("1900-01-01T00:00:00Z");
+        service.createTrade(7L, new CreateTradeRequest(
+            "AAPL", "BUY", BigDecimal.ONE, BigDecimal.TEN, null, null, floor), "key-1");
+
+        ArgumentCaptor<TradeTransaction> captor = ArgumentCaptor.forClass(TradeTransaction.class);
+        verify(repository).insertTransactionIfAbsent(captor.capture());
+        assertThat(captor.getValue().executedAt()).isEqualTo(floor);
+    }
+
+    @Test
+    @DisplayName("未來 executedAt 的既有錯誤形狀不變：VALIDATION_FAILED 且無 fields（quick-261107-1j4 只加下限）")
+    void futureExecutedAtErrorKeepsNoFields() {
+        CreateTradeRequest request = new CreateTradeRequest(
+            "AAPL", "BUY", BigDecimal.ONE, BigDecimal.TEN, null, null, OffsetDateTime.now().plusDays(1));
+
+        assertThatThrownBy(() -> service.createTrade(7L, request, "key-1"))
+            .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                assertThat(ex).isNotInstanceOf(FieldValidationException.class);
+                assertThat(ex.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+            });
     }
 
     @Test

@@ -155,7 +155,7 @@ public class PortfolioQueryService {
     /**
      * 列出使用者的持倉與估值。
      *
-     * <p>金額欄位為原幣；每列另帶 {@code currency}、{@code assetType}、{@code sector}，以及依使用者基準幣
+     * <p>金額欄位為原幣；每列另帶 {@code currency}、{@code assetType}、{@code sector}、{@code market}，以及依使用者基準幣
      * 折算的 {@code baseCurrency}、{@code marketValueInBase} 與 {@code unrealizedPnlInBase}（換不到匯率時兩者皆為 null），
      * 供前端以 {@code marketValueInBase / summary.totalMarketValue} 計算權重、以 {@code unrealizedPnlInBase}
      * 做跨標的損益排行（Top movers）。持倉快取只存原幣估值，
@@ -878,6 +878,7 @@ public class PortfolioQueryService {
             profile == null ? null : profile.currency().name(),
             profile == null ? null : profile.assetType().name(),
             profile == null ? null : profile.sector(),
+            profile == null ? null : profile.market(),
             null,
             null,
             null,
