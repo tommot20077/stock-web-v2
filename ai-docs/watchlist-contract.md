@@ -24,7 +24,7 @@
 |---|---|---|---|
 | 每位使用者的清單數 | 20 | 400 `VALIDATION_FAILED`，`fields.watchlists` | 建立前先確保預設清單存在，再 `SELECT … FROM watchlists WHERE user_id = :userId FOR UPDATE` 鎖住該使用者全部清單列 → **取得鎖之後另起**的 `countByUser` 查詢 → insert（count 不能沿用鎖查詢本身的結果：READ COMMITTED 下鎖查詢的快照在等鎖前取得，看不到前一個持鎖交易剛 commit 的列；見 `WatchlistService#create` 註解）；因至少有一列可鎖，並發建立會序列化，上限是硬的 |
 | 每份清單的項目數 | 100（只計**可見**項目，即資產 active 的項目——與回應的 `items` 同一集合） | 400 `VALIDATION_FAILED`，`fields.items` | 加入前 `SELECT … FROM watchlists WHERE uuid = :id AND user_id = :userId FOR UPDATE` 鎖住清單列 → **取得鎖之後另起**的 `countVisibleItems` 查詢 → insert（理由同上；見 `WatchlistService#addItem` 註解）；同清單的並發加入序列化。下架資產重新上架可能讓可見項目暫時超過 100，此時加入回 400，直到移除到低於 100 |
-| 清單名稱 | trim 後 1–30 字；同使用者唯一 | 長度不符 400 `fields.name`；重名 409 `DUPLICATE_RESOURCE`，`fields.name` | `(user_id, name)` 唯一約束 |
+| 清單名稱 | trim 後 1–30 字（只含空白類字元，含不換行空白 U+00A0 / U+2007 / U+202F，視為空白）；同使用者唯一 | 長度不符 400 `fields.name`；重名 409 `DUPLICATE_RESOURCE`，`fields.name` | `(user_id, name)` 唯一約束 |
 
 - **預設清單**：使用者 0 個清單時，`GET /api/v1/watchlists` 先建立「我的自選」：`INSERT … ON CONFLICT (user_id, name) DO NOTHING` 後重讀——兩個並發的首次 GET 只會留一列，不需 advisory lock。刪掉全部清單後，下一次 GET 會重建（星號選擇器需要至少一個清單）。
 - 同一資產可同時在多份清單；同一清單內由主鍵 `(watchlist_id, asset_id)` 保證唯一。
@@ -47,7 +47,7 @@
 
 ### POST / PATCH — 建立與改名
 
-- `name` trim 後 1–30 字，否則 400 `VALIDATION_FAILED`，`fields.name`。
+- `name` trim 後 1–30 字，否則 400 `VALIDATION_FAILED`，`fields.name`。〔quick-261107-1j4，04.2 IN-04〕只含空白類字元（含不換行空白 U+00A0 / U+2007 / U+202F）視為空白；名稱中間的不換行空白照常保留。
 - 同使用者已有**另一份**同名清單 → 409 `DUPLICATE_RESOURCE`，`fields.name`。
 - `POST` 時已有 20 個清單 → 400 `VALIDATION_FAILED`，`fields.watchlists`。
 
@@ -103,7 +103,7 @@
 
 | HTTP | code | `fields` | 情境 |
 |---|---|---|---|
-| 400 | `VALIDATION_FAILED` | `name` | 名稱 trim 後為空或超過 30 字 |
+| 400 | `VALIDATION_FAILED` | `name` | 名稱 trim 後為空（含只含不換行空白等空白類字元）或超過 30 字 |
 | 400 | `VALIDATION_FAILED` | `watchlists` | 第 21 個清單 |
 | 400 | `VALIDATION_FAILED` | `items` | 清單第 101 檔可見項目 |
 | 400 | `VALIDATION_FAILED` | `symbol` / `assetIds` | body 欄位缺漏或格式錯 |
@@ -120,6 +120,7 @@
 
 ## 變更紀錄
 
+- 2026-11-07（quick-261107-1j4，04.2 IN-04）：清單名稱只含空白類字元（`Character.isWhitespace` 或 `isSpaceChar`，涵蓋 U+00A0 / U+2007 / U+202F）時視為空白，回 400 `fields.name`（先前 `strip()` 不去除不換行空白，可建出看似空白的名稱）。DB 的 `btrim` CHECK 未擴充（需新 migration；服務是唯一寫入者）。
 - 2026-11-07（quick-261107-1j4，04.2 WR-03）：100 檔上限改為只計可見（active 資產）項目（`countItems` → `countVisibleItems`；先前連下架資產一起計，使用者看到 97 檔卻被擋在 100）；重排後下架資產的項目依原相對順序重編到可見項目之後，重新上架時確定出現在尾端（先前保留過時 position 與 1..n 撞號，位置不確定）。
 - 2026-11-06（quick-261106-fbs，文件掃描）：檔首凍結提示改為「已實作、程式為事實來源」；上限表補明 count 必須是取得列鎖之後另起的查詢（04.2 G2）。
 - 2026-11-06（quick-261106-fbs）：加入項目的 `symbol` 改為大小寫不敏感（strip 後 `toUpperCase(Locale.ROOT)`），修正小寫 symbol 回 404 `ASSET_NOT_FOUND`（04.2 REVIEW WR-02）。

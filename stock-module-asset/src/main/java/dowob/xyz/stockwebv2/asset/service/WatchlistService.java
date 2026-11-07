@@ -227,14 +227,21 @@ public class WatchlistService {
     /**
      * 名稱正規化：去除前後空白（{@link String#strip()}，含全形空白），trim 後須為 1–30 個 code point。
      *
+     * <p>{@code strip()} 依 {@link Character#isWhitespace} 判斷，不涵蓋不換行空白（U+00A0 / U+2007 / U+202F）；
+     * strip 後若每個 code point 都是 {@link Character#isWhitespace} 或 {@link Character#isSpaceChar}，
+     * 同樣視為空白名稱（04.2 IN-04）。名稱中間的不換行空白照常保留。DB 的 {@code btrim} CHECK 未同步擴充
+     * （需要新 migration；服務是唯一寫入者）。</p>
+     *
      * @param name 使用者輸入
      * @return 正規化後的名稱
-     * @throws FieldValidationException 名稱為空或超長時（{@code fields.name}）
+     * @throws FieldValidationException 名稱為空、只含空白類字元或超長時（{@code fields.name}）
      */
     static String normalizeName(String name) {
         String stripped = name == null ? "" : name.strip();
         int length = stripped.codePointCount(0, stripped.length());
-        if (length == 0 || length > MAX_NAME_LENGTH) {
+        boolean blankLike = stripped.codePoints()
+            .allMatch(codePoint -> Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint));
+        if (blankLike || length > MAX_NAME_LENGTH) {
             throw new FieldValidationException("Watchlist name is invalid", Map.of("name", "must be 1 to 30 characters"));
         }
         return stripped;
