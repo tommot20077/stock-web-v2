@@ -1,5 +1,12 @@
 # 前端 Phase 4 分支 code review
 
+> **歷史文件** — 本文是當時的前端 PR #9 code review(HEAD `51711b0`)紀錄,不隨程式維護。現況以 `ai-docs/`、`docs/architecture/overview.md`、`docs/api/reference.md`、`docs/testing/overview.md`、`docs/configuration/overview.md` 與 `.planning/codebase/` 為準。
+>
+> 2026-11-07 文件比對發現以下內容已與現況不同:
+> - F-2 已修正:`portfolioRevision.ts` 新增 `clearLastFill()`。
+> - 文中 repo 路徑為當時的 Windows 本機路徑;兩個 repo 的路徑對照見 `ai-docs/judgment.md` §8。
+
+
 - Repo: `D:/backup/backup/程式/workspace/vue/stock-v2`(專案根 `vue-app/`)
 - Range: `origin/develop...feature/phase-04-manual-trade-creation`(21 檔、29 commits,HEAD `51711b0`)
 - 方式:逐檔親讀 diff 與新模組全文;測試只讀、未執行(主線另跑)。

@@ -1,5 +1,11 @@
 # Implementation Plan: Browser E2E Testing(Playwright 全鏈路測試)
 
+> **歷史文件** — 本文是當時的計畫(2026-07-16)紀錄,不隨程式維護。現況以 `ai-docs/`、`docs/architecture/overview.md`、`docs/api/reference.md`、`docs/testing/overview.md`、`docs/configuration/overview.md` 與 `.planning/codebase/` 為準。
+>
+> 2026-11-07 文件比對發現以下內容已與現況不同:
+> - 前端 `playwright.config.ts` 的 trace 已由 `on-first-retry` 改為 `retain-on-failure`,並加上 `video: 'retain-on-failure'`(2026-11)。
+
+
 ## Design Reference
 - Design doc: `docs/plans/2026-07-16-browser-e2e-testing-design.md`
 - Approved by: Yuan

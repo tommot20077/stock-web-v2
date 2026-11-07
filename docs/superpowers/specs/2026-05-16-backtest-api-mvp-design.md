@@ -1,5 +1,8 @@
 # stock-web-v2 Backtest API MVP 設計
 
+> **歷史文件** — 本文是當時的設計(2026-05-16)紀錄,不隨程式維護。現況以 `ai-docs/`、`docs/architecture/overview.md`、`docs/api/reference.md`、`docs/testing/overview.md`、`docs/configuration/overview.md` 與 `.planning/codebase/` 為準。
+
+
 日期：2026-05-16
 
 ## 背景

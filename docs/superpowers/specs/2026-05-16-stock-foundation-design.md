@@ -1,5 +1,11 @@
 # stock-web-v2 Foundation-first 後端設計
 
+> **歷史文件** — 本文是當時的設計(2026-05-16)紀錄,不隨程式維護。現況以 `ai-docs/`、`docs/architecture/overview.md`、`docs/api/reference.md`、`docs/testing/overview.md`、`docs/configuration/overview.md` 與 `.planning/codebase/` 為準。
+>
+> 2026-11-07 文件比對發現以下內容已與現況不同:
+> - 文中「本 repo 的 `CLAUDE.md`」已不存在;專案規則現在在 repo 根的 `AGENTS.md` 與 `ai-docs/`。
+
+
 日期：2026-05-16
 
 ## 背景

@@ -1,5 +1,8 @@
 # 04-13 Task 2 的 headless 功能預檢(2026-09-04)
 
+> **歷史文件** — 本文是當時的預檢紀錄(2026-09-04)紀錄,不隨程式維護。現況以 `ai-docs/`、`docs/architecture/overview.md`、`docs/api/reference.md`、`docs/testing/overview.md`、`docs/configuration/overview.md` 與 `.planning/codebase/` 為準。
+
+
 > **這份不是 Task 2 的通過憑證。** Task 2 是 `checkpoint:human-verify gate="blocking"`,要看的是版面比例、動畫觀感、文案在實際版位下的可讀性——這些 headless 看不出來,只有 Yuan 親眼確認才算數。
 >
 > 這份做的是另一件事:把 14 步裡**可自動判定的功能部分**先跑一遍,讓 Yuan 不必把時間花在「按下去沒反應是不是壞了」上,並先揪出會中斷走查的問題。

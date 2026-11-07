@@ -1,5 +1,12 @@
 # 後端 PR #20 code review（`origin/develop...3c42cb2`，排除 `.planning/`）
 
+> **歷史文件** — 本文是當時的PR #20 code review(`3c42cb2`)紀錄,不隨程式維護。現況以 `ai-docs/`、`docs/architecture/overview.md`、`docs/api/reference.md`、`docs/testing/overview.md`、`docs/configuration/overview.md` 與 `.planning/codebase/` 為準。
+>
+> 2026-11-07 文件比對發現以下內容已與現況不同:
+> - C-1(`CreateTradeRequest.fee` 精度)、Q-1(`GlobalExceptionHandler` 重複 import)、S-1(`browser-auth-contract.md` 未提 Idempotency-Key)均已修正。
+> - 文中 `ErrorCode`、`TradingService`、`TradingController`、`SecurityConfig`、`JdbcTradingRepository`、`ai-docs/security.md` 的行號已位移。
+
+
 審查範圍：21 檔 / +1811 −39。Main code：`ErrorCode`、`V11` migration、`TradingController`、`TradePayloadMatcher`、`TradeTransaction`、`JdbcTradingRepository`、`TradingRepository`、`TradingService`、`GlobalExceptionHandler`。Tests：`ErrorCodeTest`、`TradingControllerTest`、`TradingControllerWebMvcTest`、`TradingTestApplication`、`TradePayloadMatcherTest`、`TradingServiceTest`、`ErrorHandlingIT`、`TradingApiIT`、`TransactionsIdempotencyIT`、`ValidationBoundaryE2E`。
 
 ## 裁決：**MERGE**（0 BLOCKER / 0 MAJOR / 3 MINOR / 4 NIT）

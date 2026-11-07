@@ -1,5 +1,11 @@
 # develop 全面審查(2026-09-02)
 
+> **歷史文件** — 本文是當時的審查(2026-09-02,後端 `334cb34` / 前端 `a00fb29`)紀錄,不隨程式維護。現況以 `ai-docs/`、`docs/architecture/overview.md`、`docs/api/reference.md`、`docs/testing/overview.md`、`docs/configuration/overview.md` 與 `.planning/codebase/` 為準。
+>
+> 2026-11-07 文件比對發現以下內容已與現況不同:
+> - 限流已改由 `ApiRateLimitInterceptor` 統一處理,端點權限另有 `EndpointAuthorizationRulesTest` 強制每個端點標註 `@PreAuthorize`;文中「只有 AuthController 呼叫 enforce」等描述為當時狀態。
+
+
 > 審查對象:後端 `develop` @ `334cb34`(PR #20 merge;之後只多了文件 PR #22)、前端 `develop` @ `a00fb29`(PR #9 merge)。
 > 方式:四位獨立 reviewer 各審一個維度(安全 / 性能 / 架構 / 功能),主線逐條抽查 HIGH 與關鍵 MEDIUM 的 `file:line` 後才採信。
 > 所有結論皆為**靜態閱讀**;本機當日無 Docker(BIOS 虛擬化關閉),IT / E2E 以 CI 為準。

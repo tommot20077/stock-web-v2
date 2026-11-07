@@ -1,5 +1,13 @@
 # develop 安全審查報告（2026-09-02）
 
+> **歷史文件** — 本文是當時的審查(2026-09-02)紀錄,不隨程式維護。現況以 `ai-docs/`、`docs/architecture/overview.md`、`docs/api/reference.md`、`docs/testing/overview.md`、`docs/configuration/overview.md` 與 `.planning/codebase/` 為準。
+>
+> 2026-11-07 文件比對發現以下內容已與現況不同:
+> - M-2 已修正:`application.yaml` 已設定 `forward-headers-strategy`。
+> - M-3 已修正:Swagger UI 在 `application.yaml` / `application-demo.yaml` 預設關閉(`STOCK_SWAGGER_UI_ENABLED` 預設 `false`)。
+> - `application.yaml`、`BackfillController.requireAdmin` 的行號已位移。
+
+
 - 後端：`origin/develop` @ 334cb34（PR #20 merge）
 - 前端：`develop` @ a00fb29（PR #9 merge，含 fde9968）
 - 方式：靜態親讀，read-only，未跑測試。判斷基準：`ai-docs/security.md`、`browser-auth-contract.md`、`redis-convention.md`、`event-conventions.md`、前端 `AGENTS.md` 鐵律 1–4。
