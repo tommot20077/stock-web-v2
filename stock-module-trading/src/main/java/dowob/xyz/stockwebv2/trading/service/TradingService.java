@@ -48,11 +48,17 @@ public class TradingService {
     /**
      * {@code executedAt} 容許超前伺服器時鐘的幅度。
      *
-     * <p>成交時間由提交者填寫，補登舊交易是明確支援的情境，故<strong>不設下界</strong>；
+     * <p>成交時間由提交者填寫，補登舊交易是明確支援的情境，故只設擋極端值的 {@link #MIN_EXECUTED_AT}；
      * 但未來時間沒有合理用途，且會讓該筆交易落在任何「至今為止」的區間查詢之外。
      * 保留數分鐘容忍度是為了吸收客戶端與伺服器之間正常的時鐘偏移，避免誤殺合法請求。</p>
      */
     private static final Duration EXECUTED_AT_FUTURE_TOLERANCE = Duration.ofMinutes(5);
+
+    /**
+     * 成交時間的下限（含邊界）：1900-01-01T00:00:00Z，與 {@code CashLedgerService#MIN_OCCURRED_AT}、
+     * {@code DividendService#MIN_PAID_AT} 同值；只擋 DB 存不下的極端值，補登舊交易不受影響。
+     */
+    static final OffsetDateTime MIN_EXECUTED_AT = OffsetDateTime.parse("1900-01-01T00:00:00Z");
 
     /**
      * 冪等鍵的長度上限，<strong>必須與 {@code transactions.idempotency_key} 的
@@ -362,15 +368,18 @@ public class TradingService {
     }
 
     /**
-     * 決定交易的成交時間，並擋下明顯超前伺服器時鐘的值。
+     * 決定交易的成交時間，並擋下明顯超前伺服器時鐘或早於 {@link #MIN_EXECUTED_AT} 的值。
      *
-     * <p>刻意不設下界：補登舊交易是本帳本明確支援的情境。上界則保留
-     * {@link #EXECUTED_AT_FUTURE_TOLERANCE} 的時鐘偏移容忍度。</p>
+     * <p>補登舊交易仍是本帳本明確支援的情境；下限 1900-01-01T00:00:00Z（含邊界）只為擋下 DB 存不下的
+     * 極端值（例如帶號擴充年份 {@code -10000-01-01}），讓它回 400 而不是在 insert 變成 500。比較的是 instant，
+     * 不是使用者本地午夜。上界保留 {@link #EXECUTED_AT_FUTURE_TOLERANCE} 的時鐘偏移容忍度（無 fields，維持既有形狀）。
+     * 本方法在資產解析之前執行，因此兩種拒絕都是零 I/O。</p>
      *
      * @param requested 請求帶入的成交時間；null 代表以現在時間入帳
      * @param now       本次交易的基準時間
      * @return 實際採用的成交時間
-     * @throws BusinessException 成交時間超前基準時間逾容忍度時丟出 VALIDATION_FAILED
+     * @throws BusinessException 成交時間超前基準時間逾容忍度時丟出 VALIDATION_FAILED（無 fields）；
+     *                           早於下限時丟出 {@link FieldValidationException}（fields 指名 {@code executedAt}）
      */
     private OffsetDateTime resolveExecutedAt(OffsetDateTime requested, OffsetDateTime now) {
         if (requested == null) {
@@ -378,6 +387,10 @@ public class TradingService {
         }
         if (requested.isAfter(now.plus(EXECUTED_AT_FUTURE_TOLERANCE))) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "executedAt must not be in the future");
+        }
+        if (requested.isBefore(MIN_EXECUTED_AT)) {
+            throw new FieldValidationException("Invalid executedAt",
+                Map.of("executedAt", "must not be before 1900-01-01"));
         }
         return requested;
     }
