@@ -28,9 +28,12 @@ import tools.jackson.databind.ObjectMapper;
  * 舊形狀 JSON 會被新程式讀成缺欄位的 DTO（或反之）。加 {@code v2} 讓新舊程式互不讀取對方寫的 JSON，
  * 舊鍵 60 秒後自然過期（RESEARCH Q8 / A4）。
  *
- * <p>版本沿革：持倉鍵 {@code portfolio:valuation:v2:}（04.1 起不變）；summary 鍵 {@code v2}（04.1）→
+ * <p>版本沿革：summary 鍵 {@code v2}（04.1）→
  * {@code v3}（2026-10-31，Phase 04.2：summary 新增 {@code dividendIncome} / {@code dividendTaxWithheld} 且
- * {@code totalPnl} 含股利，換前綴使部署前後兩種形狀互不讀取，舊 {@code v2} 鍵 60 秒後自然過期）。
+ * {@code totalPnl} 含股利，換前綴使部署前後兩種形狀互不讀取，舊 {@code v2} 鍵 60 秒後自然過期）；
+ * 持倉鍵 {@code v2}（04.1）→ {@code v3}（2026-11-07，quick-261107-1j4：{@link HoldingDto} 新增隨持倉快取的
+ * {@code market}，舊 v2 JSON 缺此欄會被讀成 {@code market = null}，前端便退回紐約日期；換前綴後新程式不讀舊鍵，
+ * 舊 {@code v2} 鍵 60 秒後自然過期）。
  *
  * <p>持倉鍵存<strong>原幣</strong>估值，與使用者基準幣無關；summary 鍵則含基準幣
  * （鍵由版本段、userId 與基準幣代碼組成），使用者切換基準幣後直接 miss、立即重算。
@@ -45,13 +48,13 @@ import tools.jackson.databind.ObjectMapper;
  * 殘餘競態（讀者在 commit 前讀到舊資料、於失效之後才寫回）最長 60 秒，與交易路徑相同，屬已接受。
  *
  * @author Yuan
- * @version 4.0
+ * @version 4.1
  */
 @Component
 public class PortfolioCache {
     private static final Logger log = LoggerFactory.getLogger(PortfolioCache.class);
     private static final Duration TTL = Duration.ofSeconds(60);
-    private static final String VALUATION_PREFIX = "portfolio:valuation:v2:";
+    private static final String VALUATION_PREFIX = "portfolio:valuation:v3:";
     private static final String SUMMARY_PREFIX = "portfolio:summary:v3:";
 
     private final StringRedisTemplate redisTemplate;
