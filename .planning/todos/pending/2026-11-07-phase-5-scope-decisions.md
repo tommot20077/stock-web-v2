@@ -1,0 +1,40 @@
+---
+created: 2026-11-07
+title: Phase 5 範圍裁決(Phase 5 discuss 的輸入)
+area: verification
+target: Phase 5
+source: Yuan 2026-11-07 待辦裁決第 1、2、3C-2、3C-8 題;quick-261107-1j4
+---
+
+> **Phase 5 discuss 的輸入。以下各點 Yuan 已裁決,勿重議**;discuss 只需決定實作細節與切 plan 的方式。
+> Phase 5 = Cross-Repo Browser Flow Verification & Contract Hardening(VER-01 / 02 / 03,見 ROADMAP.md)。
+
+## 範圍(Yuan 2026-11-07 第 2 題)
+
+1. **SC1 / SC2 對照稽核補缺**:把 ROADMAP Phase 5 Success Criteria 1(後端 Maven 測試覆蓋 auth cookie、CSRF、CORS、refresh / logout、401 / 403 信封與交易冪等)、2(前端 Vitest / type-check / build 覆蓋 API client、auth store、runtime mode、portfolio / trading adapter)對照現有測試,逐條列出已涵蓋 / 缺口,只補缺口。
+2. **補瀏覽器測試**(真後端,跑在 CI 的 browser E2E):
+   - **SC3**:login → `/me` → portfolio reads → create manual trade → refetch → logout,一條**單一串連**的 journey(不是分散在多個 spec 的片段)。
+   - **SC4**:auth cookie 為 httpOnly、CSRF token / header 正確、protected request 帶 credentials,以及**登出後 `GET /api/v1/me` 回 401**。
+   - **SC5**:API mode 整合失敗時顯示錯誤 / 重試狀態,不被 mock data 掩蓋。
+3. **`it-shared-containers` 併入 Phase 5**(見 `2026-09-27-it-shared-containers.md`,frontmatter 已改 `target: Phase 5`)。
+4. **`@extended` 每次 PR 一起跑**(目前 `run-e2e.sh` 無參數預設只跑 `@smoke`,`@extended` 需 `--grep @extended`)。
+5. **金額精度**:前端引入 decimal 套件;金額 / 數量 / 價格欄位在請求與回應都改字串;service 層轉 decimal。細節見 `2026-11-06-cash-amount-string-serialization.md`〈決定〉。
+
+## 維持現狀(不排工作)
+
+- **DB 計數**(3C-8):分頁的 `count(*)` 與觀察清單 100 檔上限的 count 維持現狀。Yuan 追問「直接呼叫 DB 計數對服務的影響」,影響分析已在 2026-11-07 討論中回答,裁決為不改。
+
+## 不在 Phase 5(排程見各 todo)
+
+- 五個大型功能(Yuan 2026-11-07 第 1 題)都不插隊:先 Phase 5 → 收 v1.0 → 新 milestone。
+  - 新 milestone 第一個 phase:帳戶層級報酬率(`2026-09-28-account-level-return.md`)。
+  - 「真實行情與參考資料來源」主題:匯率歷史(`2026-09-28-fx-pnl-and-rate-history.md`)、K 線還原(`2026-09-28-kline-adjusted-prices.md`)、資產主檔(`2026-09-28-asset-master-management.md`)。
+  - 資產分類剩 Analytics 產業分布,隨 Analytics API 化(`2026-07-19-backend-asset-classification.md`)。
+- 帳號與安全強化(`2026-11-07-account-and-security-hardening.md`)、Ops / AI Access 後端(`2026-11-07-ops-and-ai-access-backend.md`):backlog。
+
+## 下一步順序(Yuan 2026-11-07,3C-2)
+
+1. quick-261107-1j4(程式 + 文件 + todo 紀錄;本檔即其產物)
+2. `/gsd-map-codebase`(重產 `.planning/codebase/*`)
+3. `/gsd-docs-update`(重產後端 `AGENTS.md`)
+4. Phase 5 discuss → plan → execute

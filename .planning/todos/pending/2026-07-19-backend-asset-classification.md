@@ -5,10 +5,9 @@ area: asset
 files:
   - stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/api/HoldingDto.java
   - stock-module-asset/src/main/java/dowob/xyz/stockwebv2/asset/api/AssetController.java
-  - ../../vue/stock-v2/vue-app/src/pages/Overview.vue:139-142
-  - ../../vue/stock-v2/vue-app/src/pages/Analytics.vue:58,161,198
-  - ../../vue/stock-v2/vue-app/src/pages/Positions.vue:118-140
-updated: 2026-10-31
+  - "前端 repo 根/vue-app/src/pages/Analytics.vue"
+updated: 2026-11-07
+target: 隨 Analytics API 化(v1.0 之後;目前不在範圍)
 partially_resolved_by: Phase 04.1 — Overview 資產配置 donut 與 Positions 產業分布已由後端 `allocation` / `sectorAllocation` 提供(PORT-12);**剩 Analytics 頁的產業分布**(UI-SPEC U-21 明定不在 04.1)
 ---
 
@@ -61,3 +60,14 @@ TBD。關鍵是先決定**分類資料的權威來源**:
 
 **已排入 Phase 04.1**(2026-07-26,Phase 4 discuss 時 Yuan 決定)。見 `.planning/ROADMAP.md` 的
 `### Phase 04.1: Backend Data Gap Backfill (INSERTED)`。依上方更正,這是四條裡**最便宜**的一條。
+
+## 剩餘範圍與排程(Yuan 2026-11-07)
+
+> 前端 repo 根的路徑定義見 `ai-docs/judgment.md` §8。frontmatter `files` 已刪除 Overview.vue / Positions.vue 兩項:
+> Overview 資產配置 donut 與 Positions 產業分布已由 Phase 04.1 的後端 `allocation` / `sectorAllocation` 解決(PORT-12)。
+
+- 本 todo 只剩 **Analytics 頁的產業分布 / 按產業分群**(`前端 repo 根/vue-app/src/pages/Analytics.vue`,i18n `sectorBreakdown`),
+  後端 `HoldingDto.sector` 已存在(04.1),缺的是 Analytics 頁本身尚未 API 化(PORT-06,v2 deferred)。
+- Yuan 2026-11-07 裁決(待辦裁決第 1 題):剩下的 Analytics 產業分布**隨 Analytics API 化一起做**,目前不在範圍;不插隊到 Phase 5 或新 milestone 第一個 phase。
+- 新資產的 sector 由誰維護,屬 `2026-09-28-asset-master-management`(「真實行情與參考資料來源」主題)。
+- 記錄於 quick-261107-1j4。
