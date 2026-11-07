@@ -112,7 +112,7 @@ last_mapped_at: 2026-11-07
 1. 頁面/對話框(如 `vue-app/src/components/OrderTicket.vue`)呼叫 `getRuntimeApiClients().trading`(`vue-app/src/services/pageApiClients.ts`)
 2. `vue-app/src/services/tradingApi.ts` 呼叫 `apiRequest()`(`vue-app/src/services/apiClient.ts:328`);unsafe method 先 `ensureCsrfToken()`(`:202`,打 `GET /api/v1/csrf`),附 `X-XSRF-TOKEN`、`credentials:'include'`(`:168`)
 3. 後端 `TraceIdFilter` → `SecurityConfig` 的 JWT cookie filter(讀 access cookie,`SecurityConfig.java:192`)→ `BrowserCsrfFilter` 比對 cookie/header(`:328-329`)
-4. `TradingController` → `TradingService` → `TradingPayloadMatcher`/`HoldingCalculator` → `JdbcTradingRepository`(transactions 為 append-only,trigger 見 `V8__transactions_append_only_trigger.sql`)
+4. `TradingController` → `TradingService` → `TradePayloadMatcher`/`HoldingCalculator` → `JdbcTradingRepository`(transactions 為 append-only,trigger 見 `V8__transactions_append_only_trigger.sql`)
 5. 回 `ApiResponse<TradeDto>`;前端 `apiClient` 解析信封,失敗轉 `ApiClientError`;401 走 `fetchWithSessionRecovery` refresh 後重放一次(`apiClient.ts:299-322`)
 
 ### 行情 ingest 與推播
