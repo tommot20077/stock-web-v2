@@ -229,6 +229,27 @@ class WatchlistServiceTest {
     }
 
     @Test
+    @DisplayName("〔IN-04〕建立：名稱只含空白類字元（含不換行空白 U+00A0 / U+2007 / U+202F）→ 400 fields.name，不碰資料庫")
+    void create_nameOfOnlyNonBreakingSpaces_rejected() {
+        for (String invalid : new String[] {"\u00A0\u00A0", "\u2007", "\u202F", "\u00A0\u3000"}) {
+            assertThatThrownBy(() -> service.create(USER_ID, invalid))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> {
+                    BusinessException exception = (BusinessException) error;
+                    assertThat(exception.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                    assertThat(exception.fields()).containsOnlyKeys("name");
+                });
+        }
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    @DisplayName("〔IN-04〕名稱中間含不換行空白（A\\u00A0B）仍合法，原樣保留")
+    void normalizeName_innerNonBreakingSpace_accepted() {
+        assertThat(WatchlistService.normalizeName("A\u00A0B")).isEqualTo("A\u00A0B");
+    }
+
+    @Test
     @DisplayName("建立：30 字（以 code point 計，含補充平面字元）與前後空白合計超過 30 仍可建立")
     void create_thirtyCodePoints_accepted() {
         String emoji = "\uD83D\uDE00".repeat(30);
