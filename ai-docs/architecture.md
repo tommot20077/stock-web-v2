@@ -113,12 +113,9 @@ Added alongside each feature implementation — never retrofitted. See [security
 
 ## Compliance Design (Taiwan Personal Data Protection Act)
 
-> Design target. As of 2026-11-06 only the append-only ledgers are implemented (`transactions` V8, `cash_ledger_entries` V15, `cash_dividends` V16, `share_adjustments` V17); user soft delete / anonymization / data export do not exist in code.
+- Implemented: the ledgers are append-only — `transactions` (V8), `cash_ledger_entries` (V15), `cash_dividends` (V16), `share_adjustments` (V17); DB triggers prohibit UPDATE/DELETE.
 
-- **User deletion**: Soft delete → immediate Redis cleanup → anonymization scheduled after 30 days (Spring Batch) → optional full purge
-- **Data export**: Full data export API (JSON + CSV), Phase 2
-- **Transaction record retention**: Retained for 2 years after anonymization
-- `transactions` table is append-only (DB trigger prohibits UPDATE/DELETE)
+> 尚未實作的設計目標已移至 `.planning/todos/pending/2026-11-07-account-and-security-hardening.md`(Yuan 2026-11-07 裁決)(user deletion / anonymization / data export / retention after anonymization)。
 
 ## Key Design Decisions
 
