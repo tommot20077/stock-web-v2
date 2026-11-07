@@ -3,12 +3,12 @@ gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 5
 current_phase_name: Cross-Repo Browser Flow Verification & Contract Hardening
-status: Phase 04.2 research + UI-SPEC done (2026-10-31);ready to plan
+status: Phase 04.2 complete;quick 261107-1j4 done;ready to map codebase then discuss Phase 5
 stopped_at: Phase 04.2 complete, ready to plan Phase 5
-last_updated: "2026-11-06T19:47:23.785Z"
-last_activity: 2026-11-06
-last_activity_desc: Completed quick task 261106-fbs (small-fixes batch)
-state_head: 70e7eb50faa043d6f3e04dd147260dfba2c8be98
+last_updated: "2026-11-07T02:55:31.685Z"
+last_activity: 2026-11-07
+last_activity_desc: Completed quick task 261107-1j4 (small-fixes batch B + 04.2 review closeout)
+state_head: eb2650a0a54592bcbd5a0057de9c514d1055d937
 progress:
   total_phases: 7
   completed_phases: 5
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-11-04)
 
 Phase: 5 — Cross-Repo Browser Flow Verification & Contract Hardening
 Plan: Not started
-Next: **Phase 04.2**(Dividends, Share Adjustments & Watchlist)—— CONTEXT 已備,下一步 `/gsd-plan-phase 04.2`;Phase 04.1 已於 2026-10-31 完成並核准(32 份 plan = 25 原定 + 7 份 gap-closure,PR 後端 #50 / 前端 #18 待合併至 develop)。
-Last activity: 2026-11-06 - Completed quick task 261106-fbs: 小型修補合併批次(對比度 / 文案 / Markets 溢出、Top movers 基準幣、後端穩健性、全面文件掃描)
+Next: `/gsd-map-codebase` → `/gsd-docs-update`(重產後端 AGENTS.md)→ `/gsd-discuss-phase 5`(輸入:todo `2026-11-07-phase-5-scope-decisions`)。
+Last activity: 2026-11-07 - Completed quick task 261107-1j4: 小型修補批次 B + 04.2 審查收尾 + 2026-11-07 待辦裁決紀錄
 
 > ✅ **Phase 4 已完成（2026-09-04）。** 13 個 plan 全數執行完畢，`04-13` 的 blocking human-verify
 > checkpoint 由 Yuan 親自走完甲／乙／丙三段共 17 步後通過（未提出任何不符項）。
@@ -170,16 +170,20 @@ Recent decisions affecting current work:
 - [Phase 04.2]: 04.2-02 決策閘門 Yuan 回覆「ok」→ option-recommended:股利 / 股數調整新表(append-only + reversal_of_id)、roi 公式不變因而含股利、POST /trades 拒絕早於最晚未沖銷股數調整的 executedAt。
 - [Phase 04.2]: 2026-11-04 Yuan 裁決「同日依記錄順序疊加」:同一除權日可多筆,Q_asOf 含同日先記錄者,最晚一筆依 (effective_at desc, id desc),只能倒序沖銷。
 - [Phase 04.2]: 執行改用「每 repo 一條執行線」(isolation=none,run-scoped 覆寫):plan 為跨 repo 絕對路徑,worktree 不適用;前端 plan 的 SUMMARY 由 orchestrator 提交以避免兩 repo 併發寫入。
-- [Phase 04.2]: code review WR-05/06/07/11(前端 race / 過時回應)已修;WR-09(除權日預設依市場時區,需改 UI-SPEC)與 WR-01(資產下架後無法沖銷)Yuan 同意延後,已列入 PROJECT.md Active。
+- [Phase 04.2]: code review WR-05/06/07/11(前端 race / 過時回應)已修;WR-09(除權日預設依市場時區,需改 UI-SPEC)與 WR-01(資產下架後無法沖銷)Yuan 同意延後,已列入 PROJECT.md Active。**2026-11-07 更新:已由 quick 261107-1j4 修正,PROJECT.md 移到 Validated。**
+- [2026-11-07 待辦裁決]: 大型功能(帳戶層級報酬率、匯兌損益與匯率歷史、K 線還原權息、資產主檔、資產分類)不排在 Phase 5 前,v1.0 後開新 milestone;Phase 5 範圍與金額字串化(decimal 套件、請求回應皆字串)記於 todo `2026-11-07-phase-5-scope-decisions`;`HoldingDto` 加 `market`(261107-1j4 E1)。
 
 ### Pending Todos
 
 *(註:原有一條「Phase 2 planning should consume browser-auth-contract.md and avoid frontend token storage」已於 2026-07-19 移除 —— Phase 2 已完成,該提醒已過時。)*
 
-- 7 pending — `/gsd-capture --list` to review(2026-11-06 盤點:04.2 解決 3 條、quick 261106-fbs 解決 5 條(cash-occurred-at-empty-copy、contrast-text-tokens、top-movers-base-currency、phase-04.1-review-followups、full-docs-sweep),新增 1 條 `cash-amount-string-serialization`(04.1 WR-04 → Phase 5))
-  - 併入 04.1:`backend-available-cash`、`backend-daily-pnl`、`backend-asset-classification`
-  - 04.2 已解決並關閉(2026-11-06):`backend-dividend-trade-type`、`frontend-watchlist-mock-store`、`overview-mock-watchlist-news-unmarked`
-  - Deferred / backlog:`fx-pnl-and-rate-history`、`account-level-return`、`asset-master-management`、`kline-adjusted-prices`、`it-shared-containers`
+- 10 pending — `/gsd-capture --list` to review(2026-11-07 盤點:quick 261107-1j4 新增 3 條 `account-and-security-hardening`、`ops-and-ai-access-backend`、`phase-5-scope-decisions`;2026-11-06 盤點見 261106-fbs)
+  - Phase 5:`it-shared-containers`、`cash-amount-string-serialization`、`phase-5-scope-decisions`
+  - 新 milestone 第一個 phase:`account-level-return`
+  - 新 milestone「真實行情與參考資料來源」:`fx-pnl-and-rate-history`、`kline-adjusted-prices`、`asset-master-management`
+  - 隨 Analytics API 化:`backend-asset-classification`(剩 Analytics 產業分布)
+  - backlog:`account-and-security-hardening`、`ops-and-ai-access-backend`
+  - 歷史:04.1 併入 `backend-available-cash`、`backend-daily-pnl`;04.2 關閉 3 條、261106-fbs 關閉 5 條
 
 以下兩段是 2026-07 的原始記錄,保留供追溯:
 
@@ -201,13 +205,14 @@ Recent decisions affecting current work:
 
 - Confirm exact frontend package scripts in sibling repo during Phase 5 planning.
 - [Phase 04.2] PR tommot20077/stock-web-v2#51 與 tommot20077/stock-web-v2-front-end#19 已於 2026-11-05 合併進 develop(merge commit 7b7ade0 / b4ff61e);V16 / V17 / V18 已進 develop,之後改形狀只能靠新 migration。
-- [Phase 04.2] 04.2-REVIEW 仍有 12 條建議性 finding open(WR-03/08/10、IN-01 ~ IN-09;WR-02 / WR-04 已由 quick 261106-fbs 修正),不觸及 Success Criteria,見 04.2-REVIEW-DISPOSITION.md。G2 契約文件與 Markets < 640px 溢出已於 261106-fbs 處理。
+- [Phase 04.2] 04.2-REVIEW 20 條 finding 全部 fixed(open 0;WR-02 / WR-04 由 261106-fbs、其餘由 261107-1j4),見 04.2-REVIEW-DISPOSITION.md。
 
 ### Quick Tasks Completed
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 261106-fbs | 小型修補合併批次:前端對比度 / 文案 / Markets 溢出、Top movers 基準幣、後端穩健性(04.1 WR-02/03、04.2 WR-02/04)、全面文件掃描 | 2026-11-06 | 70e7eb5 | [261106-fbs-small-fixes-batch-a-markets-640px-b-top-](./quick/261106-fbs-small-fixes-batch-a-markets-640px-b-top-/) |
+| 261107-1j4 | 小型修補批次 B:對比度 token(--accent-text / --success / --fg-mute)、日期下限與文案、移除訂單類型 / TIF、HoldingDto.market;04.2 審查收尾(WR-01/03/08/09/10、IN-01~09);2026-11-07 待辦裁決紀錄 | 2026-11-07 | eb2650a | [261107-1j4-small-fixes-batch-b-04-2-review-closeout](./quick/261107-1j4-small-fixes-batch-b-04-2-review-closeout/) |
 
 ## Deferred Items
 
@@ -226,7 +231,7 @@ Last session: 2026-11-04T12:28:33Z
 Stopped at: Phase 04.2 complete, ready to plan Phase 5
 前端契約凍結(見 04-05-SUMMARY 末節)。
 Resume file: None
-Next action: `/gsd-plan-phase 5`(或先處理 04.2 PR review / merge 與上列建議 quick task)。
+Next action: `/gsd-map-codebase` → `/gsd-docs-update` → `/gsd-discuss-phase 5`。
 
 ~~**前端 repo 的狀態**:04-06 ~ 04-09 的 commit 只在本機、分支未推送。~~
 (2026-10-23 更正:已過時。Phase 4 前端經 PR #9 合併進 `develop @ a00fb29`,前端 repo 為 `tommot20077/stock-web-v2-front-end`。)
@@ -251,7 +256,7 @@ Next action: `/gsd-plan-phase 5`(或先處理 04.2 PR review / merge 與上列�
 ⚠️ Phase 3 收尾狀態:
 
 - 後端 commits(本 repo):`4b98759`、`2f15c33`、`e276de5`(Plan 01)。
-- 前端 commits(`../../vue/stock-v2`):`4bdb229`、`157f7d8`(02)、`309598f`(03)、`40a4f2b`、`587e84e`(04)、
+- 前端 commits(前端 repo 根,路徑定義見 `ai-docs/judgment.md` §8):`4bdb229`、`157f7d8`(02)、`309598f`(03)、`40a4f2b`、`587e84e`(04)、
   `ef1fb35`、`c4abd7e`(05)。
 
 - **兩個 repo 皆已 push 並 merge 進各自的 `develop`**(2026-07-26 以 `git branch -r --contains` 逐一查證:
