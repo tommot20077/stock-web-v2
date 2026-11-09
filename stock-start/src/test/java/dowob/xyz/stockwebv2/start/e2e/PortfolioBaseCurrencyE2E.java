@@ -1,6 +1,6 @@
 package dowob.xyz.stockwebv2.start.e2e;
 
-import dowob.xyz.stockwebv2.start.e2e.support.AbstractPortfolioE2ETest;
+import dowob.xyz.stockwebv2.start.e2e.support.AbstractPortfolioE2E;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -34,7 +34,7 @@ import tools.jackson.databind.JsonNode;
  * @version 1.0
  */
 @DisplayName("Portfolio Base Currency E2E")
-class PortfolioBaseCurrencyE2E extends AbstractPortfolioE2ETest {
+class PortfolioBaseCurrencyE2E extends AbstractPortfolioE2E {
 
     /**
      * 建立情境：入金 USD 5000 與 TWD 100000，買入 TSLA 10 股@100（USD）與 2330.TW 2 股@900（TWD），

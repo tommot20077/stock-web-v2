@@ -1,6 +1,6 @@
 package dowob.xyz.stockwebv2.start.e2e;
 
-import dowob.xyz.stockwebv2.start.e2e.support.AbstractWsE2ETest;
+import dowob.xyz.stockwebv2.start.e2e.support.AbstractWsE2E;
 import dowob.xyz.stockwebv2.start.e2e.support.DatabaseCleaner;
 
 import org.junit.jupiter.api.AfterEach;
@@ -38,13 +38,13 @@ import tools.jackson.databind.JsonNode;
  *       且 tick 已佔用的 11 個不影響 kline 額度，連線不關閉</li>
  * </ol>
  *
- * <p>類別名以 {@code E2ETest} 結尾 → 走 surefire，於 CI Unit Tests job（有 Docker）執行。
+ * <p>類別名以 {@code E2E} 結尾 → 由 {@code -Pe2e} profile 收進 CI E2E job 執行(D-23;需要 Docker)。
  *
  * @author Yuan
  * @version 1.0.0
  */
 @DisplayName("WebSocket 訂閱上限 E2E（tick 100 / kline 10）")
-class WsSubscriptionLimitE2ETest extends AbstractWsE2ETest {
+class WsSubscriptionLimitE2E extends AbstractWsE2E {
 
     /** 等待單一伺服器訊息的逾時秒數。 */
     private static final long MESSAGE_TIMEOUT_SECONDS = 5;

@@ -40,7 +40,7 @@ import tools.jackson.databind.JsonNode;
  * @author Yuan
  * @version 1.1
  */
-public abstract class AbstractPortfolioE2ETest extends AbstractStockE2ETest {
+public abstract class AbstractPortfolioE2E extends AbstractStockE2E {
 
     /** 測試使用者共用的合法密碼。 */
     protected static final String PASSWORD = "Password1";

@@ -31,7 +31,7 @@ import tools.jackson.databind.ObjectMapper;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("e2e")
-public abstract class AbstractWsE2ETest extends ContainerIT {
+public abstract class AbstractWsE2E extends ContainerIT {
 
     @LocalServerPort
     protected int port;

@@ -1,6 +1,6 @@
 package dowob.xyz.stockwebv2.start.e2e;
 
-import dowob.xyz.stockwebv2.start.e2e.support.AbstractPortfolioE2ETest;
+import dowob.xyz.stockwebv2.start.e2e.support.AbstractPortfolioE2E;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -42,7 +42,7 @@ import tools.jackson.databind.JsonNode;
  * @version 1.0
  */
 @DisplayName("Share Adjustment E2E")
-class ShareAdjustmentE2E extends AbstractPortfolioE2ETest {
+class ShareAdjustmentE2E extends AbstractPortfolioE2E {
 
     /**
      * 三天前（截到秒）的 ISO-8601 時間，必定早於昨日除權日起點。

@@ -1,6 +1,6 @@
 package dowob.xyz.stockwebv2.start.e2e;
 
-import dowob.xyz.stockwebv2.start.e2e.support.AbstractPortfolioE2ETest;
+import dowob.xyz.stockwebv2.start.e2e.support.AbstractPortfolioE2E;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -38,7 +38,7 @@ import tools.jackson.databind.JsonNode;
  * @version 1.1
  */
 @DisplayName("Portfolio Day PnL E2E")
-class PortfolioDayPnlE2E extends AbstractPortfolioE2ETest {
+class PortfolioDayPnlE2E extends AbstractPortfolioE2E {
 
     /** 比率類欄位的比較容差（scale 8 捨入）。 */
     private static final BigDecimal TOLERANCE = new BigDecimal("0.000001");

@@ -1,6 +1,6 @@
 package dowob.xyz.stockwebv2.start.e2e;
 
-import dowob.xyz.stockwebv2.start.e2e.support.AbstractStockE2ETest;
+import dowob.xyz.stockwebv2.start.e2e.support.AbstractStockE2E;
 import dowob.xyz.stockwebv2.start.e2e.support.DatabaseCleaner;
 
 import org.awaitility.Awaitility;
@@ -45,7 +45,7 @@ import tools.jackson.databind.JsonNode;
  * @version 1.0.0
  */
 @DisplayName("Backfill Admin Flow E2E")
-class BackfillAdminFlowE2ETest extends AbstractStockE2ETest {
+class BackfillAdminFlowE2E extends AbstractStockE2E {
 
     private static final String ADMIN_EMAIL    = "admin-backfill-e2e@example.com";
     private static final String ADMIN_USERNAME = "adminbackfille2e";

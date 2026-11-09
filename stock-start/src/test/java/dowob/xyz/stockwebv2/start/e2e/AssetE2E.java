@@ -1,6 +1,6 @@
 package dowob.xyz.stockwebv2.start.e2e;
 
-import dowob.xyz.stockwebv2.start.e2e.support.AbstractStockE2ETest;
+import dowob.xyz.stockwebv2.start.e2e.support.AbstractStockE2E;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -15,7 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @DisplayName("Asset E2E")
-class AssetE2E extends AbstractStockE2ETest {
+class AssetE2E extends AbstractStockE2E {
 
     @Test
     @DisplayName("Public asset search returns the asset (quote fields come from market-data, see AssetApiIT)")
