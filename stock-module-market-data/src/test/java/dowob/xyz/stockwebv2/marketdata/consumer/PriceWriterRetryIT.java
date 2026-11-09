@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.marketdata.consumer;
 import dowob.xyz.stockwebv2.common.event.PriceTickEvent;
 import dowob.xyz.stockwebv2.marketdata.config.KafkaConfig;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPriceRepository;
+import dowob.xyz.stockwebv2.marketdata.support.MarketDataContainers;
 
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -30,10 +31,6 @@ import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.springframework.kafka.support.serializer.JsonSerializer;
 import org.springframework.util.backoff.FixedBackOff;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.kafka.ConfluentKafkaContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -44,7 +41,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -57,7 +53,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 /**
  * {@link PriceWriterConsumer} Retry + DLT 整合測試。
  *
- * <p>以 Testcontainers KRaft Kafka 驗證：
+ * <p>以共用 KRaft Kafka 容器({@link MarketDataContainers#kafka()})驗證：
  * <ul>
  *   <li>{@link MarketPriceRepository#insertAll} 拋出 RuntimeException 時，
  *       訊息在 N 次 backoff retry 後最終落入 DLT topic</li>
@@ -67,15 +63,23 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
  * <p>測試採用程式化 {@link KafkaMessageListenerContainer} 設置，不啟動 Spring 容器，
  * 讓整合測試聚焦在 error handler 與 DLT 流程的正確性。
  *
+ * <p><strong>隔離(D-29)</strong>:broker 與其他 IT 共用,因此 tick topic 以
+ * {@link MarketDataContainers#uniqueName(String)} 產生、DLT 為 {@code <tick topic>.DLT}(與正式 resolver 規則相同),
+ * listener 與 DLT 驗證 consumer 的 group 也每次唯一;其他 IT 送到正式或各自 topic 的訊息不會進到這裡。</p>
+ *
  * @author Yuan
- * @version 1.0.0
+ * @version 1.1.0
  */
-@Testcontainers
 class PriceWriterRetryIT {
 
-    @Container
-    static final ConfluentKafkaContainer kafka = new ConfluentKafkaContainer(
-            DockerImageName.parse("confluentinc/cp-kafka:7.6.0"));
+    /** 本類別專用的 tick topic。 */
+    static final String TICK_TOPIC = MarketDataContainers.uniqueName(KafkaConfig.TOPIC_PRICE_TICK);
+
+    /** 本類別專用的 DLT;命名規則同 {@code KafkaConfig#kafkaErrorHandler}:{@code <topic>.DLT}。 */
+    static final String TICK_DLT_TOPIC = TICK_TOPIC + ".DLT";
+
+    /** listener container 的 consumer group,每次執行唯一。 */
+    static final String GROUP_ID = MarketDataContainers.uniqueName("persist-retry-it");
 
     static KafkaTemplate<String, Object> producer;
     static MarketPriceRepository repoMock;
@@ -86,15 +90,15 @@ class PriceWriterRetryIT {
     @BeforeAll
     static void setup() throws Exception {
         // ── 建立 topic（包含 DLT）──────────────────────────────────────────
+        String bootstrapServers = MarketDataContainers.kafka().getBootstrapServers();
         Map<String, Object> adminProps = Map.of(
-                "bootstrap.servers", kafka.getBootstrapServers());
+                "bootstrap.servers", bootstrapServers);
         try (AdminClient admin = AdminClient.create(adminProps)) {
-            admin.createTopics(List.of(
-                    TopicBuilder.name(KafkaConfig.TOPIC_PRICE_TICK)
+            MarketDataContainers.ensureTopics(admin,
+                    TopicBuilder.name(TICK_TOPIC)
                             .partitions(3).replicas((short) 1).build(),
-                    TopicBuilder.name(KafkaConfig.TOPIC_PRICE_TICK_DLT)
-                            .partitions(3).replicas((short) 1).build()
-            )).all().get(10, TimeUnit.SECONDS);
+                    TopicBuilder.name(TICK_DLT_TOPIC)
+                            .partitions(3).replicas((short) 1).build());
         }
 
         // ── Producer ──────────────────────────────────────────────────────
@@ -107,7 +111,7 @@ class PriceWriterRetryIT {
         valueSerializer.setAddTypeInfo(false);
 
         Map<String, Object> producerProps = Map.of(
-                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers(),
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers,
                 ProducerConfig.ACKS_CONFIG, "all"
         );
         producer = new KafkaTemplate<>(
@@ -115,7 +119,7 @@ class PriceWriterRetryIT {
                         producerProps,
                         new StringSerializer(),
                         valueSerializer));
-        producer.setDefaultTopic(KafkaConfig.TOPIC_PRICE_TICK);
+        producer.setDefaultTopic(TICK_TOPIC);
 
         // ── Mock repository：insertAll 永遠拋例外 ──────────────────────────
         repoMock = mock(MarketPriceRepository.class);
@@ -125,8 +129,8 @@ class PriceWriterRetryIT {
 
         // ── Consumer factory ──────────────────────────────────────────────
         Map<String, Object> consumerProps = Map.of(
-                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers(),
-                ConsumerConfig.GROUP_ID_CONFIG, "market-data.persist-retry-test",
+                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers,
+                ConsumerConfig.GROUP_ID_CONFIG, GROUP_ID,
                 ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest",
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false
         );
@@ -159,8 +163,8 @@ class PriceWriterRetryIT {
         DefaultErrorHandler errorHandler = new DefaultErrorHandler(recoverer, new FixedBackOff(100L, 3L));
 
         // ── 手動建立 Container ─────────────────────────────────────────────
-        ContainerProperties cp = new ContainerProperties(KafkaConfig.TOPIC_PRICE_TICK);
-        cp.setGroupId("market-data.persist-retry-test");
+        ContainerProperties cp = new ContainerProperties(TICK_TOPIC);
+        cp.setGroupId(GROUP_ID);
         cp.setAckMode(ContainerProperties.AckMode.BATCH);
         cp.setMessageListener((BatchMessageListener<String, Object>) records ->
                 consumer.consume(records.stream()
@@ -200,15 +204,15 @@ class PriceWriterRetryIT {
                 new BigDecimal("500"),
                 "mock");
 
-        producer.send(KafkaConfig.TOPIC_PRICE_TICK, "1", event).get(5, TimeUnit.SECONDS);
+        producer.send(TICK_TOPIC, "1", event).get(5, TimeUnit.SECONDS);
         producer.flush();
 
         // ── 驗證訊息進入 DLT ──────────────────────────────────────────────
         // DLT consumer 使用 ByteArrayDeserializer 讀取 raw bytes，
         // 只驗證訊息是否抵達 DLT，不重新反序列化 payload
         Map<String, Object> dltConsumerProps = Map.of(
-                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers(),
-                ConsumerConfig.GROUP_ID_CONFIG, "dlt-verify-" + UUID.randomUUID(),
+                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, MarketDataContainers.kafka().getBootstrapServers(),
+                ConsumerConfig.GROUP_ID_CONFIG, MarketDataContainers.uniqueName("dlt-verify"),
                 ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest",
                 ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false,
                 ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
@@ -218,7 +222,7 @@ class PriceWriterRetryIT {
         );
 
         try (KafkaConsumer<String, byte[]> dltConsumer = new KafkaConsumer<>(dltConsumerProps)) {
-            dltConsumer.subscribe(List.of(KafkaConfig.TOPIC_PRICE_TICK_DLT));
+            dltConsumer.subscribe(List.of(TICK_DLT_TOPIC));
 
             // 等待最多 30 秒，讓 retry 完成並將訊息送入 DLT
             Awaitility.await()

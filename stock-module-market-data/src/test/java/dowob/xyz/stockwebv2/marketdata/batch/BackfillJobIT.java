@@ -1,9 +1,11 @@
 package dowob.xyz.stockwebv2.marketdata.batch;
 
 import dowob.xyz.stockwebv2.common.model.KlineInterval;
+import dowob.xyz.stockwebv2.marketdata.config.KafkaConfig;
 import dowob.xyz.stockwebv2.marketdata.consumer.WsBroadcastConsumer;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPrice;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPriceRepository;
+import dowob.xyz.stockwebv2.marketdata.support.MarketDataContainers;
 
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,13 +23,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.kafka.ConfluentKafkaContainer;
-import org.testcontainers.lifecycle.Startables;
-import org.testcontainers.utility.DockerImageName;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -54,11 +49,26 @@ import static org.mockito.Mockito.verify;
  * <p>Spring 上下文使用 {@link BatchTestApplication} 作為錨點，掃描所有必要 packages
  * 包含 {@code stock-module-asset} 的 {@code AssetFacadeImpl}。
  *
+ * <p><strong>容器與隔離(D-04 / D-29 決策)</strong>:本類別<strong>不保留</strong>自己的 Kafka / Postgres /
+ * Redis 容器,也不使用 Testcontainers 的 JUnit extension,改用 {@link MarketDataContainers} 的共用單例容器,
+ * 並以下列方式與其他 market-data IT 隔離:
+ * <ul>
+ *   <li><strong>Kafka topic</strong>:tick / backfill topic 以 {@link MarketDataContainers#uniqueName(String)}
+ *       產生,透過 {@link KafkaConfig#PROP_TOPIC_PRICE_TICK} / {@link KafkaConfig#PROP_TOPIC_PRICE_BACKFILL}
+ *       注入正式程式的 placeholder;Spring {@code KafkaAdmin} 依 {@code NewTopic} bean 建立這些唯一 topic(含 DLT)。
+ *       listener 雖以 {@code auto-offset-reset=earliest} 讀取,但只訂閱自己的唯一 topic,看不到其他 IT 的訊息。</li>
+ *   <li><strong>Consumer group</strong>:{@link KafkaConfig#PROP_GROUP_PERSIST} /
+ *       {@link KafkaConfig#PROP_GROUP_WS_BROADCAST} 亦設為唯一名稱。</li>
+ *   <li><strong>Postgres</strong>:獨立 database {@code md_backfill_job}({@link MarketDataContainers#freshDatabase(String)}),
+ *       Flyway 在其中建表;{@code DELETE FROM market_prices} 只影響自己。</li>
+ *   <li><strong>Redis</strong>:db index {@value #REDIS_DATABASE}(1、2 已由 {@code WsTicketServiceIT} /
+ *       {@code BackfillIdempotencyServiceIT} 使用)。</li>
+ * </ul>
+ *
  * @author Yuan
- * @version 1.0.0
+ * @version 1.1.0
  */
 @SpringBootTest(classes = BackfillJobIT.BatchTestApplication.class)
-@Testcontainers
 @TestPropertySource(properties = {
     "market-data.scheduling.enabled=false",
     "market-data.ingestor.enabled=false",
@@ -102,36 +112,42 @@ class BackfillJobIT {
     static class BatchTestApplication {
     }
 
-    @Container
-    static final ConfluentKafkaContainer kafka = new ConfluentKafkaContainer(
-            DockerImageName.parse("confluentinc/cp-kafka:7.6.0"));
+    /** 本類別專用的 Redis db index;1、2 已被其他 IT 占用,0 留給預設。 */
+    static final int REDIS_DATABASE = 3;
 
-    @Container
-    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
-            DockerImageName.parse("timescale/timescaledb:2.17.2-pg16")
-                    .asCompatibleSubstituteFor("postgres"))
-            .withDatabaseName("backfill_e2e")
-            .withUsername("test")
-            .withPassword("test");
+    /** 本類別專用的即時 tick topic(只用來讓 WsBroadcastConsumer / PriceWriterConsumer 訂閱自己的 topic)。 */
+    static final String TICK_TOPIC = MarketDataContainers.uniqueName(KafkaConfig.TOPIC_PRICE_TICK);
 
-    @Container
-    static final GenericContainer<?> redis = new GenericContainer<>(
-            DockerImageName.parse("redis:7.4-alpine"))
-            .withExposedPorts(6379);
+    /** 本類別專用的 backfill topic;{@code MarketDataIngestService} 會把 backfill 事件送到這裡。 */
+    static final String BACKFILL_TOPIC = MarketDataContainers.uniqueName(KafkaConfig.TOPIC_PRICE_BACKFILL);
 
-    static {
-        Startables.deepStart(kafka, postgres, redis).join();
-    }
+    /** {@code PriceWriterConsumer} 的 consumer group;固定於 static 欄位,supplier 重複求值也拿到同一名稱。 */
+    static final String PERSIST_GROUP = MarketDataContainers.uniqueName("backfill-it.persist");
+
+    /** {@code WsBroadcastConsumer} 的 consumer group。 */
+    static final String WS_BROADCAST_GROUP = MarketDataContainers.uniqueName("backfill-it.ws-broadcast");
+
+    /**
+     * 本類別專用的 database {@code md_backfill_job} 的 JDBC URL。
+     *
+     * <p>放在 static 欄位而非 {@code @DynamicPropertySource} 的 supplier 裡,確保 {@code freshDatabase}
+     * (會先 DROP 再 CREATE)每個類別只執行一次。</p>
+     */
+    static final String DATABASE_URL = MarketDataContainers.freshDatabase("backfill_job");
 
     @DynamicPropertySource
     static void props(DynamicPropertyRegistry r) {
-        r.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
-        r.add("spring.datasource.url", postgres::getJdbcUrl);
-        r.add("spring.datasource.username", postgres::getUsername);
-        r.add("spring.datasource.password", postgres::getPassword);
-        r.add("spring.data.redis.host", redis::getHost);
-        r.add("spring.data.redis.port", () -> redis.getMappedPort(6379));
-        r.add("spring.data.redis.database", () -> 0);
+        r.add("spring.kafka.bootstrap-servers", MarketDataContainers.kafka()::getBootstrapServers);
+        r.add("spring.datasource.url", () -> DATABASE_URL);
+        r.add("spring.datasource.username", MarketDataContainers.postgres()::getUsername);
+        r.add("spring.datasource.password", MarketDataContainers.postgres()::getPassword);
+        r.add("spring.data.redis.host", MarketDataContainers.redis()::getHost);
+        r.add("spring.data.redis.port", () -> MarketDataContainers.redis().getMappedPort(6379));
+        r.add("spring.data.redis.database", () -> REDIS_DATABASE);
+        r.add(KafkaConfig.PROP_TOPIC_PRICE_TICK, () -> TICK_TOPIC);
+        r.add(KafkaConfig.PROP_TOPIC_PRICE_BACKFILL, () -> BACKFILL_TOPIC);
+        r.add(KafkaConfig.PROP_GROUP_PERSIST, () -> PERSIST_GROUP);
+        r.add(KafkaConfig.PROP_GROUP_WS_BROADCAST, () -> WS_BROADCAST_GROUP);
         r.add("spring.flyway.enabled", () -> true);
         r.add("spring.flyway.locations", () -> "classpath:db/migration");
         r.add("spring.flyway.mixed", () -> true);
