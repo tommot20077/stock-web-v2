@@ -15,8 +15,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import static org.hamcrest.Matchers.equalTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import tools.jackson.databind.JsonNode;
@@ -50,7 +52,12 @@ class MethodSecurityDenialIT extends ContainerIT {
 
         mockMvc.perform(get("/api/v1/test-only/asset-admin")
                 .header("Authorization", "Bearer " + token))
-            .andExpect(status().isForbidden());
+            .andExpect(status().isForbidden())
+            // Phase 5 SC1 缺口 G5:403 必須是標準失敗信封(無堆疊、帶 traceId)。GlobalExceptionHandler
+            // 對 AccessDeniedException 原樣重拋,交由 Spring Security 的 AccessDeniedHandler 寫出 AUTH_FORBIDDEN。
+            .andExpect(jsonPath("$.success", equalTo(false)))
+            .andExpect(jsonPath("$.error.code", equalTo("AUTH_FORBIDDEN")))
+            .andExpect(jsonPath("$.meta.traceId").exists());
     }
 
     private String registerAndGetToken(String email, String username, String password) throws Exception {
