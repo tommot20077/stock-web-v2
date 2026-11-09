@@ -5,7 +5,7 @@ import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.errors.TopicExistsException;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.kafka.ConfluentKafkaContainer;
+import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.sql.Connection;
@@ -72,7 +72,7 @@ public final class MarketDataContainers {
      *
      * @return 已啟動的 Kafka 容器
      */
-    public static ConfluentKafkaContainer kafka() {
+    public static KafkaContainer kafka() {
         return KafkaHolder.CONTAINER;
     }
 
@@ -177,8 +177,8 @@ public final class MarketDataContainers {
     /** Kafka 容器 holder;類別首次被存取時才啟動容器(JVM 類別載入保證執行緒安全)。 */
     private static final class KafkaHolder {
 
-        static final ConfluentKafkaContainer CONTAINER = new ConfluentKafkaContainer(
-                DockerImageName.parse("confluentinc/cp-kafka:7.6.0"));
+        static final KafkaContainer CONTAINER = new KafkaContainer(
+                DockerImageName.parse("apache/kafka:4.2.0"));
 
         static {
             CONTAINER.start();
@@ -189,7 +189,7 @@ public final class MarketDataContainers {
     private static final class PostgresHolder {
 
         static final PostgreSQLContainer<?> CONTAINER = new PostgreSQLContainer<>(
-                DockerImageName.parse("timescale/timescaledb:2.17.2-pg16")
+                DockerImageName.parse("timescale/timescaledb:2.27.2-pg18")
                         .asCompatibleSubstituteFor("postgres"))
                 .withDatabaseName(ADMIN_DATABASE)
                 .withUsername("test")
@@ -204,7 +204,7 @@ public final class MarketDataContainers {
     private static final class RedisHolder {
 
         static final GenericContainer<?> CONTAINER = new GenericContainer<>(
-                DockerImageName.parse("redis:7.4-alpine")).withExposedPorts(6379);
+                DockerImageName.parse("redis:8.8.0-alpine")).withExposedPorts(6379);
 
         static {
             CONTAINER.start();
