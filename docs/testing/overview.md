@@ -138,8 +138,8 @@ Browser E2E 的 harness 放在**前端 repo**,不在本 repo。前端 repo 根�
 ```bash
 npm ci
 npx playwright install chromium
-E2E_BACKEND_DIR=<後端 repo 根> bash e2e/run-e2e.sh                     # 預設只跑 @smoke
-E2E_BACKEND_DIR=<後端 repo 根> bash e2e/run-e2e.sh --grep @extended    # 擴充案例
+E2E_BACKEND_DIR=<後端 repo 根> bash e2e/run-e2e.sh                     # 無參數 = 全部(@smoke + @extended)
+E2E_BACKEND_DIR=<後端 repo 根> bash e2e/run-e2e.sh --grep @smoke       # 本機快速迴圈
 ```
 
 `run-e2e.sh` 的流程:
@@ -148,7 +148,7 @@ E2E_BACKEND_DIR=<後端 repo 根> bash e2e/run-e2e.sh --grep @extended    # 擴�
 2. 在後端 repo 執行 `./mvnw -pl stock-start -am package -DskipTests`。
 3. 以 `java -jar stock-start/target/stock-start-*.jar --spring.profiles.active=e2e-browser` 啟動後端(預設 port 8080)。
 4. 等待 `/actuator/health` 回報 `UP`,最多 90 秒;逾時就印出 compose 與後端 log。
-5. 執行 `npx playwright test`。沒帶參數時預設是 `--grep @smoke`。Playwright 的 `webServer` 會用 `VITE_DATA_MODE=api` 重新 build 前端,再以 `vite preview` 在 4173 port 提供服務。
+5. 執行 `npx playwright test`。沒帶參數時跑全部 tag(D-14)。Playwright 的 `webServer` 會用 `VITE_DATA_MODE=api` 重新 build 前端,再以 `vite preview` 在 4173 port 提供服務,並以 `VITE_API_PROXY_TARGET=http://localhost:8080` 把 proxy 指到 E2E 後端(`vite.config.ts` 的預設是 `11180`)。
 6. 結束後停掉後端,並執行 `docker compose down -v`。
 
 `E2E_BACKEND_DIR` 的預設值是 Yuan 本機的目錄配置。其他環境(例如 cloud)請明確指定這個變數。腳本另外支援 `E2E_BACKEND_PORT`、`E2E_SKIP_BUILD=1`、`E2E_KEEP=1`、`E2E_ENV_ONLY=1`,說明見前端 repo 的 `vue-app/e2e/README.md`。失敗時的 artifacts(`backend.log`、`playwright-report/`、`test-results/`)放在前端 repo 的 `vue-app/e2e/artifacts/`。
@@ -295,12 +295,12 @@ if: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/develop
 2. **決定前端 ref**:候選分支是 `github.head_ref`(PR 的來源分支),沒有的話用 `github.ref_name`(push 的分支)。用 `git ls-remote --heads` 檢查前端 repo `tommot20077/stock-web-v2-front-end` 有沒有**同名分支**:有就用它,沒有就 fallback 到 `develop`。這樣跨 repo 的功能在前端 harness 還沒 merge 進 `develop` 時也能跑 E2E。做跨 repo 變更時,前後端分支請用同一個名稱。
 3. 把前端 checkout 到 `frontend/`。前端是 public repo,用預設的 `GITHUB_TOKEN` 就能讀取,不需要 PAT。
 4. 安裝 JDK 21 與 Node.js 20(npm cache 以 `frontend/vue-app/package-lock.json` 為 key),在 `frontend/vue-app` 執行 `npm ci`,再跑 `npx playwright install --with-deps chromium`。
-5. 設定 `E2E_BACKEND_DIR=${{ github.workspace }}/backend`,在 `frontend/vue-app` 執行 `bash e2e/run-e2e.sh`。沒帶參數,所以**只跑標記 `@smoke` 的案例**;`@extended` 案例不在 CI 執行。
+5. 設定 `E2E_BACKEND_DIR=${{ github.workspace }}/backend`,在 `frontend/vue-app` 執行 `bash e2e/run-e2e.sh`。沒帶參數,所以**跑全部 tag**(`@smoke` 與 `@extended`,D-14)。step 名稱為 `Run Browser E2E (all tags)`。
 6. 不論成功或失敗,都把 `frontend/vue-app/e2e/artifacts/`(後端 log、Playwright HTML report、trace / screenshot / video)上傳為 `browser-e2e-artifacts`,保留 7 天。
 
 ### 前端 repo 自己的 CI
 
-前端 repo 有獨立的 `.github/workflows/`(Node 20,`npm ci → lint → test → build`)。前端的 Vitest 與 Playwright 慣例見前端 repo 的 `AGENTS.md`(「驗證命令」)與 `vue-app/e2e/README.md`。跨 repo 變更時,兩邊的驗證都要跑過,見 [`ai-docs/judgment.md`](../../ai-docs/judgment.md) §8。
+前端 repo 有獨立的 `.github/workflows/`(Node 20,`frontend` job:`npm ci → lint → test → build`)。`frontend` 通過後,`browser-e2e` job 會 checkout 與前端分支同名的後端分支(不存在時用 `develop`;後端是 public repo,用預設 `github.token`),同樣執行 `bash e2e/run-e2e.sh` 跑全部 tag,並上傳 `browser-e2e-artifacts`(D-15)。前端的 Vitest 與 Playwright 慣例見前端 repo 的 `AGENTS.md`(「驗證命令」)與 `vue-app/e2e/README.md`。跨 repo 變更時,兩邊的驗證都要跑過,見 [`ai-docs/judgment.md`](../../ai-docs/judgment.md) §8。
 
 ---
 

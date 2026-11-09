@@ -62,7 +62,7 @@ Windows 請改用 `mvnw.cmd`。
    curl http://localhost:11181/actuator/health
    ```
 
-和前端本機聯調時要注意:前端 Vite dev proxy 把 `/api` 與 `/ws` 轉到 `localhost:8080`,所以後端要用 `SERVER_PORT=8080` 啟動。設定細節見 [`docs/guides/getting-started.md`](docs/guides/getting-started.md) 與 [`docs/configuration/overview.md`](docs/configuration/overview.md)。
+和前端本機聯調時:前端 Vite 代理把 `/api` 與 `/ws` 轉到 `$VITE_API_PROXY_TARGET`,預設 `http://localhost:11180`(與後端 dev 預設一致),本機聯調不再需要 `SERVER_PORT=8080`;要指向其他 port 時,以 `VITE_API_PROXY_TARGET` 啟動前端 dev / preview。瀏覽器 E2E(`run-e2e.sh`)由 Playwright 設為 `8080`,對應 `e2e-browser` profile。設定細節見 [`docs/guides/getting-started.md`](docs/guides/getting-started.md) 與 [`docs/configuration/overview.md`](docs/configuration/overview.md)。
 
 ## 使用範例
 

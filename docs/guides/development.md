@@ -28,7 +28,7 @@ repo 用 `.gitattributes` 把所有文字檔統一成 LF(`* text=auto eol=lf`)�
 
 ### 和前端一起開發
 
-前端是另一個 sibling repo 的 Vue 3 app。兩個 repo 的相對路徑**只在** [`ai-docs/judgment.md`](../../ai-docs/judgment.md) §8 定義,本頁一律稱「前端 repo 根」。前端 Vite dev server 會把 `/api`、`/ws` proxy 到 `localhost:8080`,而後端預設 port 是 `11180`;本機聯調時請用 `SERVER_PORT=8080` 啟動後端,或調整前端的 proxy 設定。
+前端是另一個 sibling repo 的 Vue 3 app。兩個 repo 的相對路徑**只在** [`ai-docs/judgment.md`](../../ai-docs/judgment.md) §8 定義,本頁一律稱「前端 repo 根」。前端 Vite 代理把 `/api`、`/ws` 轉到 `$VITE_API_PROXY_TARGET`,預設 `http://localhost:11180`(與後端 dev 預設一致),本機聯調不再需要 `SERVER_PORT=8080`;要指向其他 port 時,以 `VITE_API_PROXY_TARGET=http://localhost:<port>` 啟動前端 dev / preview。瀏覽器 E2E(`run-e2e.sh`)由 Playwright 設為 `8080`,對應 `e2e-browser` profile。
 
 ## 建置指令
 

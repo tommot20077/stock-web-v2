@@ -86,26 +86,26 @@ repo 沒有 `.nvmrc` 或 `engines` 欄位,上表版本取自 CI workflow 與 `po
 
 前端用 `VITE_DATA_MODE` 決定資料來源:未設時是 `mock`,設成 `api` 才會呼叫後端;其他值會直接拋出 `RuntimeDataModeError`(邏輯在前端 `vue-app/src/services/runtimeDataMode.ts`)。
 
-前端沒有 base URL 設定。`vue-app/src/services/apiClient.ts` 一律送同源相對路徑,能不能連到後端完全取決於 `vue-app/vite.config.ts` 的 proxy:
+前端沒有 base URL 設定。`vue-app/src/services/apiClient.ts` 一律送同源相對路徑,能不能連到後端完全取決於 `vue-app/vite.config.ts` 的 proxy。proxy 目標讀前端啟動時的 shell 環境變數 `VITE_API_PROXY_TARGET`(只在 Node 端讀取、不進 bundle、不讀 `.env` 檔),未設時是 `http://localhost:11180`:
 
 | 項目 | Port | 說明 |
 |------|------|------|
-| Vite dev server(`npm run dev`) | `5173` | `/api` → `http://localhost:8080`,`/ws` → `ws://localhost:8080` |
+| Vite dev server(`npm run dev`) | `5173` | `/api`、`/ws` → `$VITE_API_PROXY_TARGET`(預設 `http://localhost:11180`) |
 | Vite preview(`npm run preview`) | `4173` | 同一份 proxy 設定 |
-| 後端 `dev` profile 預設 | `11180`(management `11181`) | **和 proxy 目標 `8080` 不一致** |
-| 後端 `e2e-browser` profile 預設 | `8080`(management 也是 `8080`) | 和 proxy 目標一致 |
+| 後端 `dev` profile 預設 | `11180`(management `11181`) | 和 proxy 預設一致 |
+| 後端 `e2e-browser` profile 預設 | `8080`(management 也是 `8080`) | 瀏覽器 E2E 由 Playwright 把 `VITE_API_PROXY_TARGET` 設為 `http://localhost:8080`;手動聯調時要自己設(見路徑 B) |
 
-所以用 `dev` profile 聯調時,後端必須以 `SERVER_PORT=8080` 啟動。
+所以用 `dev` profile 聯調時,前後端都用預設值即可,後端不必另外設定 `SERVER_PORT`。後端改跑其他 port 時,以 `VITE_API_PROXY_TARGET=http://localhost:<port>` 啟動前端 dev / preview。
 
 因為瀏覽器只看到 Vite 的 origin,REST 請求對瀏覽器來說是同源;WebSocket 的 origin 檢查則會比對 `STOCK_CORS_ALLOWED_ORIGINS`,`dev` 的預設值與 `.env.example` 都已包含 `http://localhost:5173`。`dev` 的 `STOCK_AUTH_COOKIE_SECURE` 預設為 `false`,auth cookie 可以走 `http://localhost`。
 
 ### 路徑 A:後端 `dev` profile + 前端 dev server
 
-1. 在後端 repo 根,以 port `8080` 啟動後端(`.env` 依上一節準備好):
+1. 在後端 repo 根,以預設 port `11180` 啟動後端(`.env` 依上一節準備好):
    ```bash
-   SERVER_PORT=8080 java -jar stock-start/target/stock-start-0.0.1-SNAPSHOT.jar
+   java -jar stock-start/target/stock-start-0.0.1-SNAPSHOT.jar
    ```
-   Management port 不受影響,仍是 `.env` 裡的 `STOCK_MANAGEMENT_PORT`(範本值 `11181`)。
+   Management port 是 `.env` 裡的 `STOCK_MANAGEMENT_PORT`(範本值 `11181`)。
 2. 在前端以 API mode 啟動 dev server:
    ```bash
    cd <前端 repo 根>/vue-app
@@ -120,8 +120,10 @@ repo 沒有 `.nvmrc` 或 `engines` 欄位,上表版本取自 CI workflow 與 `po
 ```bash
 cd <前端 repo 根>/vue-app
 E2E_BACKEND_DIR="$(cd <後端 repo 根> && pwd)" E2E_ENV_ONLY=1 bash e2e/run-e2e.sh
-VITE_DATA_MODE=api npm run dev
+VITE_API_PROXY_TARGET=http://localhost:8080 VITE_DATA_MODE=api npm run dev
 ```
+
+`e2e-browser` 後端跑在 `8080`,和 proxy 預設的 `11180` 不同,所以這條路徑啟動 dev server 時要帶 `VITE_API_PROXY_TARGET=http://localhost:8080`。
 
 注意:
 
@@ -143,24 +145,24 @@ VITE_DATA_MODE=api npm run dev
 npx playwright install chromium
 ```
 
-執行(無參數時只跑 `@smoke`):
+執行(無參數時跑全部,`@smoke` 與 `@extended` 都會跑,和兩個 repo 的 CI 相同;本機想快速跑可以自己帶 `--grep @smoke`):
 
 ```bash
 cd <前端 repo 根>/vue-app
 E2E_BACKEND_DIR="$(cd <後端 repo 根> && pwd)" bash e2e/run-e2e.sh
-E2E_BACKEND_DIR="$(cd <後端 repo 根> && pwd)" bash e2e/run-e2e.sh --grep @extended
+E2E_BACKEND_DIR="$(cd <後端 repo 根> && pwd)" bash e2e/run-e2e.sh --grep @smoke
 ```
 
 Windows PowerShell 改用 `e2e\run-e2e.ps1`。
 
 `run-e2e.sh` 依序做這些事:
 
-1. 檢查 `http://localhost:8080/actuator/health` 是否已有服務回應;有的話直接中止。
+1. 檢查 `http://localhost:8080/actuator/health` 是否已有服務回應,以及 `http://localhost:4173/` 是否已有 `vite preview`;任一有回應就直接中止(本機 Playwright 會重用 4173 上既有的 preview,而它可能指向 `11180`)。
 2. `docker compose up -d --wait` 起基礎設施(host port:PostgreSQL `15432`、Redis `16379`、Kafka `19092`,和 `application-e2e-browser.yaml` 的預設值一致)。
 3. 在 `E2E_BACKEND_DIR` 執行 `./mvnw -pl stock-start -am package -DskipTests`。
 4. 以 `SERVER_PORT=8080` 與 `--spring.profiles.active=e2e-browser` 執行 `stock-start/target/stock-start-*.jar`,stdout 寫到 `e2e/artifacts/backend.log`。
 5. 最多等 90 秒,直到 health 回報 `UP`;逾時或後端行程退出時,印出 compose 與後端 log。
-6. 執行 `npx playwright test`。Playwright 的 `webServer` 會以 `VITE_DATA_MODE=api` 重新 build 前端,再用 `vite preview` 在 `4173` 提供服務(`VITE_DATA_MODE` 在 build 時就固定下來)。
+6. 執行 `npx playwright test`(帶入腳本參數;無參數 = 全部)。Playwright 的 `webServer` 會以 `VITE_DATA_MODE=api` 重新 build 前端,再用 `vite preview` 在 `4173` 提供服務(`VITE_DATA_MODE` 在 build 時就固定下來),並以 `VITE_API_PROXY_TARGET=http://localhost:${E2E_BACKEND_PORT:-8080}` 把 proxy 指到 E2E 後端。
 7. 結束時停掉後端,並以 `docker compose down -v` 清掉容器。
 
 ### 環境變數
@@ -173,21 +175,22 @@ Windows PowerShell 改用 `e2e\run-e2e.ps1`。
 | `E2E_KEEP` | `0` | 設成 `1` 時,結束後保留容器與後端(除錯用) |
 | `E2E_ENV_ONLY` | `0` | 設成 `1` 時只起環境、不跑 Playwright,隱含 `E2E_KEEP=1` |
 
-環境常駐時,可以直接在 `vue-app/` 下反覆跑測試:`npm run test:e2e`(等同 `playwright test --grep @smoke`),或 `npx playwright test e2e/tests/auth.spec.ts` 只跑單一檔案。
+環境常駐時,可以直接在 `vue-app/` 下反覆跑測試:`npm run test:e2e`(等同 `playwright test`,跑全部;可再帶 `-- --grep @smoke`),或 `npx playwright test e2e/tests/auth.spec.ts` 只跑單一檔案。
 
 失敗時的 artifacts(已 gitignore)都在 `vue-app/e2e/artifacts/`:`backend.log`(畫面上的 `traceId` 可以在這裡對到)、`playwright-report/`、`test-results/`(失敗案例的 trace / screenshot / video)。
 
-後端 CI(`.github/workflows/ci.yml`)只有在對 `develop` / `main` 開 PR,或 push 到 `develop` 時,才會跑 Browser E2E job。它會 checkout 與後端分支同名的前端分支(不存在時改用 `develop`),再以 `E2E_BACKEND_DIR` 指向後端 checkout 執行 `bash e2e/run-e2e.sh`。
+後端 CI(`.github/workflows/ci.yml`)只有在對 `develop` / `main` 開 PR,或 push 到 `develop` 時,才會跑 Browser E2E job。它會 checkout 與後端分支同名的前端分支(不存在時改用 `develop`),再以 `E2E_BACKEND_DIR` 指向後端 checkout 執行 `bash e2e/run-e2e.sh`(無參數,全部 tag)。前端 CI 的 `browser-e2e` job 方向相反:checkout 與前端分支同名的後端分支(不存在時改用 `develop`),同樣執行 `run-e2e.sh`,所以前端單獨的 PR 也有真後端證據。
 
 ---
 
 ## 常見問題
 
-- **前端畫面顯示「暫時無法連線到後端」**:先執行 `curl http://localhost:5173/api/v1/csrf`。如果回的是 HTML,表示 Vite proxy 沒有生效(例如前端版本太舊、dev server 沒有 proxy),請求被 SPA fallback 吃掉了,不是後端的問題。如果是連線被拒,通常是後端沒有跑在 `8080`,請確認啟動時有沒有加 `SERVER_PORT=8080`。
+- **前端畫面顯示「暫時無法連線到後端」**:先執行 `curl http://localhost:5173/api/v1/csrf`。如果回的是 HTML,表示 Vite proxy 沒有生效(例如前端版本太舊、dev server 沒有 proxy),請求被 SPA fallback 吃掉了,不是後端的問題。如果是連線被拒,通常是後端沒有跑在 proxy 目標的 port:預設是 `11180`;後端跑在其他 port(例如路徑 B 的 `8080`)時,前端 dev server 要以 `VITE_API_PROXY_TARGET=http://localhost:<port>` 啟動。
 - **改了 `VITE_DATA_MODE` 卻沒有反應**:這個值在 dev server 啟動或 `npm run build` 時就固定了,改完要重啟 dev server 或重新 build。值只能是 `mock` 或 `api`,打錯字會直接拋 `RuntimeDataModeError`。
 - **`dev` profile 啟動時因 placeholder 無法解析而失敗**:`.env` 不在工作目錄下,或缺 DB / Redis 變數。`dev` 以 `optional:file:.env[.properties]` 讀取**啟動時工作目錄**下的 `.env`,請在 repo 根目錄執行 `java -jar`。必填項目的完整清單見 [`docs/configuration/overview.md`](../configuration/overview.md) 的「必填與選填設定」。
 - **用 `dev` / `e2e-browser` 以外的 profile 啟動時,出現 `STOCK_JWT_PRIVATE_KEY must be configured ...` 或 `STOCK_AUTH_COOKIE_SECURE must be true ...`**:非本機 profile 必須提供 JWT 金鑰,而且 cookie 必須設成 secure。用 `java scripts/GenerateJwtJwk.java <kid>` 產生金鑰,格式是 P-256 EC JWK 單行 JSON,不是 PEM。
-- **`run-e2e.sh` 一開始就中止,訊息是 port `8080` 已有服務回應 health**:前一次以 `E2E_ENV_ONLY=1` / `E2E_KEEP=1` 起的後端,或路徑 A 的後端還在跑。先停掉它再重跑。
+- **`run-e2e.sh` 一開始就中止,訊息是 port `8080` 已有服務回應 health**:前一次以 `E2E_ENV_ONLY=1` / `E2E_KEEP=1` 起的後端還在跑(或你手動把後端開在 `8080`)。先停掉它再重跑。
+- **`run-e2e.sh` 一開始就中止,訊息是 `4173 已有 vite preview`**:本機有一個 `npm run preview`(或前一次 Playwright 留下的 preview)還在跑。Playwright 在本機會重用它,而它可能指向 `11180`,所以腳本先中止。停掉它再重跑。
 - **`run-e2e.sh` 找不到 `stock-start` jar**:`E2E_BACKEND_DIR` 指錯位置,或設了 `E2E_SKIP_BUILD=1` 但還沒打包過。請確認路徑指向後端 repo 根。
 - **整合測試或後端 E2E 卡住、或回報找不到 Docker**:Testcontainers 需要正在執行的 Docker daemon。只想快速驗證時,改跑不需要 Docker 的 `./mvnw test`。
 
