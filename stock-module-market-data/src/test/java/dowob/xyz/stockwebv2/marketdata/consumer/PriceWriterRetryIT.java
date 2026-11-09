@@ -32,7 +32,7 @@ import org.springframework.kafka.support.serializer.JsonSerializer;
 import org.springframework.util.backoff.FixedBackOff;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.kafka.ConfluentKafkaContainer;
+import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -74,8 +74,8 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 class PriceWriterRetryIT {
 
     @Container
-    static final ConfluentKafkaContainer kafka = new ConfluentKafkaContainer(
-            DockerImageName.parse("confluentinc/cp-kafka:7.6.0"));
+    static final KafkaContainer kafka = new KafkaContainer(
+            DockerImageName.parse("apache/kafka:4.2.0"));
 
     static KafkaTemplate<String, Object> producer;
     static MarketPriceRepository repoMock;

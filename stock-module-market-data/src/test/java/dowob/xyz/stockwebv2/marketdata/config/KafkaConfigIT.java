@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.kafka.config.TopicBuilder;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.kafka.ConfluentKafkaContainer;
+import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.util.List;
@@ -27,8 +27,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class KafkaConfigIT {
 
     @Container
-    static final ConfluentKafkaContainer kafka = new ConfluentKafkaContainer(
-            DockerImageName.parse("confluentinc/cp-kafka:7.6.0"));
+    static final KafkaContainer kafka = new KafkaContainer(
+            DockerImageName.parse("apache/kafka:4.2.0"));
 
     @Test
     @DisplayName("兩個 topic 建立後，partition 數皆為 3")

@@ -7,7 +7,7 @@ import org.springframework.boot.health.contributor.Status;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.kafka.ConfluentKafkaContainer;
+import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.util.Map;
@@ -29,8 +29,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class MarketDataHealthIndicatorIT {
 
     @Container
-    static final ConfluentKafkaContainer kafka = new ConfluentKafkaContainer(
-            DockerImageName.parse("confluentinc/cp-kafka:7.6.0"));
+    static final KafkaContainer kafka = new KafkaContainer(
+            DockerImageName.parse("apache/kafka:4.2.0"));
 
     @Test
     @DisplayName("Kafka 正常啟動 → health() 回傳 UP，details 包含 kafkaNodes")
