@@ -48,17 +48,19 @@ public class PriceWriterConsumer {
     /**
      * 批次消費 {@link PriceTickEvent}，轉換後寫入 {@code market_prices}。
      *
-     * <p>同時訂閱 {@value KafkaConfig#TOPIC_PRICE_TICK} 與
-     * {@value KafkaConfig#TOPIC_PRICE_BACKFILL} 兩個 topic，
+     * <p>同時訂閱 tick(預設 {@value KafkaConfig#TOPIC_PRICE_TICK})與 backfill(預設
+     * {@value KafkaConfig#TOPIC_PRICE_BACKFILL})兩個 topic，
      * 使用 {@code batchKafkaListenerContainerFactory} 以批次模式接收訊息。
+     * topic 與 group 以 {@link KafkaConfig} 的 placeholder 宣告,只為 IT 以唯一名稱隔離(D-29);
+     * 正式環境不設定 property,預設值即原本的常數。
      *
      * <p>空批次直接回傳，不發出 DB round-trip。
      *
      * @param events 一批 {@link PriceTickEvent}，由 Spring Kafka 批次交付
      */
     @KafkaListener(
-            groupId = "market-data.persist",
-            topics = {KafkaConfig.TOPIC_PRICE_TICK, KafkaConfig.TOPIC_PRICE_BACKFILL},
+            groupId = KafkaConfig.GROUP_PERSIST_PLACEHOLDER,
+            topics = {KafkaConfig.TOPIC_PRICE_TICK_PLACEHOLDER, KafkaConfig.TOPIC_PRICE_BACKFILL_PLACEHOLDER},
             containerFactory = "batchKafkaListenerContainerFactory"
     )
     public void consume(List<PriceTickEvent> events) {

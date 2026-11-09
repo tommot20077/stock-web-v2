@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.marketdata.config;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.TopicConfig;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
@@ -39,8 +40,15 @@ import io.micrometer.core.instrument.MeterRegistry;
  *   <li>每次失敗計入 {@code market.tick.persist.failed} metric</li>
  * </ul>
  *
+ * <h2>Topic / consumer group 可由 property 覆寫(D-29)</h2>
+ * <p>topic 與 listener group 以 {@code ${property:預設值}} placeholder 宣告,預設值逐字等於
+ * {@link #TOPIC_PRICE_TICK} / {@link #TOPIC_PRICE_BACKFILL} / {@link #GROUP_PERSIST} /
+ * {@link #GROUP_WS_BROADCAST}。placeholder <strong>只為讓整合測試在共用 Kafka broker 下以唯一 topic /
+ * group 隔離</strong>;正式、{@code e2e-browser} 與 {@code stock-start} 整合測試都不設定這些 property,
+ * 行為與改動前完全相同。預設值由 {@code KafkaTopicPlaceholderTest} 鎖住(T-05-15)。
+ *
  * @author Yuan
- * @version 1.0.0
+ * @version 1.1.0
  */
 @Configuration
 public class KafkaConfig {
@@ -60,20 +68,62 @@ public class KafkaConfig {
     /** market.price.backfill.v1 — 補資料事件 topic。 */
     public static final String TOPIC_PRICE_BACKFILL = "market.price.backfill.v1";
 
-    /** market.price.tick.v1.DLT — 即時 tick 死信 topic。 */
+    /** market.price.tick.v1.DLT — 即時 tick 死信 topic(未覆寫 topic 時的預設名稱)。 */
     public static final String TOPIC_PRICE_TICK_DLT = TOPIC_PRICE_TICK + ".DLT";
 
-    /** market.price.backfill.v1.DLT — 補資料死信 topic。 */
+    /** market.price.backfill.v1.DLT — 補資料死信 topic(未覆寫 topic 時的預設名稱)。 */
     public static final String TOPIC_PRICE_BACKFILL_DLT = TOPIC_PRICE_BACKFILL + ".DLT";
 
+    /** {@code market-data.persist} — {@code PriceWriterConsumer} 的預設 consumer group。 */
+    public static final String GROUP_PERSIST = "market-data.persist";
+
+    /** {@code market-data.ws-broadcast} — {@code WsBroadcastConsumer} 的預設 consumer group。 */
+    public static final String GROUP_WS_BROADCAST = "market-data.ws-broadcast";
+
+    /** 覆寫即時 tick topic 名稱的 property;正式環境不設定(D-29,僅供 IT 隔離)。 */
+    public static final String PROP_TOPIC_PRICE_TICK = "market-data.kafka.topics.price-tick";
+
+    /** 覆寫補資料 topic 名稱的 property;正式環境不設定(D-29,僅供 IT 隔離)。 */
+    public static final String PROP_TOPIC_PRICE_BACKFILL = "market-data.kafka.topics.price-backfill";
+
+    /** 覆寫 {@code PriceWriterConsumer} consumer group 的 property;正式環境不設定(D-29)。 */
+    public static final String PROP_GROUP_PERSIST = "market-data.kafka.groups.persist";
+
+    /** 覆寫 {@code WsBroadcastConsumer} consumer group 的 property;正式環境不設定(D-29)。 */
+    public static final String PROP_GROUP_WS_BROADCAST = "market-data.kafka.groups.ws-broadcast";
+
     /**
-     * 建立 {@value #TOPIC_PRICE_TICK} topic，3 partitions / replication factor 1。
+     * 即時 tick topic 的 placeholder,未設 {@value #PROP_TOPIC_PRICE_TICK} 時解析為 {@value #TOPIC_PRICE_TICK}。
      *
+     * <p>必須是編譯期常數,才能放進 {@code @KafkaListener(topics = ...)} 與 {@code @Value}。
+     */
+    public static final String TOPIC_PRICE_TICK_PLACEHOLDER =
+            "${" + PROP_TOPIC_PRICE_TICK + ":" + TOPIC_PRICE_TICK + "}";
+
+    /** 補資料 topic 的 placeholder,未設 property 時解析為 {@value #TOPIC_PRICE_BACKFILL}。 */
+    public static final String TOPIC_PRICE_BACKFILL_PLACEHOLDER =
+            "${" + PROP_TOPIC_PRICE_BACKFILL + ":" + TOPIC_PRICE_BACKFILL + "}";
+
+    /** persist consumer group 的 placeholder,未設 property 時解析為 {@value #GROUP_PERSIST}。 */
+    public static final String GROUP_PERSIST_PLACEHOLDER =
+            "${" + PROP_GROUP_PERSIST + ":" + GROUP_PERSIST + "}";
+
+    /** ws-broadcast consumer group 的 placeholder,未設 property 時解析為 {@value #GROUP_WS_BROADCAST}。 */
+    public static final String GROUP_WS_BROADCAST_PLACEHOLDER =
+            "${" + PROP_GROUP_WS_BROADCAST + ":" + GROUP_WS_BROADCAST + "}";
+
+    /** 死信 topic 後綴;DLT topic bean 與 {@link #kafkaErrorHandler} 的 resolver 共用,topic 被覆寫時 DLT 跟著變。 */
+    private static final String DLT_SUFFIX = ".DLT";
+
+    /**
+     * 建立即時 tick topic(預設 {@value #TOPIC_PRICE_TICK})，3 partitions / replication factor 1。
+     *
+     * @param topic 由 {@value #TOPIC_PRICE_TICK_PLACEHOLDER} 解析的 topic 名稱
      * @return NewTopic 定義
      */
     @Bean
-    NewTopic priceTickTopic() {
-        return TopicBuilder.name(TOPIC_PRICE_TICK)
+    NewTopic priceTickTopic(@Value(TOPIC_PRICE_TICK_PLACEHOLDER) String topic) {
+        return TopicBuilder.name(topic)
                 .partitions(3)
                 .replicas(1)
                 .config(TopicConfig.RETENTION_MS_CONFIG, RETENTION_PRICE_MS)
@@ -81,13 +131,14 @@ public class KafkaConfig {
     }
 
     /**
-     * 建立 {@value #TOPIC_PRICE_BACKFILL} topic，3 partitions / replication factor 1。
+     * 建立補資料 topic(預設 {@value #TOPIC_PRICE_BACKFILL})，3 partitions / replication factor 1。
      *
+     * @param topic 由 {@value #TOPIC_PRICE_BACKFILL_PLACEHOLDER} 解析的 topic 名稱
      * @return NewTopic 定義
      */
     @Bean
-    NewTopic priceBackfillTopic() {
-        return TopicBuilder.name(TOPIC_PRICE_BACKFILL)
+    NewTopic priceBackfillTopic(@Value(TOPIC_PRICE_BACKFILL_PLACEHOLDER) String topic) {
+        return TopicBuilder.name(topic)
                 .partitions(3)
                 .replicas(1)
                 .config(TopicConfig.RETENTION_MS_CONFIG, RETENTION_PRICE_MS)
@@ -95,16 +146,17 @@ public class KafkaConfig {
     }
 
     /**
-     * 建立 {@value #TOPIC_PRICE_TICK_DLT} 死信 topic，3 partitions / replication factor 1。
+     * 建立即時 tick 的死信 topic {@code <topic>.DLT}(預設 {@value #TOPIC_PRICE_TICK_DLT})，3 partitions / replication factor 1。
      *
      * <p>明確宣告 DLT topic bean，避免依賴 broker 的 {@code auto.create.topics.enable}，
      * 確保 prod 環境 partition 數一致。
      *
+     * @param topic 由 {@value #TOPIC_PRICE_TICK_PLACEHOLDER} 解析的 topic 名稱
      * @return NewTopic 定義
      */
     @Bean
-    NewTopic priceTickDltTopic() {
-        return TopicBuilder.name(TOPIC_PRICE_TICK_DLT)
+    NewTopic priceTickDltTopic(@Value(TOPIC_PRICE_TICK_PLACEHOLDER) String topic) {
+        return TopicBuilder.name(topic + DLT_SUFFIX)
                 .partitions(3)
                 .replicas(1)
                 .config(TopicConfig.RETENTION_MS_CONFIG, RETENTION_DLT_MS)
@@ -112,13 +164,14 @@ public class KafkaConfig {
     }
 
     /**
-     * 建立 {@value #TOPIC_PRICE_BACKFILL_DLT} 死信 topic，3 partitions / replication factor 1。
+     * 建立補資料的死信 topic {@code <topic>.DLT}(預設 {@value #TOPIC_PRICE_BACKFILL_DLT})，3 partitions / replication factor 1。
      *
+     * @param topic 由 {@value #TOPIC_PRICE_BACKFILL_PLACEHOLDER} 解析的 topic 名稱
      * @return NewTopic 定義
      */
     @Bean
-    NewTopic priceBackfillDltTopic() {
-        return TopicBuilder.name(TOPIC_PRICE_BACKFILL_DLT)
+    NewTopic priceBackfillDltTopic(@Value(TOPIC_PRICE_BACKFILL_PLACEHOLDER) String topic) {
+        return TopicBuilder.name(topic + DLT_SUFFIX)
                 .partitions(3)
                 .replicas(1)
                 .config(TopicConfig.RETENTION_MS_CONFIG, RETENTION_DLT_MS)
@@ -153,7 +206,7 @@ public class KafkaConfig {
                     meterRegistry.counter("market.tick.persist.failed",
                             "topic", record.topic(),
                             "reason", ex.getClass().getSimpleName()).increment();
-                    return new TopicPartition(record.topic() + ".DLT", record.partition());
+                    return new TopicPartition(record.topic() + DLT_SUFFIX, record.partition());
                 });
 
         // FixedBackOff(intervalMs, maxAttempts)：1s 間隔，最多 retry 3 次

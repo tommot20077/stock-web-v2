@@ -27,15 +27,15 @@ class KafkaTopicRetentionTest {
     @Test
     @DisplayName("tick 與 backfill topic 保留 24 小時")
     void priceTopics_retainOneDay() {
-        assertThat(retention(config.priceTickTopic())).isEqualTo(ONE_DAY_MS);
-        assertThat(retention(config.priceBackfillTopic())).isEqualTo(ONE_DAY_MS);
+        assertThat(retention(config.priceTickTopic(KafkaConfig.TOPIC_PRICE_TICK))).isEqualTo(ONE_DAY_MS);
+        assertThat(retention(config.priceBackfillTopic(KafkaConfig.TOPIC_PRICE_BACKFILL))).isEqualTo(ONE_DAY_MS);
     }
 
     @Test
     @DisplayName("DLT 保留 7 天,供事後調查")
     void deadLetterTopics_retainSevenDays() {
-        assertThat(retention(config.priceTickDltTopic())).isEqualTo(SEVEN_DAYS_MS);
-        assertThat(retention(config.priceBackfillDltTopic())).isEqualTo(SEVEN_DAYS_MS);
+        assertThat(retention(config.priceTickDltTopic(KafkaConfig.TOPIC_PRICE_TICK))).isEqualTo(SEVEN_DAYS_MS);
+        assertThat(retention(config.priceBackfillDltTopic(KafkaConfig.TOPIC_PRICE_BACKFILL))).isEqualTo(SEVEN_DAYS_MS);
     }
 
     private static String retention(NewTopic topic) {
