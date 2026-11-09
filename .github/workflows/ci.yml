@@ -32,6 +32,26 @@ jobs:
           java-version: "21"
           cache: maven
 
+      # mvnw 是 only-script 模式，每次執行都會從 Maven Central 下載 Maven 本體;
+      # setup-java 的 cache: maven 只快取 ~/.m2/repository,不含 ~/.m2/wrapper。
+      # Maven Central 限流(HTTP 429)時 mvnw 會直接失敗，所以快取本體，未命中時先帶重試下載。
+      - name: Cache Maven wrapper distribution
+        id: mvnw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/wrapper
+          key: maven-wrapper-${{ hashFiles('.mvn/wrapper/maven-wrapper.properties') }}
+
+      - name: Download Maven distribution (retry on rate limit)
+        if: steps.mvnw-cache.outputs.cache-hit != 'true'
+        run: |
+          for i in 1 2 3 4; do
+            ./mvnw -v > /dev/null && exit 0
+            echo "Maven 本體下載失敗(第 $i 次),$((i * 15)) 秒後重試"
+            sleep $((i * 15))
+          done
+          exit 1
+
       # spotless:check 也綁在 validate 階段，每個 maven job 都會跑；
       # 這個獨立 job 只是為了在 15 分鐘的測試 job 之前先給出格式問題的訊號。
       - name: Check formatting
@@ -52,6 +72,23 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+
+      - name: Cache Maven wrapper distribution
+        id: mvnw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/wrapper
+          key: maven-wrapper-${{ hashFiles('.mvn/wrapper/maven-wrapper.properties') }}
+
+      - name: Download Maven distribution (retry on rate limit)
+        if: steps.mvnw-cache.outputs.cache-hit != 'true'
+        run: |
+          for i in 1 2 3 4; do
+            ./mvnw -v > /dev/null && exit 0
+            echo "Maven 本體下載失敗(第 $i 次),$((i * 15)) 秒後重試"
+            sleep $((i * 15))
+          done
+          exit 1
 
       - name: Run unit tests
         run: ./mvnw -B test --fail-at-end --no-transfer-progress
@@ -90,6 +127,23 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+
+      - name: Cache Maven wrapper distribution
+        id: mvnw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/wrapper
+          key: maven-wrapper-${{ hashFiles('.mvn/wrapper/maven-wrapper.properties') }}
+
+      - name: Download Maven distribution (retry on rate limit)
+        if: steps.mvnw-cache.outputs.cache-hit != 'true'
+        run: |
+          for i in 1 2 3 4; do
+            ./mvnw -v > /dev/null && exit 0
+            echo "Maven 本體下載失敗(第 $i 次),$((i * 15)) 秒後重試"
+            sleep $((i * 15))
+          done
+          exit 1
 
       - name: Run integration tests
         run: ./mvnw -B -pl stock-start -am verify -Dspring-boot.repackage.skip=true --fail-at-end --no-transfer-progress
@@ -130,6 +184,23 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+
+      - name: Cache Maven wrapper distribution
+        id: mvnw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/wrapper
+          key: maven-wrapper-${{ hashFiles('.mvn/wrapper/maven-wrapper.properties') }}
+
+      - name: Download Maven distribution (retry on rate limit)
+        if: steps.mvnw-cache.outputs.cache-hit != 'true'
+        run: |
+          for i in 1 2 3 4; do
+            ./mvnw -v > /dev/null && exit 0
+            echo "Maven 本體下載失敗(第 $i 次),$((i * 15)) 秒後重試"
+            sleep $((i * 15))
+          done
+          exit 1
 
       - name: Run E2E tests
         run: ./mvnw -B -pl stock-start -am test -Pe2e --no-transfer-progress
@@ -196,6 +267,24 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+
+      - name: Cache Maven wrapper distribution
+        id: mvnw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/wrapper
+          key: maven-wrapper-${{ hashFiles('backend/.mvn/wrapper/maven-wrapper.properties') }}
+
+      - name: Download Maven distribution (retry on rate limit)
+        if: steps.mvnw-cache.outputs.cache-hit != 'true'
+        working-directory: backend
+        run: |
+          for i in 1 2 3 4; do
+            ./mvnw -v > /dev/null && exit 0
+            echo "Maven 本體下載失敗(第 $i 次),$((i * 15)) 秒後重試"
+            sleep $((i * 15))
+          done
+          exit 1
 
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
