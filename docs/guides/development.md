@@ -77,7 +77,7 @@ repo 用 `.gitattributes` 把所有文字檔統一成 LF(`* text=auto eol=lf`)�
 
 所有 production migration **只能**放在 `stock-db-migration/src/main/resources/db/migration/`,其他模組不得自己放 `db/migration`。
 
-1. 先看該目錄目前最大的版本號(目前最新是 `V19__assets_currency_check.sql`,所以下一個是 `V20`)。
+1. 先看該目錄目前最大的版本號(目前最新是 `V20__watchlists_name_blank_like_check.sql`,所以下一個是 `V21`)。
 2. 新增 `V{N}__{english_snake_case_description}.sql`:版本號連續、不跳號,版本與描述之間是兩個底線。
 3. DDL 要和 module 的 model class 完全一致。
 4. **已經套用到任何環境的 migration 絕對不能修改**,否則 Flyway checksum 驗證會失敗、應用起不來;要改就新增一支 migration。

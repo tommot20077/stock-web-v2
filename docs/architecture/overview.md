@@ -46,7 +46,7 @@ L0 模組(`stock-common`、`stock-db-migration`)每個模組都會依賴,圖上�
 | 層 | 模組 | 職責 |
 |----|------|------|
 | L0 | `stock-common` | `ApiResponse<T>` / `PageResponse<T>` 信封、`ErrorCode` / `BusinessException`、共用 enum、`PriceTickEvent` |
-| L0 | `stock-db-migration` | 集中管理全部 Flyway migration(`V1__foundation_schema.sql` … `V19__assets_currency_check.sql`) |
+| L0 | `stock-db-migration` | 集中管理全部 Flyway migration(`V1__foundation_schema.sql` … `V20__watchlists_name_blank_like_check.sql`) |
 | L1 | `stock-infrastructure` | Facade 介面(`AssetFacade`、`FxRateFacade`、`MarketDataFacade`、`UserPreferenceFacade`)、`JwtService`(ES256)、`RateLimitService`、`TraceIdFilter`、`ApiMetaFactory`、`AuditLogger`、Redis 設定 |
 | L2 | `stock-module-user` | 註冊 / 登入 / refresh rotation / 登出、browser cookie 與 CSRF bootstrap、使用者偏好、admin 解鎖 |
 | L2 | `stock-module-asset` | 資產查詢(`ILIKE` 搜尋)、觀察清單、FX 匯率;`AssetFacadeImpl`、`FxRateFacadeImpl` |

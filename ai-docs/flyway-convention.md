@@ -40,11 +40,11 @@ stock-module-*/
 V{N}__{description}.sql
 ```
 
-- `{N}` = next available integer (check `stock-db-migration/src/main/resources/db/migration/` before choosing; highest version as of 2026-11-06 is **V19** `V19__assets_currency_check.sql`, so the next is V20)
+- `{N}` = next available integer (check `stock-db-migration/src/main/resources/db/migration/` before choosing; highest version as of 2026-11-09 is **V20** `V20__watchlists_name_blank_like_check.sql`, so the next is V21)
 - `{description}` = English snake_case description
 - Double underscore (`__`) between version and description
 
-**Examples** (illustrative naming only — the real files are `V1__foundation_schema.sql` … `V19__assets_currency_check.sql`):
+**Examples** (illustrative naming only — the real files are `V1__foundation_schema.sql` … `V20__watchlists_name_blank_like_check.sql`):
 - `V1__create_users_table.sql`
 - `V2__create_assets_table.sql`
 - `V3__create_transactions_table.sql`
