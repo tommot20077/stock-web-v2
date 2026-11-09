@@ -28,7 +28,7 @@
 前置需求:
 
 - **JDK 21**:Maven 一律用 repo 內的 Maven Wrapper(`./mvnw`,Windows 用 `mvnw.cmd`)。
-- **Docker**:`*IT`、後端 E2E、Browser E2E 都要用 Docker。Testcontainers 會自己拉起容器,不需要先手動 `docker compose up`。另外,`./mvnw test` 也會用到 Docker,原因見下方[已知例外](#已知例外e2etestjava-會跑在-surefire)。
+- **Docker**:`*IT`、後端 E2E、Browser E2E 都要用 Docker。Testcontainers 會自己拉起容器,不需要先手動 `docker compose up`。`./mvnw test`(單元與 Web 層)不需要 Docker。
 - **Spotless**:綁在 `validate` 階段,所以每次 Maven build(包含 `test`、`verify`)都會先檢查格式。格式不對時跑 `./mvnw spotless:apply` 修正。
 
 ---
@@ -39,7 +39,7 @@
 |----|------|------|------|----------|
 | Unit | `*Test.java` | JUnit 5 + Mockito | Service 業務邏輯、`domain` 純計算、SQL / mapper 邊界 | Surefire(`./mvnw test`) |
 | Web 層 | `*ControllerTest.java`、`*ControllerWebMvcTest.java`、`*RequestValidationTest.java` | `@WebMvcTest` + `@MockitoBean` | Controller、請求驗證、Security | Surefire |
-| 架構 | `ArchitectureRulesTest`、`EndpointAuthorizationRulesTest` | ArchUnit | 全專案正式程式碼的結構規則 | Surefire |
+| 架構 | `ArchitectureRulesTest`、`EndpointAuthorizationRulesTest`、`E2eNamingRulesTest` | ArchUnit | 全專案正式程式碼的結構規則;`e2e` 套件的測試命名 | Surefire |
 | Integration | `*IT.java` | `@SpringBootTest` + Testcontainers | 完整 API 流程:信封、HTTP status、append-only trigger、冪等、CORS、安全標頭、rate limit | **Failsafe**(`verify` 階段) |
 | 後端 E2E | `*E2E.java`(`stock-start/src/test/java/dowob/xyz/stockwebv2/start/e2e/`) | `@SpringBootTest` + Testcontainers,`e2e` profile | 多步驟使用者流程 | Surefire,只在 `-Pe2e` profile 下執行 |
 | Browser E2E | `*.spec.ts`(前端 repo 的 `vue-app/e2e/tests/`) | Playwright(Chromium) | 真瀏覽器 → 真後端(`e2e-browser` profile) | 前端 repo 的 `e2e/run-e2e.sh` |
@@ -52,22 +52,15 @@
 
 ### Surefire 與 Failsafe 的分工
 
-**檔名後綴決定測試由誰執行。** 需要容器的測試**必須**以 `IT` 結尾,而且**不得**加進 Surefire 的 includes。這樣 `./mvnw test` 的單元測試迴圈才不必啟動容器。
+**檔名後綴決定測試由誰執行。** 需要容器的測試**必須**以 `IT`(後端 E2E 則是 `E2E`)結尾,而且**不得**加進 Surefire 的 includes。這樣 `./mvnw test` 的單元測試迴圈才不必啟動容器。
+
+`stock-start/.../e2e/` 套件(含 `support/`)內的類別一律不得以 `Test` 結尾,具體的 E2E 類別一律以 `E2E` 結尾、抽象基底也不例外(例如 `AbstractStockE2E`)。這條規則由 `E2eNamingRulesTest`(ArchUnit,跑在 Surefire)守門:`e2e` 套件裡以 `Test` 結尾的類別會被 Unit job 執行(需要容器),卻不會被 `-Pe2e` 的 E2E job 執行。
 
 | 模組 | Surefire | Failsafe |
 |------|----------|----------|
 | `stock-start` | 預設 includes(`*Test.java` 等),exclude `**/*E2E.java`;`-Pe2e` 時改成**只** include `**/*E2E.java` | 預設 includes(`*IT.java`),跑 `integration-test` + `verify` |
 | `stock-module-asset`、`stock-module-market-data` | 明確 include `**/*Test.java`、`**/*Tests.java` | 同上 |
 | 其他模組 | Maven 預設 | 未設定(沒有 `*IT`) |
-
-### 已知例外:`*E2ETest.java` 會跑在 Surefire
-
-`stock-start/.../e2e/` 底下有一批舊檔案的命名是 `*E2ETest.java`,不是 `*E2E.java`:`WsAuthFlowE2ETest`、`WsConnectionLimitE2ETest`、`WsSubscribeReceiveE2ETest`、`WsSubscriptionLimitE2ETest`、`WsTokenRevocationE2ETest`、`MarketRestApiE2ETest`、`BackfillAdminFlowE2ETest`。這些檔名:
-
-- 符合 Surefire 預設的 `*Test.java`,而且沒被 `**/*E2E.java` exclude 掉,所以**會在 `./mvnw test` 裡跑,並啟動 Testcontainers 容器**;
-- **不**符合 `-Pe2e` 的 `**/*E2E.java` include,所以 E2E job 反而不會跑它們。
-
-因此目前要在本機跑完整的 `./mvnw test`,仍然需要 Docker。只想跑不需容器的單元迴圈時,可以用 `-pl` 只跑單一模組(見下節)。**新增的後端 E2E 一律命名為 `*E2E.java`**,不要再仿照 `*E2ETest` 的命名。
 
 ---
 
@@ -205,9 +198,9 @@ class XxxApiIT extends ContainerIT { ... }
 
 | 類別 | 用途 |
 |------|------|
-| `AbstractStockE2ETest` | 繼承 `ContainerIT`,加上 `@AutoConfigureMockMvc` + `@ActiveProfiles("e2e")`,注入 `mockMvc` 與 `objectMapper` |
-| `AbstractPortfolioE2ETest` | 繼承 `AbstractStockE2ETest`,提供持倉 / 現金類流程的共用步驟 |
-| `AbstractWsE2ETest` | 繼承 `ContainerIT`,以 `RANDOM_PORT` 啟動真實 server,供 WebSocket 流程使用 |
+| `AbstractStockE2E` | 繼承 `ContainerIT`,加上 `@AutoConfigureMockMvc` + `@ActiveProfiles("e2e")`,注入 `mockMvc` 與 `objectMapper` |
+| `AbstractPortfolioE2E` | 繼承 `AbstractStockE2E`,提供持倉 / 現金類流程的共用步驟 |
+| `AbstractWsE2E` | 繼承 `ContainerIT`,以 `RANDOM_PORT` 啟動真實 server,供 WebSocket 流程使用 |
 | `AuthE2EHelper` | 註冊 / 登入等認證步驟 |
 | `DatabaseCleaner` | 測試間清理資料 |
 | `StockE2EAssertions` | 共用斷言(例如 `apiSuccess()` 信封 matcher) |

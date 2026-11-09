@@ -62,10 +62,10 @@ npm run test:e2e                                        # Playwright @smoke(需�
 | Web 層 | `*ControllerWebMvcTest.java` / `*ControllerTest.java` / `*RequestValidationTest.java` | `@WebMvcTest` + `@MockitoBean` | surefire |
 | SQL / mapper | `Jdbc*Repository*Test.java`、`TradingSqlBoundaryTest.java` | 純單元 | surefire |
 | Integration | `*IT.java`(約 51 個,`TradingApiIT`、`ErrorHandlingIT`) | `@SpringBootTest` + Testcontainers | **failsafe**(`verify`) |
-| 後端 E2E | `*E2E.java`(`stock-start/.../e2e/`,14 個) | 繼承 `AbstractStockE2ETest` | surefire `-Pe2e` |
-| 架構 | `ArchitectureRulesTest`、`EndpointAuthorizationRulesTest` | ArchUnit | surefire |
+| 後端 E2E | `*E2E.java`(`stock-start/.../e2e/`,21 個) | 繼承 `AbstractStockE2E` / `AbstractPortfolioE2E` / `AbstractWsE2E` | surefire `-Pe2e` |
+| 架構 | `ArchitectureRulesTest`、`EndpointAuthorizationRulesTest`、`E2eNamingRulesTest` | ArchUnit | surefire |
 
-需要容器的測試**必須**以 `IT` 結尾(或 `E2E`),不得加進 surefire includes。注意:`stock-start/.../e2e/` 下 `*E2ETest.java`(`Ws*E2ETest`、`MarketRestApiE2ETest`、`BackfillAdminFlowE2ETest`)符合 surefire 預設 `*Test` 且未被 exclude,會在 `./mvnw test` 中啟動容器;新增後端 E2E 一律命名 `*E2E.java`。
+需要容器的測試**必須**以 `IT` 結尾(或 `E2E`),不得加進 surefire includes;`./mvnw test` 不需要 Docker。`stock-start/.../e2e/` 套件(含 `support/`)內禁止以 `Test` 結尾的類別(抽象基底也不例外),具體 E2E 類別必須以 `E2E` 結尾,由 `E2eNamingRulesTest`(ArchUnit)守門(D-23 / D-27)。
 
 **後端 Structure:**
 
@@ -77,9 +77,9 @@ stock-module-trading/src/test/java/dowob/xyz/stockwebv2/trading/
 ├── repository/ # Jdbc*Test(SQL / mapper)
 └── service/    # *ServiceTest(Mockito)
 stock-start/src/test/java/dowob/xyz/stockwebv2/start/
-├── *IT.java、ArchitectureRulesTest.java
+├── *IT.java、ArchitectureRulesTest.java、E2eNamingRulesTest.java
 ├── support/ContainerIT.java        # 共用容器基底
-└── e2e/ + e2e/support/             # AbstractStockE2ETest、AbstractPortfolioE2ETest、AbstractWsE2ETest、AuthE2EHelper、DatabaseCleaner、StockE2EAssertions
+└── e2e/ + e2e/support/             # AbstractStockE2E、AbstractPortfolioE2E、AbstractWsE2E、AuthE2EHelper、DatabaseCleaner、StockE2EAssertions
 ```
 
 **前端 Location / Naming:**
@@ -163,7 +163,7 @@ vi.stubEnv('VITE_DATA_MODE', 'api');
 **後端:**
 - 共用容器基底 `stock-start/src/test/java/dowob/xyz/stockwebv2/start/support/ContainerIT.java`:static singleton `timescale/timescaledb:2.17.2-pg16`、`redis:7.4-alpine`、`confluentinc/cp-kafka:7.6.0`,`Startables.deepStart` 每 JVM 啟動一次,不用 `withReuse(true)`;預設關閉 rate limit(`AuthRateLimitAndLockoutIT` 覆寫)。新 IT:`@AutoConfigureMockMvc class XxxIT extends ContainerIT`。
 - 模組 IT(asset / market-data)自行宣告容器。
-- E2E 基底 `e2e/support/AbstractStockE2ETest`(提供 `mockMvc`、`apiSuccess()` matcher 於 `StockE2EAssertions`)、`DatabaseCleaner`、`AuthE2EHelper`。
+- E2E 基底 `e2e/support/AbstractStockE2E`(提供 `mockMvc`、`apiSuccess()` matcher 於 `StockE2EAssertions`)、`DatabaseCleaner`、`AuthE2EHelper`。
 - 測試資料以具名常數表達意圖並寫 Javadoc 說明為何如此設計:
   ```java
   /** 三筆固定交易的成交時間;刻意與插入順序不一致,用來證明排序以 executed_at 為準。 */
