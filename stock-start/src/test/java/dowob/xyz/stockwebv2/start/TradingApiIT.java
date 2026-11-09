@@ -639,7 +639,7 @@ class TradingApiIT extends ContainerIT {
     }
 
     @Test
-    @DisplayName("未來的 executedAt 建立交易被拒，補登舊交易仍可建立")
+    @DisplayName("未來的 executedAt 建立交易被拒且 fields.executedAt 指名欄位（Phase 5 D-02a），補登舊交易仍可建立")
     void futureExecutedAtIsRejectedButBackfillIsAllowed() throws Exception {
         AuthTokens tokens = register("trading-futuredate@example.com", "tradingfuturedate", "Password1");
 
@@ -651,7 +651,9 @@ class TradingApiIT extends ContainerIT {
                     {"symbol":"AAPL","type":"BUY","quantity":1,"price":100,"fee":0,"executedAt":"2099-01-01T00:00:00Z"}
                     """))
             .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")));
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            // Phase 5 D-02a:與 1900 下限同形,前端 OrderTicket 才能把錯誤綁到成交時間欄位
+            .andExpect(jsonPath("$.error.fields.executedAt", equalTo("must not be in the future")));
 
         mockMvc.perform(post("/api/v1/trades")
                 .contentType(MediaType.APPLICATION_JSON)

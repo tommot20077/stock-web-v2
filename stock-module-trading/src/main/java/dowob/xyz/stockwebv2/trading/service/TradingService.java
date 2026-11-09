@@ -372,21 +372,24 @@ public class TradingService {
      *
      * <p>補登舊交易仍是本帳本明確支援的情境；下限 1900-01-01T00:00:00Z（含邊界）只為擋下 DB 存不下的
      * 極端值（例如帶號擴充年份 {@code -10000-01-01}），讓它回 400 而不是在 insert 變成 500。比較的是 instant，
-     * 不是使用者本地午夜。上界保留 {@link #EXECUTED_AT_FUTURE_TOLERANCE} 的時鐘偏移容忍度（無 fields，維持既有形狀）。
-     * 本方法在資產解析之前執行，因此兩種拒絕都是零 I/O。</p>
+     * 不是使用者本地午夜。上界保留 {@link #EXECUTED_AT_FUTURE_TOLERANCE} 的時鐘偏移容忍度。
+     * 兩種拒絕形狀一致：都帶 {@code fields.executedAt}（靜態字串，不回射輸入），讓前端下單表單能把錯誤綁到
+     * 成交時間欄位（Phase 5 D-02a；先前未來分支無 fields）。本方法在資產解析之前執行，因此兩種拒絕都是零 I/O。</p>
      *
      * @param requested 請求帶入的成交時間；null 代表以現在時間入帳
      * @param now       本次交易的基準時間
      * @return 實際採用的成交時間
-     * @throws BusinessException 成交時間超前基準時間逾容忍度時丟出 VALIDATION_FAILED（無 fields）；
-     *                           早於下限時丟出 {@link FieldValidationException}（fields 指名 {@code executedAt}）
+     * @throws FieldValidationException 成交時間超前基準時間逾容忍度（{@code must not be in the future}）
+     *                                  或早於下限（{@code must not be before 1900-01-01}）時丟出
+     *                                  VALIDATION_FAILED，fields 指名 {@code executedAt}
      */
     private OffsetDateTime resolveExecutedAt(OffsetDateTime requested, OffsetDateTime now) {
         if (requested == null) {
             return now;
         }
         if (requested.isAfter(now.plus(EXECUTED_AT_FUTURE_TOLERANCE))) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "executedAt must not be in the future");
+            throw new FieldValidationException("Invalid executedAt",
+                Map.of("executedAt", "must not be in the future"));
         }
         if (requested.isBefore(MIN_EXECUTED_AT)) {
             throw new FieldValidationException("Invalid executedAt",
