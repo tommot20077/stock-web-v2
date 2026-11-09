@@ -96,7 +96,7 @@ plan_head_after: 7d3d29ce9d3289356344b3a0245589df7a06c561
 
 **1. [Rule 1 - Bug] 寫檔工具把 `\uXXXX` 跳脫轉成實際不可見字元**
 - **Found during:** Task 2
-- **Issue:** 以 Write / Edit 工具寫入 V20 與 WatchlistApiIT 時,` ` 之後的跳脫序列被轉成字面 NBSP / 全形空白等不可見字元(SQL 語意仍正確,但不可讀、acceptance grep `u00A0` 失敗、Java 測試字串不可見)。
+- **Issue:** 以 Write / Edit 工具寫入 V20 與 WatchlistApiIT 時,`\u0020` 之後的跳脫序列被轉成字面 NBSP / 全形空白等不可見字元(SQL 語意仍正確,但不可讀、acceptance grep `u00A0` 失敗、Java 測試字串不可見)。
 - **Fix:** 以 python 明確寫出反斜線跳脫重建 V20 兩行字元集,並把 WatchlistApiIT 的字面 U+00A0 / U+3000 換回 `\u00A0` / `\u3000`;再以腳本確認兩檔(及其他改動檔)無殘留不可見空白類字元,並重跑 PG16 驗證。
 - **Files modified:** `V20__watchlists_name_blank_like_check.sql`、`WatchlistApiIT.java`
 - **Commit:** 7d3d29c(commit 前已修正)
