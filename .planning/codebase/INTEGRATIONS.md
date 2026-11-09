@@ -31,7 +31,7 @@ last_mapped_at: 2026-11-07
 **Databases:**
 - PostgreSQL 16 + TimescaleDB（hypertable / continuous aggregates：`V4__market_data_hypertable.sql`、`V5__market_data_continuous_aggregates.sql`、`V12__kline_real_time_aggregates.sql`）
   - Connection：`STOCK_DB_URL`、`STOCK_DB_USERNAME`（+ 密碼變數）
-  - Client：Spring Data JDBC；schema 由 Flyway 管理（`stock-db-migration/src/main/resources/db/migration/`），Spring Batch metadata 亦由 migration 建立（`V6__...`，`initialize-schema: never`）
+  - Client：手寫 `Jdbc*Repository` + `JdbcClient`（market-data 批次寫入用 `NamedParameterJdbcTemplate`；`spring-boot-starter-data-jdbc` 只為 JDBC 基礎設施，非 Spring Data JDBC repository）；schema 由 Flyway 管理（`stock-db-migration/src/main/resources/db/migration/`），Spring Batch metadata 亦由 migration 建立（`V6__...`，`initialize-schema: never`）
   - 交易表 append-only trigger：`V8__transactions_append_only_trigger.sql`
 
 **Message Broker:**

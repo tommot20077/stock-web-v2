@@ -36,7 +36,7 @@ last_mapped_at: 2026-11-07
 **Core（後端）:**
 - Spring Boot 4.0.4（`spring-boot-starter-parent`，root `pom.xml`）
 - Spring Web MVC（`spring-boot-starter-webmvc`）— REST API（`/api/v1/**`、`/api/admin`）
-- Spring Data JDBC（`spring-boot-starter-data-jdbc`）— 持久層（非 JPA）
+- JDBC 持久層：手寫 `Jdbc*Repository` + `JdbcClient`（market-data 批次寫入用 `NamedParameterJdbcTemplate`）；非 JPA、也不是 Spring Data JDBC repository —— `spring-boot-starter-data-jdbc` 只提供 JDBC 基礎設施
 - Spring Security + `spring-security-oauth2-jose` — JWT（EC P-256 JWK）簽發 / 驗證（`stock-infrastructure`）
 - Spring WebSocket（`spring-boot-starter-websocket`）— 行情推播 `/ws/v1/market`（`stock-module-market-data/.../config/WsConfig.java`）
 - Spring Kafka（`spring-kafka`、`spring-boot-kafka`）— 行情 tick / backfill 事件管線
@@ -93,8 +93,7 @@ last_mapped_at: 2026-11-07
 
 **Build:**
 - 後端：root `pom.xml`、各模組 `*/pom.xml`
-- 前端：`vue-app/vite.config.ts`（dev `5173` / preview `4173`，proxy `/api` → `http://localhost:8080`、`/ws` → `ws://localhost:8080`）、`vue-app/tsconfig.json`、`vue-app/eslint.config.js`、`vue-app/playwright.config.ts`
-- 注意：Vite proxy 目標 `8080` 與後端預設 `server.port` `11180` 不一致，本機聯調需以 `SERVER_PORT=8080` 啟動後端或調整 proxy
+- 前端：`vue-app/vite.config.ts`（dev `5173` / preview `4173`，proxy `/api`、`/ws` → `$VITE_API_PROXY_TARGET`（預設 `http://localhost:11180`，與後端 `server.port` 預設一致；Browser E2E 由 Playwright 設為 8080））、`vue-app/tsconfig.json`、`vue-app/eslint.config.js`、`vue-app/playwright.config.ts`
 
 ## Platform Requirements
 

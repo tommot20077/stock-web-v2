@@ -88,7 +88,7 @@ Stock Web V2 is a modular stock trading web application with a Java/Spring Boot 
 
 - Spring Boot 4.0.4（`spring-boot-starter-parent`，root `pom.xml`）
 - Spring Web MVC（`spring-boot-starter-webmvc`）— REST API（`/api/v1/**`、`/api/admin`）
-- Spring Data JDBC（`spring-boot-starter-data-jdbc`）— 持久層（非 JPA）
+- JDBC 持久層：手寫 `Jdbc*Repository` + `JdbcClient`（market-data 批次寫入用 `NamedParameterJdbcTemplate`）；非 JPA、也不是 Spring Data JDBC repository —— `spring-boot-starter-data-jdbc` 只提供 JDBC 基礎設施
 - Spring Security + `spring-security-oauth2-jose` — JWT（EC P-256 JWK）簽發 / 驗證（`stock-infrastructure`）
 - Spring WebSocket（`spring-boot-starter-websocket`）— 行情推播 `/ws/v1/market`（`stock-module-market-data/.../config/WsConfig.java`）
 - Spring Kafka（`spring-kafka`、`spring-boot-kafka`）— 行情 tick / backfill 事件管線
@@ -131,8 +131,7 @@ Stock Web V2 is a modular stock trading web application with a Java/Spring Boot 
 - 關鍵設定：`STOCK_DB_URL`、`STOCK_DB_USERNAME`（及密碼）、`STOCK_REDIS_HOST/PORT/DATABASE`、`STOCK_KAFKA_BOOTSTRAP_SERVERS`、`STOCK_JWT_PRIVATE_KEY`（非 dev/test/e2e profile 留空會拒絕啟動）、`STOCK_CORS_ALLOWED_ORIGINS`、`STOCK_AUTH_COOKIE_*`、`STOCK_FORWARD_HEADERS_STRATEGY`、`STOCK_OPENAPI_ENABLED`、`STOCK_SWAGGER_UI_ENABLED`、`SERVER_PORT`、`STOCK_MANAGEMENT_PORT`
 - 前端：`VITE_DATA_MODE`（`mock` | `api`，未設為 mock；無效值 fail fast，邏輯在 `vue-app/src/services/runtimeDataMode.ts`）；無 base URL 設定，`vue-app/src/services/apiClient.ts` 一律送同源相對路徑
 - 後端：root `pom.xml`、各模組 `*/pom.xml`
-- 前端：`vue-app/vite.config.ts`（dev `5173` / preview `4173`，proxy `/api` → `http://localhost:8080`、`/ws` → `ws://localhost:8080`）、`vue-app/tsconfig.json`、`vue-app/eslint.config.js`、`vue-app/playwright.config.ts`
-- 注意：Vite proxy 目標 `8080` 與後端預設 `server.port` `11180` 不一致，本機聯調需以 `SERVER_PORT=8080` 啟動後端或調整 proxy
+- 前端：`vue-app/vite.config.ts`（dev `5173` / preview `4173`，proxy `/api`、`/ws` → `$VITE_API_PROXY_TARGET`（預設 `http://localhost:11180`，與後端 `server.port` 預設一致；Browser E2E 由 Playwright 設為 8080））、`vue-app/tsconfig.json`、`vue-app/eslint.config.js`、`vue-app/playwright.config.ts`
 
 ## Platform Requirements
 
@@ -260,7 +259,7 @@ Stock Web V2 is a modular stock trading web application with a Java/Spring Boot 
 
 - 模組只能經 `stock-infrastructure` 的 Facade 介面互相呼叫,禁止跨模組直接存取 Repository/SQL(由 `stock-start/src/test/java/dowob/xyz/stockwebv2/start/ArchitectureRulesTest.java` ArchUnit 守護)。
 - DDD-Lite 實為 transaction script:domain 是不可變 `record`,規則在純 calculator(`HoldingCalculator`、`CashBalanceCalculator`、`DayPnlCalculator`)與 application service。
-- 資料存取用 Spring Data JDBC / `Jdbc*Repository`(非 JPA)。
+- 資料存取用手寫 `Jdbc*Repository` + `JdbcClient`(market-data 批次寫入用 `NamedParameterJdbcTemplate`);非 JPA、非 Spring Data JDBC repository,`spring-boot-starter-data-jdbc` 只為 JDBC 基礎設施。
 - 對外 ID 一律 UUID;所有 REST 回 `ApiResponse<T>`,traceId 只在 `meta.traceId`。
 - 前端元件不得 `fetch`、不得 import mock store;mock 是明確模式,無效值 fail fast(`RuntimeDataModeError`)。
 

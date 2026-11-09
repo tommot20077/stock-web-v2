@@ -68,7 +68,7 @@ last_mapped_at: 2026-11-07
 **Key Characteristics:**
 - 模組只能經 `stock-infrastructure` 的 Facade 介面互相呼叫,禁止跨模組直接存取 Repository/SQL(由 `stock-start/src/test/java/dowob/xyz/stockwebv2/start/ArchitectureRulesTest.java` ArchUnit 守護)。
 - DDD-Lite 實為 transaction script:domain 是不可變 `record`,規則在純 calculator(`HoldingCalculator`、`CashBalanceCalculator`、`DayPnlCalculator`)與 application service。
-- 資料存取用 Spring Data JDBC / `Jdbc*Repository`(非 JPA)。
+- 資料存取用手寫 `Jdbc*Repository` + `JdbcClient`(market-data 批次寫入用 `NamedParameterJdbcTemplate`);非 JPA、非 Spring Data JDBC repository,`spring-boot-starter-data-jdbc` 只為 JDBC 基礎設施。
 - 對外 ID 一律 UUID;所有 REST 回 `ApiResponse<T>`,traceId 只在 `meta.traceId`。
 - 前端元件不得 `fetch`、不得 import mock store;mock 是明確模式,無效值 fail fast(`RuntimeDataModeError`)。
 
