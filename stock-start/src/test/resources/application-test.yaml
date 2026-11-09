@@ -25,5 +25,5 @@ market-data:
 stock:
   jwt:
     private-key:
-    access-token-ttl: PT30M
+    access-token-ttl: PT15M
     refresh-token-ttl: P14D

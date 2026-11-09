@@ -82,5 +82,5 @@ stock:
     #   openssl pkey -in private.pem -pubout -out public.pem
     #   java -cp <app.jar> dowob.xyz.stockwebv2.infrastructure.security.JwkKeyConverter private.pem public.pem
     private-key: ${STOCK_JWT_PRIVATE_KEY:}
-    access-token-ttl: ${STOCK_JWT_ACCESS_TOKEN_TTL:PT30M}
+    access-token-ttl: ${STOCK_JWT_ACCESS_TOKEN_TTL:PT15M}
     refresh-token-ttl: ${STOCK_JWT_REFRESH_TOKEN_TTL:P14D}

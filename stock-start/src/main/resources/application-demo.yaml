@@ -14,7 +14,7 @@
 # STOCK_JWT_PRIVATE_KEY: JWT signing key as an EC JWK (JSON, P-256, must include the private "d" component).
 #   Not PEM. Convert a legacy PEM with JwkKeyConverter (see application.yaml).
 #   Required outside dev/test/e2e; blank dev/test/e2e generates an ephemeral key.
-# STOCK_JWT_ACCESS_TOKEN_TTL: Access token TTL. Defaults to PT30M.
+# STOCK_JWT_ACCESS_TOKEN_TTL: Access token TTL. Defaults to PT15M; must equal STOCK_AUTH_COOKIE_ACCESS_TOKEN_TTL (startup guard).
 # STOCK_JWT_REFRESH_TOKEN_TTL: Refresh token TTL. Defaults to P14D.
 
 spring:
@@ -67,5 +67,5 @@ stock:
     allowed-origins: ${STOCK_CORS_ALLOWED_ORIGINS:http://localhost:5173}
   jwt:
     private-key: ${STOCK_JWT_PRIVATE_KEY:}
-    access-token-ttl: ${STOCK_JWT_ACCESS_TOKEN_TTL:PT30M}
+    access-token-ttl: ${STOCK_JWT_ACCESS_TOKEN_TTL:PT15M}
     refresh-token-ttl: ${STOCK_JWT_REFRESH_TOKEN_TTL:P14D}
