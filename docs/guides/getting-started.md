@@ -15,7 +15,7 @@
 |------|------|-------------|
 | JDK | `21`(CI 用 Temurin 21) | 一律需要。Maven 由 repo 內的 Maven Wrapper 提供(Maven `3.9.14`),不必另外安裝 |
 | Docker(含 compose v2) | — | 整合測試(`*IT.java`)、後端 E2E 的 Testcontainers,以及瀏覽器 E2E 的暫時基礎設施 |
-| PostgreSQL(含 TimescaleDB extension)、Redis、Kafka | 測試用的映像版本為 `timescale/timescaledb:2.17.2-pg16`、`redis:7.4-alpine`、`confluentinc/cp-kafka:7.6.0` | 以 `dev` profile 啟動後端時,需要連得到這三套服務 |
+| PostgreSQL(含 TimescaleDB extension)、Redis、Kafka | 測試用的映像版本為 `timescale/timescaledb:2.27.2-pg18`、`redis:8.8.0-alpine`、`apache/kafka:4.2.0`(KRaft) | 以 `dev` profile 啟動後端時,需要連得到這三套服務 |
 | Node.js | `>= 20`(前端 CI 與 Browser E2E job 用 Node 20) | 跑前端或瀏覽器 E2E 時 |
 
 repo 沒有 `.nvmrc` 或 `engines` 欄位,上表版本取自 CI workflow 與 `pom.xml`(`<java.version>21</java.version>`)。

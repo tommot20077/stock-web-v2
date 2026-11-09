@@ -161,7 +161,7 @@ vi.stubEnv('VITE_DATA_MODE', 'api');
 ## Fixtures and Factories
 
 **後端:**
-- 共用容器基底 `stock-start/src/test/java/dowob/xyz/stockwebv2/start/support/ContainerIT.java`:static singleton `timescale/timescaledb:2.17.2-pg16`、`redis:7.4-alpine`、`confluentinc/cp-kafka:7.6.0`,`Startables.deepStart` 每 JVM 啟動一次,不用 `withReuse(true)`;預設關閉 rate limit(`AuthRateLimitAndLockoutIT` 覆寫)。新 IT:`@AutoConfigureMockMvc class XxxIT extends ContainerIT`。
+- 共用容器基底 `stock-start/src/test/java/dowob/xyz/stockwebv2/start/support/ContainerIT.java`:static singleton `timescale/timescaledb:2.27.2-pg18`、`redis:8.8.0-alpine`、`apache/kafka:4.2.0`(KRaft),`Startables.deepStart` 每 JVM 啟動一次,不用 `withReuse(true)`;預設關閉 rate limit(`AuthRateLimitAndLockoutIT` 覆寫)。新 IT:`@AutoConfigureMockMvc class XxxIT extends ContainerIT`。
 - 模組 IT(asset / market-data)自行宣告容器。
 - E2E 基底 `e2e/support/AbstractStockE2E`(提供 `mockMvc`、`apiSuccess()` matcher 於 `StockE2EAssertions`)、`DatabaseCleaner`、`AuthE2EHelper`。
 - 測試資料以具名常數表達意圖並寫 Javadoc 說明為何如此設計:

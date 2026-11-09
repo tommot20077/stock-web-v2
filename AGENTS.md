@@ -100,7 +100,7 @@ Stock Web V2 is a modular stock trading web application with a Java/Spring Boot 
 - Vue Router `^5.0.7`
 - HTTP：原生 `fetch`（無 axios、無 UI 框架）；WebSocket：原生 `WebSocket`，只在 `vue-app/src/services/quoteStream.ts` 建立
 - JUnit 5 + `spring-boot-starter-test`、`spring-boot-starter-webmvc-test`、`spring-security-test`
-- Testcontainers 1.21.4（BOM）— `timescale/timescaledb:2.17.2-pg16`、`redis:7.4-alpine`、`confluentinc/cp-kafka:7.6.0`
+- Testcontainers 1.21.4（BOM）— `timescale/timescaledb:2.27.2-pg18`、`redis:8.8.0-alpine`、`apache/kafka:4.2.0`(KRaft)
 - `spring-kafka-test`、Awaitility、AssertJ
 - H2（`stock-start` test scope）
 - ArchUnit 1.3.0（`archunit-junit5`）— 模組邊界守門

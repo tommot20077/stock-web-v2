@@ -57,7 +57,7 @@ void methodNameInChinese() { ... }
 
 ## Testcontainers Shared Container Pattern
 
-> As implemented (2026-11-06): `stock-start/src/test/java/dowob/xyz/stockwebv2/start/support/ContainerIT.java` is the shared base — static singleton containers `timescale/timescaledb:2.27.2-pg18`, `redis:8.8.0-alpine` and `apache/kafka:4.2.0`(KRaft, `org.testcontainers.kafka.KafkaContainer`), started once per JVM with `Startables.deepStart`; **no** `withReuse(true)`. It also disables rate limiting for the shared suite (`AuthRateLimitAndLockoutIT` overrides it). Module ITs (asset / market-data) declare their own containers. Sharing containers across market-data ITs is a backlog todo (`2026-09-27-it-shared-containers`). The snippet below is the original design sketch.
+> As implemented (2026-11-06): `stock-start/src/test/java/dowob/xyz/stockwebv2/start/support/ContainerIT.java` is the shared base — static singleton containers `timescale/timescaledb:2.27.2-pg18`, `redis:8.8.0-alpine` and `apache/kafka:4.2.0`(KRaft, `org.testcontainers.kafka.KafkaContainer`), started once per JVM with `Startables.deepStart`; **no** `withReuse(true)`. It also disables rate limiting for the shared suite (`AuthRateLimitAndLockoutIT` overrides it). asset module ITs declare their own containers; market-data ITs share lazily started singletons via `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/support/MarketDataContainers.java` (Phase 05-07 / 05-08: isolated per IT by its own database, Redis db index, or unique Kafka topic / consumer group; failsafe `runOrder=random`). The snippet below is the original design sketch.
 
 Use **singleton pattern** + `withReuse(true)` to share containers across test classes:
 

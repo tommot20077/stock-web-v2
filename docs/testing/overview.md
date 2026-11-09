@@ -178,7 +178,7 @@ class TradingServiceTest {
 
 `stock-start/src/test/java/dowob/xyz/stockwebv2/start/support/ContainerIT.java` 是 `stock-start` 所有 IT 與 E2E 共用的基底類別:
 
-- 帶有 `@SpringBootTest`,以 static singleton 宣告三個容器:`timescale/timescaledb:2.17.2-pg16`、`redis:7.4-alpine`、`confluentinc/cp-kafka:7.6.0`。透過 `Startables.deepStart` 讓每個 JVM 只啟動一次,**沒有**使用 `withReuse(true)`。
+- 帶有 `@SpringBootTest`,以 static singleton 宣告三個容器:`timescale/timescaledb:2.27.2-pg18`、`redis:8.8.0-alpine`、`apache/kafka:4.2.0`(KRaft)。透過 `Startables.deepStart` 讓每個 JVM 只啟動一次,**沒有**使用 `withReuse(true)`。
 - 用 `@DynamicPropertySource` 注入 datasource、Redis、Kafka 連線,啟用 Flyway(`classpath:db/migration`),並把 management port 固定為 11180。
 - 預設**關閉 rate limit**,避免 per-IP 計數在測試之間互相污染;也關閉行情排程與 ingestor,讓斷言市價的測試結果穩定。
 - 需要開啟 rate limit 的測試(例如 `AuthRateLimitAndLockoutIT`)不繼承 `ContainerIT`,改在自己的 `@DynamicPropertySource` 裡呼叫 `ContainerIT.registerContainerProperties(registry)`,共用同一組容器。
