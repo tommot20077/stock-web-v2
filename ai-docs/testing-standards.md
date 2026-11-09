@@ -4,6 +4,25 @@
 
 *   Tests must cover the feature.
 *   **Pristine Output**: Logs during tests should be clean unless testing error handling.
+*   **Jacoco 棘輪**:`jacoco:check`(根 pom,綁 `verify`,規則為 BUNDLE 的 LINE / BRANCH `COVEREDRATIO`)。根 pom 的 `jacoco.minimum.line` / `jacoco.minimum.branch` 預設 0.00(不檢查),各模組 pom 的 `<properties>` 覆寫為自己的下限;低於下限 `./mvnw verify` 即失敗。
+    *   **只升不降**:下限只可上調;覆蓋率變高時順手把該模組下限調到新實測值(無條件捨去到小數第二位)。
+    *   **新增程式碼要附測試**:新功能不得把覆蓋率拉低到下限以下;下限不是讓你少寫測試的額度。
+    *   **不可靠排除來過門檻**:`jacoco-maven-plugin` 不設任何 `<excludes>`,不得為了讓數字過關而排除類別;調降下限同樣不可行,要調降必須先問 Yuan。
+    *   `stock-db-migration` 只有 SQL、沒有 Java 程式碼與測試,沒有 `jacoco.exec`,`check` 自動略過,故不設下限。
+    *   下限來源:2026-11-09 在 develop(92b59e5)跑 `./mvnw verify` 的各模組 BUNDLE 實測值,無條件捨去到小數第二位(Yuan 2026-11-09 同意)。
+
+    | 模組 | LINE 實測 | LINE 下限 | BRANCH 實測 | BRANCH 下限 |
+    |------|-----------|-----------|-------------|-------------|
+    | stock-common | 0.7970 | 0.79 | 0.8293 | 0.82 |
+    | stock-infrastructure | 0.6544 | 0.65 | 0.6915 | 0.69 |
+    | stock-module-user | 0.1729 | 0.17 | 0.1727 | 0.17 |
+    | stock-module-asset | 0.5951 | 0.59 | 0.8125 | 0.81 |
+    | stock-module-backtest | 0.6233 | 0.62 | 0.7750 | 0.77 |
+    | stock-module-market-data | 0.9067 | 0.90 | 0.8021 | 0.80 |
+    | stock-module-trading | 0.7691 | 0.76 | 0.9014 | 0.90 |
+    | stock-start | 0.8813 | 0.88 | 0.6667 | 0.66 |
+
+    上調時改各模組 pom 的 `jacoco.minimum.*` 屬性,並同步更新本表。
 *   **No Exceptions**: "Not applicable" is not an excuse. Unit, Integration, E2E tests are required unless explicitly waived by Yuan.
 
 ## Test Method Naming
