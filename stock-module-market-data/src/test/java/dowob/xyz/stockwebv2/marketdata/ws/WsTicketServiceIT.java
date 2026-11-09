@@ -39,7 +39,7 @@ class WsTicketServiceIT {
 
     @Container
     static final GenericContainer<?> redis = new GenericContainer<>(
-            DockerImageName.parse("redis:7.4-alpine")).withExposedPorts(6379);
+            DockerImageName.parse("redis:8.8.0-alpine")).withExposedPorts(6379);
 
     static StringRedisTemplate template;
     static ObjectMapper om = new ObjectMapper();

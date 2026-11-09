@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * {@link BackfillIdempotencyService} 的 Redis 整合測試。
  *
- * <p>使用 Testcontainers 啟動 Redis 7.4-alpine，驗證 SET NX EX 語義。
+ * <p>使用 Testcontainers 啟動 Redis 8.8.0-alpine，驗證 SET NX EX 語義。
  *
  * @author Yuan
  * @version 1.0.0
@@ -27,7 +27,7 @@ class BackfillIdempotencyServiceIT {
 
     @Container
     static final GenericContainer<?> redis = new GenericContainer<>(
-        DockerImageName.parse("redis:7.4-alpine")).withExposedPorts(6379);
+        DockerImageName.parse("redis:8.8.0-alpine")).withExposedPorts(6379);
 
     static StringRedisTemplate template;
     static BackfillIdempotencyService service;

@@ -35,7 +35,7 @@ class FxRateFacadeImplIT {
 
     @Container
     static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
-            DockerImageName.parse("timescale/timescaledb:2.17.2-pg16")
+            DockerImageName.parse("timescale/timescaledb:2.27.2-pg18")
                     .asCompatibleSubstituteFor("postgres"))
             .withDatabaseName("fx_rate_facade_test")
             .withUsername("test")
