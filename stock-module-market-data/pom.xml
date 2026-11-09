@@ -176,6 +176,10 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
+                <!-- D-29:共用容器後以亂序證明 IT 無順序相依;失敗時以 log 中的 -Dfailsafe.runOrder.random.seed=<seed> 重現 -->
+                <configuration>
+                    <runOrder>random</runOrder>
+                </configuration>
                 <executions>
                     <execution>
                         <goals>
