@@ -10,8 +10,8 @@ Vue must not store access tokens or refresh tokens in local storage, session sto
 
 | Method | Path | Behavior |
 |--------|------|----------|
-| `POST` | `/api/v1/auth/register` | Creates the user, sets auth cookies, returns user/session metadata only. |
-| `POST` | `/api/v1/auth/login` | Verifies credentials, sets auth cookies, returns user/session metadata only. |
+| `POST` | `/api/v1/auth/register` | Creates the user, sets auth cookies, returns user/session metadata only. Requires CSRF when the browser already carries a **valid** `stock_access` cookie (see [CSRF](#csrf)). |
+| `POST` | `/api/v1/auth/login` | Verifies credentials, sets auth cookies, returns user/session metadata only. Requires CSRF when the browser already carries a **valid** `stock_access` cookie (see [CSRF](#csrf)). |
 | `POST` | `/api/v1/auth/refresh` | Requires CSRF, rotates refresh token, sets new auth cookies. |
 | `POST` | `/api/v1/auth/logout` | Requires CSRF in browser cookie mode, signs the user out of **all devices**, clears auth cookies. |
 | `GET` | `/api/v1/csrf` | Sets readable `XSRF-TOKEN` cookie and returns CSRF names. |
@@ -78,6 +78,19 @@ Default properties:
 
 `stock_access` and `stock_refresh` are `HttpOnly`. `SameSite=None` requires `secure=true`.
 
+The `stock.auth.cookie.secure` default above is the base `application.yaml` value used by local profiles. The `demo` profile defaults it to `true` (`STOCK_AUTH_COOKIE_SECURE`), and `BrowserAuthCookieSecureGuard` refuses to start with `secure=false` outside the `dev`, `test`, `e2e`, and `e2e-browser` profiles.
+
+### Access token TTL must match
+
+`stock.auth.cookie.access-token-ttl` (`STOCK_AUTH_COOKIE_ACCESS_TOKEN_TTL`) **must equal** `stock.jwt.access-token-ttl` (`STOCK_JWT_ACCESS_TOKEN_TTL`). Both default to `PT15M` (decided 2026-11, D-22). `AccessTokenTtlConsistencyGuard` enforces this at startup: if the two values differ, the application refuses to start with `IllegalStateException("STOCK_AUTH_COOKIE_ACCESS_TOKEN_TTL must equal STOCK_JWT_ACCESS_TOKEN_TTL")`. The message is static and never echoes the configured values. There is no profile exemption; every profile sets equal values (`e2e-browser` uses `PT2H` for both).
+
+Why they must be equal:
+
+- A JWT that outlives its cookie stays usable after the browser has dropped the cookie, so a leaked `stock_access` value would be valid longer than the advertised 15 minutes.
+- A JWT that expires before its cookie makes every request after expiry return 401 while the cookie is still present, forcing an avoidable refresh round-trip.
+
+Deployments that override one TTL must override the other to the same value. Bearer clients (`/api/v1/auth/token`) receive the same 15-minute access token and already use refresh.
+
 ## CSRF
 
 Browser unsafe requests must use:
@@ -87,6 +100,8 @@ Browser unsafe requests must use:
 - request header `X-XSRF-TOKEN` with the same value
 
 `POST`, `PUT`, `PATCH`, and `DELETE` requests authenticated by browser cookies require CSRF. Bearer-token clients do not use CSRF as their protection mechanism.
+
+This also applies to the `permitAll` endpoints `POST /api/v1/auth/login` and `POST /api/v1/auth/register`: when the browser already carries a **valid** `stock_access` cookie, `JwtAuthenticationFilter` marks the request as cookie-authenticated, so `BrowserCsrfFilter` requires a matching `X-XSRF-TOKEN` there too and returns 403 `AUTH_CSRF_TOKEN_INVALID` without it. An **invalid** cookie (expired, or revoked by a logout that bumped `tokenVersion`) does not block these endpoints: the cookie is ignored on pre-auth paths so the user can always sign in again. Frontend behavior does not change, because `apiClient` already bootstraps `GET /api/v1/csrf` and sends `X-XSRF-TOKEN` on every unsafe request. Covered by `BrowserAuthFlowIT.loginWithValidAccessCookieRequiresCsrf`, `BrowserAuthFlowIT.registerWithValidAccessCookieRequiresCsrf`, and `BrowserAuthFlowIT.staleAccessCookieDoesNotBlockReLoginOnPublicEndpoint`.
 
 CSRF failure returns HTTP 403:
 
@@ -183,9 +198,17 @@ The portfolio and trading contract itself (endpoints, DTO fields, validation, er
 
 Backend verification covers:
 
-- `BrowserAuthFlowIT`: cookies, CSRF, refresh/logout, cookie-authenticated `/me`
+- `BrowserAuthFlowIT`: cookies, CSRF, refresh/logout, cookie-authenticated `/me`; including `loginWithValidAccessCookieRequiresCsrf`, `registerWithValidAccessCookieRequiresCsrf` (valid access cookie makes login / register require CSRF) and `cookieLogoutRevokesAccessCookieForMe` (logout revokes the access cookie for `/me`)
+- `BrowserAuthCookieServiceTest`: `Set-Cookie` attributes (`Max-Age`, `HttpOnly`, `SameSite`, `Path`, `Secure`, `Domain`) for auth and `XSRF-TOKEN` cookies
+- `AccessTokenTtlConsistencyGuardTest`: startup guard rejects unequal access cookie / JWT TTLs with a static message
+- `TradingApiIT.cookieAuthenticatedTradeWithoutCsrfIsRejected`: cookie-authenticated unsafe business request without `X-XSRF-TOKEN` returns 403 `AUTH_CSRF_TOKEN_INVALID`
+- `MethodSecurityDenialIT`: `@PreAuthorize` denials return HTTP 403 (not a catch-all 500)
 - `AuthFlowIT`: bearer token endpoint and bearer logout compatibility
 - `CorsIT`: credentialed Vue origin and rejected unknown origin
 - `AuthPersistenceIT`: refresh Redis storage, revocation, and rotation
 
 Frontend verification in later phases should cover `credentials: "include"`, CSRF bootstrap, one refresh retry, no token storage, and API-mode error rendering.
+
+## Change Log
+
+- 2026-11 (Phase 5): access cookie TTL and JWT access TTL must be equal (both default `PT15M`; `STOCK_JWT_ACCESS_TOKEN_TTL` default changed from `PT30M`), enforced by `AccessTokenTtlConsistencyGuard` (D-22). Documented that login / register require CSRF when a valid `stock_access` cookie is present, while an invalid cookie does not block them (D-03). Added the Phase 5 verification tests (05-04, 05-05).

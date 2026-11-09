@@ -42,7 +42,7 @@
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `STOCK_JWT_PRIVATE_KEY` | **Required**(`dev`/`test`/`e2e`/`e2e-browser` 以外的 profile) | 空 | JWT 簽章金鑰(機密),格式為 **P-256 EC JWK 單行 JSON**,須含私鑰分量 `d`,建議固定 `kid`。**不是 PEM** |
-| `STOCK_JWT_ACCESS_TOKEN_TTL` | Optional | `PT30M` | Access token(JWT)有效時間,ISO-8601 Duration |
+| `STOCK_JWT_ACCESS_TOKEN_TTL` | Optional | `PT15M` | Access token(JWT)有效時間,ISO-8601 Duration;必須與 `STOCK_AUTH_COOKIE_ACCESS_TOKEN_TTL` 相等(啟動守衛 `AccessTokenTtlConsistencyGuard`) |
 | `STOCK_JWT_REFRESH_TOKEN_TTL` | Optional | `P14D` | Refresh token 有效時間 |
 | `STOCK_CORS_ALLOWED_ORIGINS` | Optional | `http://localhost:5173`(`e2e-browser`:`http://localhost:4173,http://localhost:5173`) | 逗號分隔的前端 origin 白名單;REST CORS 與 WebSocket `/ws/v1/market` 共用 |
 | `STOCK_AUTH_COOKIE_ACCESS_NAME` | Optional | `stock_access` | Access token cookie 名稱 |
@@ -51,7 +51,7 @@
 | `STOCK_AUTH_COOKIE_SAME_SITE` | Optional | `Lax` | Auth cookie SameSite;設為 `None` 時必須同時 `secure=true` |
 | `STOCK_AUTH_COOKIE_SECURE` | 非本機 profile 必須為 `true` | `false`(`demo`:`true`) | Auth cookie 是否只經 HTTPS 傳送 |
 | `STOCK_AUTH_COOKIE_DOMAIN` | Optional | 空(不設 Domain 屬性) | Auth cookie domain |
-| `STOCK_AUTH_COOKIE_ACCESS_TOKEN_TTL` | Optional | `PT15M` | Access cookie 的有效時間(與 JWT TTL 是兩個獨立設定) |
+| `STOCK_AUTH_COOKIE_ACCESS_TOKEN_TTL` | Optional | `PT15M` | Access cookie 的有效時間;必須與 `STOCK_JWT_ACCESS_TOKEN_TTL` 相等(啟動守衛),兩者要成對覆寫 |
 | `STOCK_AUTH_COOKIE_REFRESH_TOKEN_TTL` | Optional | `P14D` | Refresh cookie 的有效時間 |
 | `STOCK_FORWARD_HEADERS_STRATEGY` | Optional | `native` | 對應 `server.forward-headers-strategy`,決定是否採信 `X-Forwarded-For`(影響以 IP 為鍵的限流與鎖定,見下文) |
 | `STOCK_LOCKOUT_THRESHOLD` | Optional(僅 `e2e-browser`) | `3` | E2E 用的帳號鎖定門檻 |
@@ -171,6 +171,7 @@ STOCK_CORS_ALLOWED_ORIGINS=https://<frontend-origin>
 | `stock.jwt.access-token-ttl` 或 `refresh-token-ttl` 為 null、零或負值 | `... must not be null` / `... must be positive` | `JwtProperties` |
 | `STOCK_AUTH_COOKIE_SECURE=false`,且 active profile 不含 `dev`/`test`/`e2e`/`e2e-browser` | `STOCK_AUTH_COOKIE_SECURE must be true outside dev/test/e2e/e2e-browser profiles` | `BrowserAuthCookieSecureGuard` |
 | `STOCK_AUTH_COOKIE_SAME_SITE=None` 但 `secure=false` | `SameSite=None auth cookies require secure=true` | `BrowserAuthCookieProperties` |
+| `STOCK_AUTH_COOKIE_ACCESS_TOKEN_TTL` 與 `STOCK_JWT_ACCESS_TOKEN_TTL` 不相等(比對 cookie TTL 正規化後的值;任何 profile 皆無豁免) | `STOCK_AUTH_COOKIE_ACCESS_TOKEN_TTL must equal STOCK_JWT_ACCESS_TOKEN_TTL` | `AccessTokenTtlConsistencyGuard` |
 
 ### JWT 簽章金鑰
 
@@ -199,7 +200,7 @@ STOCK_CORS_ALLOWED_ORIGINS=https://<frontend-origin>
 | `spring.jackson.time-zone` | `Asia/Taipei` | `application.yaml` |
 | `spring.kafka.bootstrap-servers` | `localhost:9092` | `application.yaml` |
 | `spring.data.redis.database` | `1` | 各 profile 檔 |
-| `stock.jwt.access-token-ttl` | `PT30M` | `application.yaml` |
+| `stock.jwt.access-token-ttl` | `PT15M` | `application.yaml` / `application-demo.yaml`;必須等於 `stock.auth.cookie.access-token-ttl` |
 | `stock.jwt.refresh-token-ttl` | `P14D` | `application.yaml` |
 | `stock.auth.cookie.access-name` / `refresh-name` | `stock_access` / `stock_refresh` | `application.yaml`;空白時 `BrowserAuthCookieProperties` 也會補同樣的值 |
 | `stock.auth.cookie.path` / `same-site` | `/` / `Lax` | 同上 |
