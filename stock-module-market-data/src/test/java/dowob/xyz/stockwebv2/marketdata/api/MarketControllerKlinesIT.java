@@ -6,6 +6,7 @@ import dowob.xyz.stockwebv2.infrastructure.asset.AssetFacade;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPrice;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPriceRepository;
+import dowob.xyz.stockwebv2.marketdata.support.MarketDataContainers;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
@@ -14,10 +15,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
@@ -36,23 +33,20 @@ import static org.mockito.Mockito.when;
 /**
  * {@link KlineQueryService} 端對端整合測試。
  *
- * <p>使用 TimescaleDB testcontainer + Flyway 遷移建立完整 schema，
+ * <p>使用共用 TimescaleDB 容器({@link MarketDataContainers})中的獨立 database {@code md_klines}
+ * + Flyway 遷移建立完整 schema(D-04;筆數斷言不受其他 IT 寫入影響)，
  * 插入真實 tick 資料後手動觸發 CA 刷新，再透過 {@link KlineQueryService} 查詢驗證
  * OHLCV 聚合結果的正確性。
  *
  * @author Yuan
  * @version 1.0.0
  */
-@Testcontainers
 class MarketControllerKlinesIT {
 
-    @Container
-    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
-        DockerImageName.parse("timescale/timescaledb:2.17.2-pg16")
-            .asCompatibleSubstituteFor("postgres"))
-        .withDatabaseName("klines_e2e")
-        .withUsername("test")
-        .withPassword("test");
+    /** 本類在共用 TimescaleDB 容器中的獨立 database(D-04)的 JDBC URL 與帳密。 */
+    static String jdbcUrl;
+    static String dbUser;
+    static String dbPassword;
 
     static MarketPriceRepository repo;
     static KlineQueryService service;
@@ -63,8 +57,11 @@ class MarketControllerKlinesIT {
 
     @BeforeAll
     static void setup() throws Exception {
+        jdbcUrl = MarketDataContainers.freshDatabase("klines");
+        dbUser = MarketDataContainers.postgres().getUsername();
+        dbPassword = MarketDataContainers.postgres().getPassword();
         Flyway.configure()
-            .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+            .dataSource(jdbcUrl, dbUser, dbPassword)
             .locations("classpath:db/migration")
             .mixed(true)
             .load()
@@ -72,9 +69,9 @@ class MarketControllerKlinesIT {
 
         DriverManagerDataSource ds = new DriverManagerDataSource();
         ds.setDriverClassName("org.postgresql.Driver");
-        ds.setUrl(postgres.getJdbcUrl());
-        ds.setUsername(postgres.getUsername());
-        ds.setPassword(postgres.getPassword());
+        ds.setUrl(jdbcUrl);
+        ds.setUsername(dbUser);
+        ds.setPassword(dbPassword);
 
         JdbcClient client = JdbcClient.create(ds);
         jdbc = client;
@@ -117,7 +114,7 @@ class MarketControllerKlinesIT {
 
         // 手動刷新 kline_1m continuous aggregate
         try (Connection c = DriverManager.getConnection(
-                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+                jdbcUrl, dbUser, dbPassword);
              Statement s = c.createStatement()) {
             s.execute("CALL refresh_continuous_aggregate('kline_1m', NULL, NULL)");
         }

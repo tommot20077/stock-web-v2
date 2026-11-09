@@ -1,21 +1,19 @@
 package dowob.xyz.stockwebv2.marketdata.observability;
 
+import dowob.xyz.stockwebv2.marketdata.support.MarketDataContainers;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.Status;
 import org.springframework.kafka.core.KafkaAdmin;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.kafka.ConfluentKafkaContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * {@link MarketDataHealthIndicator} 整合測試 — 使用 Testcontainers 啟動真實 Kafka。
+ * {@link MarketDataHealthIndicator} 整合測試 — 使用共用的真實 Kafka 容器({@link MarketDataContainers#kafka()},D-04)。
  *
  * <ul>
  *   <li>Kafka 正常啟動 → health() 回傳 UP，且 details 包含 kafkaNodes</li>
@@ -25,18 +23,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @author Yuan
  * @version 1.0.0
  */
-@Testcontainers
 class MarketDataHealthIndicatorIT {
-
-    @Container
-    static final ConfluentKafkaContainer kafka = new ConfluentKafkaContainer(
-            DockerImageName.parse("confluentinc/cp-kafka:7.6.0"));
 
     @Test
     @DisplayName("Kafka 正常啟動 → health() 回傳 UP，details 包含 kafkaNodes")
     void health_whenKafkaUp_returnsUp() {
         KafkaAdmin admin = new KafkaAdmin(
-                Map.of("bootstrap.servers", kafka.getBootstrapServers()));
+                Map.of("bootstrap.servers", MarketDataContainers.kafka().getBootstrapServers()));
         MarketDataHealthIndicator indicator = new MarketDataHealthIndicator(admin);
 
         Health health = indicator.health();
