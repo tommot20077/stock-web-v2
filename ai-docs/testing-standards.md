@@ -20,9 +20,11 @@
     | stock-module-backtest | 0.6233 | 0.62 | 0.7750 | 0.77 |
     | stock-module-market-data | 0.9067 | 0.90 | 0.8021 | 0.80 |
     | stock-module-trading | 0.7691 | 0.76 | 0.9014 | 0.90 |
-    | stock-start | 0.8813 | 0.88 | 0.6667 | 0.66 |
+    | stock-start | 0.87x(註) | 0.87 | 0.64x(註) | 0.64 |
 
     上調時改各模組 pom 的 `jacoco.minimum.*` 屬性,並同步更新本表。
+    註:stock-start 原為 0.8813 / 0.88、0.6667 / 0.66。2026-11-10 Yuan 核准調降:Phase 05-06(D-23)把 7 個需容器的 `*E2ETest` 改名為 `*E2E`,移到 `-Pe2e` 的 E2E job,`verify` 不再執行它們,stock-start 覆蓋率隨之下降。新下限取自 PR tommot20077/stock-web-v2#55 的 Integration job(run 42649422483,head `180a652`)`jacoco:check` 報告值(jacoco 以下限的小數位數無條件捨去比較)。
+
 *   **No Exceptions**: "Not applicable" is not an excuse. Unit, Integration, E2E tests are required unless explicitly waived by Yuan.
 
 ## Test Method Naming
