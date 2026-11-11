@@ -328,13 +328,17 @@ class ValidationBoundaryE2E extends AbstractStockE2E {
         ));
     }
 
+    /**
+     * 交易請求 body。金額依前端契約送 JSON 字串(Phase 5 D-09),讓上限 / 小數位驗證走的是瀏覽器實際送的字串路徑;
+     * JSON number 的相容行為由 {@code TradingApiIT} 等既有案例覆蓋。
+     */
     private String tradeBody(String symbol, String type, String quantity, String price, String note) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("symbol", symbol);
         body.put("type", type);
-        body.put("quantity", new java.math.BigDecimal(quantity));
-        body.put("price", new java.math.BigDecimal(price));
-        body.put("fee", 0);
+        body.put("quantity", quantity);
+        body.put("price", price);
+        body.put("fee", "0");
         if (note != null) {
             body.put("note", note);
         }

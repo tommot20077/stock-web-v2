@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import static dowob.xyz.stockwebv2.start.support.DecimalStringMatchers.decimalString;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
@@ -77,7 +78,7 @@ class PortfolioActivityApiIT extends ContainerIT {
             .andExpect(jsonPath("$.data.items[*].symbol", contains("TSLA", "TSLA", "AAPL", "AAPL")))
             .andExpect(jsonPath("$.data.items[*].currency", everyItem(equalTo("USD"))))
             /* SPLIT：ΔQ = 10 × 2 / 1 − 10 = +10；沒有金額；除權日原樣；未沖銷且為最晚一筆 → 可沖銷。 */
-            .andExpect(jsonPath("$.data.items[0].quantity", equalTo(10.0)))
+            .andExpect(jsonPath("$.data.items[0].quantity", decimalString("10.0")))
             .andExpect(jsonPath("$.data.items[0].amount").value(nullValue()))
             .andExpect(jsonPath("$.data.items[0].ratioNew", equalTo(2)))
             .andExpect(jsonPath("$.data.items[0].ratioOld", equalTo(1)))
@@ -85,17 +86,17 @@ class PortfolioActivityApiIT extends ContainerIT {
             .andExpect(jsonPath("$.data.items[0].reversed", equalTo(false)))
             .andExpect(jsonPath("$.data.items[0].reversible", equalTo(true)))
             /* BUY：amount = quantity × price；交易恆不可沖銷。 */
-            .andExpect(jsonPath("$.data.items[1].amount", equalTo(2000.0)))
-            .andExpect(jsonPath("$.data.items[1].price", equalTo(200.0)))
+            .andExpect(jsonPath("$.data.items[1].amount", decimalString("2000.0")))
+            .andExpect(jsonPath("$.data.items[1].price", decimalString("200.0")))
             .andExpect(jsonPath("$.data.items[1].effectiveDate").value(nullValue()))
             .andExpect(jsonPath("$.data.items[1].reversible", equalTo(false)))
             /* CASH_DIVIDEND：沒有數量；實領總額與預扣稅。 */
             .andExpect(jsonPath("$.data.items[2].quantity").value(nullValue()))
-            .andExpect(jsonPath("$.data.items[2].amount", equalTo(120.0)))
-            .andExpect(jsonPath("$.data.items[2].withholdingTax", equalTo(30.0)))
+            .andExpect(jsonPath("$.data.items[2].amount", decimalString("120.0")))
+            .andExpect(jsonPath("$.data.items[2].withholdingTax", decimalString("30.0")))
             .andExpect(jsonPath("$.data.items[2].reversalOfId").value(nullValue()))
             .andExpect(jsonPath("$.data.items[2].reversible", equalTo(true)))
-            .andExpect(jsonPath("$.data.items[3].amount", equalTo(1500.0)))
+            .andExpect(jsonPath("$.data.items[3].amount", decimalString("1500.0")))
             .andExpect(jsonPath("$.data.items[0].idempotencyKey").doesNotExist());
     }
 
@@ -176,7 +177,7 @@ class PortfolioActivityApiIT extends ContainerIT {
             /* 金額 desc：2000、1500、120，兩筆沒有金額的調整排最後（彼此依 createdAt desc：配股後記）。 */
             .andExpect(jsonPath("$.data.items[*].kind",
                 contains("BUY", "BUY", "CASH_DIVIDEND", "STOCK_DIVIDEND", "SPLIT")))
-            .andExpect(jsonPath("$.data.items[0].amount", equalTo(2000.0)))
+            .andExpect(jsonPath("$.data.items[0].amount", decimalString("2000.0")))
             .andExpect(jsonPath("$.data.items[2].kind", equalTo("CASH_DIVIDEND")))
             .andExpect(jsonPath("$.data.items[3].amount").value(nullValue()))
             .andExpect(jsonPath("$.data.items[4].amount").value(nullValue()));
@@ -221,7 +222,7 @@ class PortfolioActivityApiIT extends ContainerIT {
             .isEqualTo(OffsetDateTime.parse(original.get("occurredAt").asText()).toInstant());
         assertThat(reversal.get("reversalOfEffectiveDate").isNull()).isTrue();
         /* 沖銷列輸出原值、不反號。 */
-        assertThat(reversal.get("amount").decimalValue()).isEqualByComparingTo("120");
+        assertThat(reversal.get("amount").asDecimal()).isEqualByComparingTo("120");
         assertThat(reversal.get("reversed").asBoolean()).isFalse();
         assertThat(reversal.get("reversible").asBoolean()).isFalse();
         assertThat(itemById(before, earlierId).get("reversible").asBoolean()).isFalse();
@@ -239,7 +240,7 @@ class PortfolioActivityApiIT extends ContainerIT {
         assertThat(later.get("reversible").asBoolean()).isFalse();
         assertThat(adjustmentReversal.get("reversalOfId").asText()).isEqualTo(laterId);
         assertThat(adjustmentReversal.get("reversalOfEffectiveDate").asText()).isEqualTo("2026-10-31");
-        assertThat(adjustmentReversal.get("quantity").decimalValue()).isEqualByComparingTo("2");
+        assertThat(adjustmentReversal.get("quantity").asDecimal()).isEqualByComparingTo("2");
         assertThat(adjustmentReversal.get("reversible").asBoolean()).isFalse();
         assertThat(itemById(after, earlierId).get("reversible").asBoolean()).isTrue();
     }

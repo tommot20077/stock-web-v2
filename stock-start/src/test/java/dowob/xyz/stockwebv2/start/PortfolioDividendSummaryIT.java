@@ -52,19 +52,19 @@ class PortfolioDividendSummaryIT extends ContainerIT {
         String token = register("divsum-" + UUID.randomUUID() + "@example.com");
         /* 先讀一次讓 summary 進快取（TTL 60 秒）；若股利寫入沒有使快取失效，下一次讀會拿到這份舊值。 */
         JsonNode before = summary(token);
-        assertThat(before.get("dividendIncome").decimalValue()).isEqualByComparingTo("0");
-        assertThat(before.get("dividendTaxWithheld").decimalValue()).isEqualByComparingTo("0");
+        assertThat(before.get("dividendIncome").asDecimal()).isEqualByComparingTo("0");
+        assertThat(before.get("dividendTaxWithheld").asDecimal()).isEqualByComparingTo("0");
 
         String dividendId = dividendIdOf(postDividend(token, UUID.randomUUID().toString(), AAPL_DIVIDEND)
             .andExpect(status().isOk()));
 
         JsonNode afterDividend = summary(token);
-        assertThat(balanceOf(afterDividend, "USD").get("amount").decimalValue()).isEqualByComparingTo("120");
+        assertThat(balanceOf(afterDividend, "USD").get("amount").asDecimal()).isEqualByComparingTo("120");
         /* 120 × 32.418、30 × 32.418 */
-        assertThat(afterDividend.get("dividendIncome").decimalValue()).isEqualByComparingTo("3890.16");
-        assertThat(afterDividend.get("dividendTaxWithheld").decimalValue()).isEqualByComparingTo("972.54");
-        assertThat(afterDividend.get("cash").decimalValue()).isEqualByComparingTo("3890.16");
-        assertThat(afterDividend.get("totalPnl").decimalValue()).isEqualByComparingTo("3890.16");
+        assertThat(afterDividend.get("dividendIncome").asDecimal()).isEqualByComparingTo("3890.16");
+        assertThat(afterDividend.get("dividendTaxWithheld").asDecimal()).isEqualByComparingTo("972.54");
+        assertThat(afterDividend.get("cash").asDecimal()).isEqualByComparingTo("3890.16");
+        assertThat(afterDividend.get("totalPnl").asDecimal()).isEqualByComparingTo("3890.16");
 
         postDividend(token, UUID.randomUUID().toString(), """
                 {"symbol":"AAPL","amount":120,"withholdingTax":30,"reversalOfId":"%s"}
@@ -72,11 +72,11 @@ class PortfolioDividendSummaryIT extends ContainerIT {
             .andExpect(status().isOk());
 
         JsonNode afterReversal = summary(token);
-        assertThat(afterReversal.get("dividendIncome").decimalValue()).isEqualByComparingTo("0");
-        assertThat(afterReversal.get("dividendTaxWithheld").decimalValue()).isEqualByComparingTo("0");
-        assertThat(balanceOf(afterReversal, "USD").get("amount").decimalValue()).isEqualByComparingTo("0");
-        assertThat(afterReversal.get("cash").decimalValue()).isEqualByComparingTo("0");
-        assertThat(afterReversal.get("totalPnl").decimalValue()).isEqualByComparingTo("0");
+        assertThat(afterReversal.get("dividendIncome").asDecimal()).isEqualByComparingTo("0");
+        assertThat(afterReversal.get("dividendTaxWithheld").asDecimal()).isEqualByComparingTo("0");
+        assertThat(balanceOf(afterReversal, "USD").get("amount").asDecimal()).isEqualByComparingTo("0");
+        assertThat(afterReversal.get("cash").asDecimal()).isEqualByComparingTo("0");
+        assertThat(afterReversal.get("totalPnl").asDecimal()).isEqualByComparingTo("0");
     }
 
     @Test
@@ -91,14 +91,14 @@ class PortfolioDividendSummaryIT extends ContainerIT {
                 """).andExpect(status().isOk());
 
         JsonNode aliceSummary = summary(alice);
-        assertThat(balanceOf(aliceSummary, "USD").get("amount").decimalValue()).isEqualByComparingTo("120");
-        assertThat(aliceSummary.get("dividendIncome").decimalValue()).isEqualByComparingTo("3890.16");
+        assertThat(balanceOf(aliceSummary, "USD").get("amount").asDecimal()).isEqualByComparingTo("120");
+        assertThat(aliceSummary.get("dividendIncome").asDecimal()).isEqualByComparingTo("3890.16");
 
         JsonNode bobSummary = summary(bob);
-        assertThat(balanceOf(bobSummary, "USD").get("amount").decimalValue()).isEqualByComparingTo("10");
+        assertThat(balanceOf(bobSummary, "USD").get("amount").asDecimal()).isEqualByComparingTo("10");
         /* 10 × 32.418、1 × 32.418 */
-        assertThat(bobSummary.get("dividendIncome").decimalValue()).isEqualByComparingTo("324.18");
-        assertThat(bobSummary.get("dividendTaxWithheld").decimalValue()).isEqualByComparingTo("32.418");
+        assertThat(bobSummary.get("dividendIncome").asDecimal()).isEqualByComparingTo("324.18");
+        assertThat(bobSummary.get("dividendTaxWithheld").asDecimal()).isEqualByComparingTo("32.418");
     }
 
     private JsonNode summary(String token) throws Exception {

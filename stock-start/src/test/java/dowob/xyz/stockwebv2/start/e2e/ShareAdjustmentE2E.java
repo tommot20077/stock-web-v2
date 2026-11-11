@@ -76,14 +76,14 @@ class ShareAdjustmentE2E extends AbstractPortfolioE2E {
         JsonNode adjustment = recordShareAdjustment(token, body.formatted(today(), ""));
         String adjustmentId = adjustment.get("id").asText();
         assertThat(adjustment.get("type").asText()).isEqualTo("STOCK_DIVIDEND");
-        assertThat(adjustment.get("quantityDelta").decimalValue()).isEqualByComparingTo("50");
+        assertThat(adjustment.get("quantityDelta").asDecimal()).isEqualByComparingTo("50");
         assertThat(adjustment.get("effectiveDate").asText()).isEqualTo(today().toString());
         assertThat(adjustment.get("reversed").asBoolean()).isFalse();
         assertThat(adjustment.has("idempotencyKey")).isFalse();
 
         JsonNode diluted = holdingOf(holdingsOf(token), "AAPL");
-        assertThat(diluted.get("totalQuantity").decimalValue()).isEqualByComparingTo("1050");
-        assertThat(diluted.get("avgCost").decimalValue()).isEqualByComparingTo("95.23809524");
+        assertThat(diluted.get("totalQuantity").asDecimal()).isEqualByComparingTo("1050");
+        assertThat(diluted.get("avgCost").asDecimal()).isEqualByComparingTo("95.23809524");
 
         String reversalBody = body.formatted(today(), ",\"reversalOfId\":\"" + adjustmentId + "\"");
         String bobResponse = postShareAdjustment(bob.accessToken(), UUID.randomUUID().toString(), reversalBody)
@@ -99,8 +99,8 @@ class ShareAdjustmentE2E extends AbstractPortfolioE2E {
             .andExpect(jsonPath("$.data.reversalOfId", equalTo(adjustmentId)))).get("id").asText();
 
         JsonNode restored = holdingOf(holdingsOf(token), "AAPL");
-        assertThat(restored.get("totalQuantity").decimalValue()).isEqualByComparingTo("1000");
-        assertThat(restored.get("avgCost").decimalValue()).isEqualByComparingTo("100");
+        assertThat(restored.get("totalQuantity").asDecimal()).isEqualByComparingTo("1000");
+        assertThat(restored.get("avgCost").asDecimal()).isEqualByComparingTo("100");
 
         JsonNode listed = activitiesOf(token, "type", "SHARE_ADJUSTMENT");
         assertThat(listed.get("totalElements").asLong()).isEqualTo(2);
@@ -131,20 +131,20 @@ class ShareAdjustmentE2E extends AbstractPortfolioE2E {
         /* 除權日起點持股 100（今天買的 50 不參與換算）→ ΔQ = 100 × 4 − 100 = +300；總成本 45000 不變 → 450 @100。 */
         JsonNode split = recordShareAdjustment(token, splitBody.formatted(yesterday, ""));
         String splitId = split.get("id").asText();
-        assertThat(split.get("quantityDelta").decimalValue()).isEqualByComparingTo("300");
+        assertThat(split.get("quantityDelta").asDecimal()).isEqualByComparingTo("300");
         assertThat(split.get("ratioNew").asInt()).isEqualTo(4);
         assertThat(split.get("ratioOld").asInt()).isEqualTo(1);
         JsonNode afterSplit = holdingOf(holdingsOf(token), "TSLA");
-        assertThat(afterSplit.get("totalQuantity").decimalValue()).isEqualByComparingTo("450");
-        assertThat(afterSplit.get("avgCost").decimalValue()).isEqualByComparingTo("100");
+        assertThat(afterSplit.get("totalQuantity").asDecimal()).isEqualByComparingTo("450");
+        assertThat(afterSplit.get("avgCost").asDecimal()).isEqualByComparingTo("100");
 
         /* 今日起點持股 = 三天前 100 + 昨日拆股 300 = 400（現在買的 50 晚於起點）→ 400 / 3 截到 8 位 = 133.33333333，ΔQ 為負、零股以小數保留。 */
         JsonNode consolidation = recordShareAdjustment(token, consolidationBody.formatted(today(), ""));
         String consolidationId = consolidation.get("id").asText();
-        assertThat(consolidation.get("quantityDelta").decimalValue()).isEqualByComparingTo("-266.66666667");
+        assertThat(consolidation.get("quantityDelta").asDecimal()).isEqualByComparingTo("-266.66666667");
         JsonNode afterConsolidation = holdingOf(holdingsOf(token), "TSLA");
-        assertThat(afterConsolidation.get("totalQuantity").decimalValue()).isEqualByComparingTo("183.33333333");
-        assertThat(afterConsolidation.get("avgCost").decimalValue()).isEqualByComparingTo("245.45454546");
+        assertThat(afterConsolidation.get("totalQuantity").asDecimal()).isEqualByComparingTo("183.33333333");
+        assertThat(afterConsolidation.get("avgCost").asDecimal()).isEqualByComparingTo("245.45454546");
 
         JsonNode listed = activitiesOf(token, "type", "SHARE_ADJUSTMENT", "symbol", "TSLA");
         assertThat(entryById(listed.get("items"), splitId).get("reversible").asBoolean()).isFalse();
@@ -162,7 +162,7 @@ class ShareAdjustmentE2E extends AbstractPortfolioE2E {
             .andExpect(status().isBadRequest())
             .andExpect(apiError("VALIDATION_FAILED"))
             .andExpect(jsonPath("$.error.fields.executedAt", notNullValue()));
-        assertThat(holdingOf(holdingsOf(token), "TSLA").get("totalQuantity").decimalValue())
+        assertThat(holdingOf(holdingsOf(token), "TSLA").get("totalQuantity").asDecimal())
             .isEqualByComparingTo("183.33333333");
         assertThat(activitiesOf(token, "type", "BUY").get("totalElements").asLong()).isEqualTo(2);
 
@@ -172,22 +172,22 @@ class ShareAdjustmentE2E extends AbstractPortfolioE2E {
             .andExpect(status().isOk())
             .andExpect(apiSuccess());
         JsonNode afterFirstReversal = holdingOf(holdingsOf(token), "TSLA");
-        assertThat(afterFirstReversal.get("totalQuantity").decimalValue()).isEqualByComparingTo("450");
-        assertThat(afterFirstReversal.get("avgCost").decimalValue()).isEqualByComparingTo("100");
+        assertThat(afterFirstReversal.get("totalQuantity").asDecimal()).isEqualByComparingTo("450");
+        assertThat(afterFirstReversal.get("avgCost").asDecimal()).isEqualByComparingTo("100");
 
         postShareAdjustment(token, UUID.randomUUID().toString(),
             splitBody.formatted(yesterday, ",\"reversalOfId\":\"" + splitId + "\""))
             .andExpect(status().isOk())
             .andExpect(apiSuccess());
         JsonNode afterSecondReversal = holdingOf(holdingsOf(token), "TSLA");
-        assertThat(afterSecondReversal.get("totalQuantity").decimalValue()).isEqualByComparingTo("150");
-        assertThat(afterSecondReversal.get("avgCost").decimalValue()).isEqualByComparingTo("300");
+        assertThat(afterSecondReversal.get("totalQuantity").asDecimal()).isEqualByComparingTo("150");
+        assertThat(afterSecondReversal.get("avgCost").asDecimal()).isEqualByComparingTo("300");
 
         /* 已沒有未沖銷的調整：先前被拒的補登現在可以成交（契約：要補登更早的交易，先沖銷較晚的調整）。 */
         postTrade(token, backdatedTrade)
             .andExpect(status().isOk())
             .andExpect(apiSuccess());
-        assertThat(holdingOf(holdingsOf(token), "TSLA").get("totalQuantity").decimalValue())
+        assertThat(holdingOf(holdingsOf(token), "TSLA").get("totalQuantity").asDecimal())
             .isEqualByComparingTo("160");
     }
 
@@ -206,10 +206,10 @@ class ShareAdjustmentE2E extends AbstractPortfolioE2E {
         JsonNode second = recordShareAdjustment(token, body.formatted(yesterday, ""));
         String firstId = first.get("id").asText();
         String secondId = second.get("id").asText();
-        assertThat(first.get("quantityDelta").decimalValue()).isEqualByComparingTo("100");
+        assertThat(first.get("quantityDelta").asDecimal()).isEqualByComparingTo("100");
         /* 後記錄者的 Q_asOf 含同一除權日已先記錄的 +100 → 200 × 2 − 200 = +200。 */
-        assertThat(second.get("quantityDelta").decimalValue()).isEqualByComparingTo("200");
-        assertThat(holdingOf(holdingsOf(token), "MSFT").get("totalQuantity").decimalValue())
+        assertThat(second.get("quantityDelta").asDecimal()).isEqualByComparingTo("200");
+        assertThat(holdingOf(holdingsOf(token), "MSFT").get("totalQuantity").asDecimal())
             .isEqualByComparingTo("400");
 
         JsonNode listed = activitiesOf(token, "type", "SHARE_ADJUSTMENT");
@@ -224,7 +224,7 @@ class ShareAdjustmentE2E extends AbstractPortfolioE2E {
         postShareAdjustment(token, UUID.randomUUID().toString(),
             body.formatted(yesterday, ",\"reversalOfId\":\"" + secondId + "\""))
             .andExpect(status().isOk());
-        assertThat(holdingOf(holdingsOf(token), "MSFT").get("totalQuantity").decimalValue())
+        assertThat(holdingOf(holdingsOf(token), "MSFT").get("totalQuantity").asDecimal())
             .isEqualByComparingTo("200");
         JsonNode relisted = activitiesOf(token, "type", "SHARE_ADJUSTMENT");
         assertThat(entryById(relisted.get("items"), firstId).get("reversible").asBoolean()).isTrue();
@@ -233,7 +233,7 @@ class ShareAdjustmentE2E extends AbstractPortfolioE2E {
             body.formatted(yesterday, ",\"reversalOfId\":\"" + firstId + "\""))
             .andExpect(status().isOk());
         JsonNode restored = holdingOf(holdingsOf(token), "MSFT");
-        assertThat(restored.get("totalQuantity").decimalValue()).isEqualByComparingTo("100");
-        assertThat(restored.get("avgCost").decimalValue()).isEqualByComparingTo("400");
+        assertThat(restored.get("totalQuantity").asDecimal()).isEqualByComparingTo("100");
+        assertThat(restored.get("avgCost").asDecimal()).isEqualByComparingTo("400");
     }
 }

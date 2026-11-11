@@ -70,15 +70,15 @@ class PortfolioDayPnlE2E extends AbstractPortfolioE2E {
 
         // MSFT：有前收 190、最新 200，昨日持有 10 股 → 10 × (200 − 190)，分母 10 × 190
         JsonNode msft = holdingOf(holdings, "MSFT");
-        assertThat(msft.get("previousClose").decimalValue()).isEqualByComparingTo("190");
-        assertThat(msft.get("dayPricePnl").decimalValue()).isEqualByComparingTo("100");
-        assertThat(msft.get("dayPricePnlRatio").decimalValue()).isEqualByComparingTo("0.05263158");
+        assertThat(msft.get("previousClose").asDecimal()).isEqualByComparingTo("190");
+        assertThat(msft.get("dayPricePnl").asDecimal()).isEqualByComparingTo("100");
+        assertThat(msft.get("dayPricePnlRatio").asDecimal()).isEqualByComparingTo("0.05263158");
 
         // META：今天首次買入、沒有前收列 → 照今日買入項計算 2 × (510 − 500)，previousClose 為 null
         JsonNode meta = holdingOf(holdings, "META");
         assertThat(meta.get("previousClose").isNull()).isTrue();
-        assertThat(meta.get("dayPricePnl").decimalValue()).isEqualByComparingTo("20");
-        assertThat(meta.get("dayPricePnlRatio").decimalValue()).isEqualByComparingTo("0.02");
+        assertThat(meta.get("dayPricePnl").asDecimal()).isEqualByComparingTo("20");
+        assertThat(meta.get("dayPricePnlRatio").asDecimal()).isEqualByComparingTo("0.02");
 
         // AMZN：昨日即持有且沒有前收 → 三欄皆為 null（欄位存在），不是 0
         JsonNode amzn = holdingOf(holdings, "AMZN");
@@ -86,13 +86,13 @@ class PortfolioDayPnlE2E extends AbstractPortfolioE2E {
         assertThat(amzn.get("dayPricePnl").isNull()).isTrue();
         assertThat(amzn.get("dayPricePnlRatio").isNull()).isTrue();
         // 估值本身不受影響：3 股 × 最新價 190
-        assertThat(amzn.get("marketValue").decimalValue()).isEqualByComparingTo("570");
+        assertThat(amzn.get("marketValue").asDecimal()).isEqualByComparingTo("570");
 
         // summary：只加總可得者 MSFT 100 + META 20 = 120，分母 1900 + 1000；AMZN 以排除數回報
         JsonNode summary = summaryOf(token);
         assertThat(summary.get("baseCurrency").asText()).isEqualTo("USD");
-        assertThat(summary.get("dayPricePnl").decimalValue()).isEqualByComparingTo("120");
-        assertThat(summary.get("dayPricePnlRatio").decimalValue()).isEqualByComparingTo("0.04137931");
+        assertThat(summary.get("dayPricePnl").asDecimal()).isEqualByComparingTo("120");
+        assertThat(summary.get("dayPricePnlRatio").asDecimal()).isEqualByComparingTo("0.04137931");
         assertThat(summary.get("dayPnlExcludedCount").asInt()).isEqualTo(1);
     }
 
@@ -112,8 +112,8 @@ class PortfolioDayPnlE2E extends AbstractPortfolioE2E {
         assertThat(summary.get("dayPricePnlRatio").isNull()).isTrue();
         assertThat(summary.get("dayPnlExcludedCount").asInt()).isEqualTo(1);
         // 其他欄位照常：3 × 190 市值、未實現損益 3 × (190 − 180)
-        assertThat(summary.get("totalMarketValue").decimalValue()).isEqualByComparingTo("570");
-        assertThat(summary.get("unrealizedPnl").decimalValue()).isEqualByComparingTo("30");
+        assertThat(summary.get("totalMarketValue").asDecimal()).isEqualByComparingTo("570");
+        assertThat(summary.get("unrealizedPnl").asDecimal()).isEqualByComparingTo("30");
     }
 
     @Test
@@ -126,7 +126,7 @@ class PortfolioDayPnlE2E extends AbstractPortfolioE2E {
         JsonNode summary = summaryOf(token);
 
         assertThat(summary.get("holdingCount").asInt()).isZero();
-        assertThat(summary.get("dayPricePnl").decimalValue()).isEqualByComparingTo("0");
+        assertThat(summary.get("dayPricePnl").asDecimal()).isEqualByComparingTo("0");
         assertThat(summary.get("dayPricePnlRatio").isNull()).isTrue();
         assertThat(summary.get("dayPnlExcludedCount").asInt()).isZero();
         assertThat(holdingsOf(token)).isEmpty();
@@ -149,15 +149,15 @@ class PortfolioDayPnlE2E extends AbstractPortfolioE2E {
             """.formatted(usTradingDate(now)));
 
         JsonNode nvda = holdingOf(holdingsOf(token), "NVDA");
-        assertThat(nvda.get("totalQuantity").decimalValue()).isEqualByComparingTo("400");
+        assertThat(nvda.get("totalQuantity").asDecimal()).isEqualByComparingTo("400");
         /* 期初持股 Q0 = 400 − 300 = 100：400 × 101 − 100 × 400 = 400；分母 100 × 400 = 40000。 */
-        assertThat(nvda.get("dayPricePnl").decimalValue()).isCloseTo(new BigDecimal("400"), within(TOLERANCE));
-        assertThat(nvda.get("dayPricePnlRatio").decimalValue()).isCloseTo(new BigDecimal("0.01"), within(TOLERANCE));
+        assertThat(nvda.get("dayPricePnl").asDecimal()).isCloseTo(new BigDecimal("400"), within(TOLERANCE));
+        assertThat(nvda.get("dayPricePnlRatio").asDecimal()).isCloseTo(new BigDecimal("0.01"), within(TOLERANCE));
         /* previousClose 維持行情原值（拆前前收），不另算調整後前收。 */
-        assertThat(nvda.get("previousClose").decimalValue()).isEqualByComparingTo("400");
+        assertThat(nvda.get("previousClose").asDecimal()).isEqualByComparingTo("400");
 
         JsonNode summary = summaryOf(token);
-        assertThat(summary.get("dayPricePnl").decimalValue()).isCloseTo(new BigDecimal("400"), within(TOLERANCE));
+        assertThat(summary.get("dayPricePnl").asDecimal()).isCloseTo(new BigDecimal("400"), within(TOLERANCE));
         assertThat(summary.get("dayPnlExcludedCount").asInt()).isZero();
     }
 }

@@ -22,6 +22,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import static dowob.xyz.stockwebv2.start.support.DecimalStringMatchers.decimalString;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasLength;
@@ -76,8 +77,8 @@ class DividendApiIT extends ContainerIT {
             .andExpect(jsonPath("$.data.id", hasLength(36)))
             .andExpect(jsonPath("$.data.symbol", equalTo("AAPL")))
             .andExpect(jsonPath("$.data.currency", equalTo("USD")))
-            .andExpect(jsonPath("$.data.amount", equalTo(120.00000000)))
-            .andExpect(jsonPath("$.data.withholdingTax", equalTo(30.00000000)))
+            .andExpect(jsonPath("$.data.amount", decimalString("120.00000000")))
+            .andExpect(jsonPath("$.data.withholdingTax", decimalString("30.00000000")))
             .andExpect(jsonPath("$.data.reversed", equalTo(false)))
             .andExpect(jsonPath("$.data.reversalOfId").value(nullValue()))
             .andExpect(jsonPath("$.data.idempotencyKey").doesNotExist());
@@ -141,8 +142,8 @@ class DividendApiIT extends ContainerIT {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.reversalOfId", equalTo(originalId)))
             .andExpect(jsonPath("$.data.reversed", equalTo(false)))
-            .andExpect(jsonPath("$.data.amount", equalTo(120.00000000)))
-            .andExpect(jsonPath("$.data.withholdingTax", equalTo(30.00000000))));
+            .andExpect(jsonPath("$.data.amount", decimalString("120.00000000")))
+            .andExpect(jsonPath("$.data.withholdingTax", decimalString("30.00000000"))));
 
         /* 原 key 同 body 重送走冪等命中，DTO 的 reversed 讀自帳本：此時原列已被沖銷。 */
         postDividend(accessToken, originalKey, AAPL_DIVIDEND)
