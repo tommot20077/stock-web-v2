@@ -237,7 +237,7 @@ Plans:
   4. Browser verification 可確認 auth cookies 為 httpOnly、CSRF token/header 正確、protected requests 帶 credentials、logout 後 `/me` 回 401。
   5. API mode integration failure 會顯示錯誤/重試狀態，不會被 mock data 掩蓋。
 
-**Plans**: 19/25 plans executed(13 GSD waves;D-24 / D-25:PR Wave 1 安全網 = 05-01 ~ 05-12,05-12 為 Yuan 合併 + develop 綠的閘門;PR Wave 2 金額字串化硬切 = 05-13 ~ 05-25,前端依型別閉包分為 05-16 ~ 05-24,05-25 為依宣告順序(前端先、後端緊接)的同時窗合併閘門)。本環境無 Docker,IT / E2E / 真後端 browser E2E 以 CI 為證。
+**Plans**: 20/25 plans executed(13 GSD waves;D-24 / D-25:PR Wave 1 安全網 = 05-01 ~ 05-12,05-12 為 Yuan 合併 + develop 綠的閘門;PR Wave 2 金額字串化硬切 = 05-13 ~ 05-25,前端依型別閉包分為 05-16 ~ 05-24,05-25 為依宣告順序(前端先、後端緊接)的同時窗合併閘門)。本環境無 Docker,IT / E2E / 真後端 browser E2E 以 CI 為證。
 **UI hint**: yes
 
 Plans:
@@ -260,7 +260,7 @@ Plans:
 - [x] `05-17-PLAN.md` — portfolio summary / 現金餘額 / 配置 Decimal 化(summary 型別閉包)(wave 5,frontend)
 - [x] `05-18-PLAN.md` — 持倉 Decimal 化:Positions 持倉計算、OrderTicket 可賣數量、HoldingEventDialog 持股數(holdings 型別閉包)(wave 6,frontend)
 - [x] `05-19-PLAN.md` — 手動交易請求 / 回應、OrderTicket 文字輸入與估算、LastFill、近期交易 Decimal 化(交易型別閉包)(wave 7,frontend)
-- [ ] `05-20-PLAN.md` — 股利與股數調整 Decimal 化(含沖銷請求)(wave 8,frontend)
+- [x] `05-20-PLAN.md` — 股利與股數調整 Decimal 化(含沖銷請求)(wave 8,frontend)
 - [ ] `05-21-PLAN.md` — 活動列 / Trades 頁 / CSV / 沖銷原列 Decimal 化(活動列型別閉包)(wave 9,frontend)
 - [ ] `05-22-PLAN.md` — 標的報價 / 觀察清單 / 搜尋 / 報價列疊加 Decimal 化(AssetDto 型別閉包)(wave 10,frontend)
 - [ ] `05-23-PLAN.md` — WS 即時報價 LiveTick Decimal 化(wave 11,frontend)
@@ -283,4 +283,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 4.1 -> 4.2 -> 5
 | 4. Manual Trade Creation, Idempotency & Post-Trade Refetch | 13/13 | Completed | 2026-09-04 |
 | 04.1 Backend Data Gap Backfill (INSERTED) | 32/32 | Completed | 2026-10-31 |
 | 04.2 Dividends, Share Adjustments & Watchlist (INSERTED) | 26/26 | Complete    | 2026-11-04 |
-| 5. Cross-Repo Browser Flow Verification & Contract Hardening | 19/25 | In Progress | - |
+| 5. Cross-Repo Browser Flow Verification & Contract Hardening | 20/25 | In Progress | - |
