@@ -237,7 +237,7 @@ Plans:
   4. Browser verification 可確認 auth cookies 為 httpOnly、CSRF token/header 正確、protected requests 帶 credentials、logout 後 `/me` 回 401。
   5. API mode integration failure 會顯示錯誤/重試狀態，不會被 mock data 掩蓋。
 
-**Plans**: 11/25 plans executed(13 GSD waves;D-24 / D-25:PR Wave 1 安全網 = 05-01 ~ 05-12,05-12 為 Yuan 合併 + develop 綠的閘門;PR Wave 2 金額字串化硬切 = 05-13 ~ 05-25,前端依型別閉包分為 05-16 ~ 05-24,05-25 為依宣告順序(前端先、後端緊接)的同時窗合併閘門)。本環境無 Docker,IT / E2E / 真後端 browser E2E 以 CI 為證。
+**Plans**: 12/25 plans executed(13 GSD waves;D-24 / D-25:PR Wave 1 安全網 = 05-01 ~ 05-12,05-12 為 Yuan 合併 + develop 綠的閘門;PR Wave 2 金額字串化硬切 = 05-13 ~ 05-25,前端依型別閉包分為 05-16 ~ 05-24,05-25 為依宣告順序(前端先、後端緊接)的同時窗合併閘門)。本環境無 Docker,IT / E2E / 真後端 browser E2E 以 CI 為證。
 **UI hint**: yes
 
 Plans:
@@ -252,7 +252,7 @@ Plans:
 - [x] `05-09-PLAN.md` — executedAt 未來時間補 fields(D-02a)+ V20 觀察清單名稱 CHECK(D-02b)(wave 2,backend)
 - [x] `05-10-PLAN.md` — 固定錯誤色 --danger 與漲跌 rgba 改 token(D-02c / D-28)(wave 1,frontend)
 - [x] `05-11-PLAN.md` — CashEntryDialog / OrderTicket 改用 useNow(D-02d)+ fields.executedAt 綁定測試(wave 2,frontend)
-- [ ] `05-12-PLAN.md` — Wave 1 閘門:覆蓋稽核表(D-01)、PR、CI 證據、Yuan 合併 + develop 綠(D-25)(wave 3,checkpoint)
+- [x] `05-12-PLAN.md` — Wave 1 閘門:覆蓋稽核表(D-01)、PR、CI 證據、Yuan 合併 + develop 綠(D-25)(wave 3,checkpoint)
 - [ ] `05-13-PLAN.md` — 後端 tracer:@DecimalString + 現金金額字串化與精度回歸(D-05 ~ D-07)(wave 4,backend)
 - [ ] `05-14-PLAN.md` — 全 API BigDecimal 字串化 + ArchUnit 守門 + 快取 v4(D-05 / D-06 / D-09)(wave 5,backend)
 - [ ] `05-15-PLAN.md` — IT / E2E 字串斷言遷移、交易字串冪等、契約改字串(D-09)(wave 6,backend)
@@ -283,4 +283,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 4.1 -> 4.2 -> 5
 | 4. Manual Trade Creation, Idempotency & Post-Trade Refetch | 13/13 | Completed | 2026-09-04 |
 | 04.1 Backend Data Gap Backfill (INSERTED) | 32/32 | Completed | 2026-10-31 |
 | 04.2 Dividends, Share Adjustments & Watchlist (INSERTED) | 26/26 | Complete    | 2026-11-04 |
-| 5. Cross-Repo Browser Flow Verification & Contract Hardening | 11/25 | In Progress | - |
+| 5. Cross-Repo Browser Flow Verification & Contract Hardening | 12/25 | In Progress | - |

@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 05
 current_phase_name: Cross-Repo Browser Flow Verification & Contract Hardening
-status: Phase 05 executing — Wave 1–2(05-01 ~ 05-11)完成,停在 05-12 閘門
-stopped_at: 05-12(Wave 1 PR 與 CI 證據閘門)
+status: Phase 05 executing — Wave 1(05-01 ~ 05-12)已合併進兩 repo develop 且 CI 綠;下一步 Wave 2(05-13 起)
+stopped_at: 05-12 完成(D-25 閘門通過);待執行 05-13 / 05-16
 last_updated: "2026-11-09T15:40:42.891Z"
 last_activity: 2026-11-09
-last_activity_desc: Phase 05 Wave 1–2 執行完成(11/25)
+last_activity_desc: 05-12 完成,Wave 1 合併且 develop 綠(12/25)
 state_head: 432529ef12bf98b6a9f23bc05984427e5eef0cce
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 104
-  completed_plans: 90
+  completed_plans: 91
 milestone_name: milestone
 ---
 
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-11-04)
 ## Current Position
 
 Phase: 05 (Cross-Repo Browser Flow Verification & Contract Hardening) — EXECUTING
-Plan: 12 of 25
-Next: 05-12 — 本機全套閘門 → 推送 → 開 Wave 1 PR(兩 repo)→ CI 證據入 05-COVERAGE-AUDIT.md → Yuan 合併並確認 develop 綠,才可進 05-13。
-Last activity: 2026-11-09 — Phase 05 Wave 1–2 執行完成(11/25;IT / E2E / 真後端 browser E2E 待 CI)
+Plan: 13 of 25
+Next: `/gsd-execute-phase 5` 續行 Wave 2(金額字串化硬切):05-13(後端 tracer)與 05-16(前端 tracer)起,05-25 為 Wave 2 合併閘門。
+Last activity: 2026-11-11 — 05-12 完成:Wave 1 PR(stock-web-v2#55、stock-web-v2-front-end#22)合併,develop CI 綠(42946358757 / 42946379447)
 
 > ✅ **Phase 4 已完成（2026-09-04）。** 13 個 plan 全數執行完畢，`04-13` 的 blocking human-verify
 > checkpoint 由 Yuan 親自走完甲／乙／丙三段共 17 步後通過（未提出任何不符項）。
@@ -168,6 +168,7 @@ Recent decisions affecting current work:
 
 - [Phase 04.2]: 04.2-02 決策閘門 Yuan 回覆「ok」→ option-recommended:股利 / 股數調整新表(append-only + reversal_of_id)、roi 公式不變因而含股利、POST /trades 拒絕早於最晚未沖銷股數調整的 executedAt。
 - [Phase 04.2]: 2026-11-04 Yuan 裁決「同日依記錄順序疊加」:同一除權日可多筆,Q_asOf 含同日先記錄者,最晚一筆依 (effective_at desc, id desc),只能倒序沖銷。
+- [Phase 05]: 05-12 stock-start Jacoco 下限依 D-23 調為 0.87 / 0.64(Yuan 2026-11-10 核准);develop PR #54 的測試映像升級併入 MarketDataContainers。
 - [Phase 05]: Wave 1–2 沿用 04.2 的「每 repo 一條執行線」(isolation=none,以 `dispatch-isolation --force-isolation none --phase 05` 寫 run-scoped sentinel;sentinel 有時效,每次派工前需重寫)。05-03 為跨 repo plan,改由閒置的後端線執行以縮短等待。前端線 SUMMARY 由 orchestrator 提交。
 - [Phase 04.2]: 執行改用「每 repo 一條執行線」(isolation=none,run-scoped 覆寫):plan 為跨 repo 絕對路徑,worktree 不適用;前端 plan 的 SUMMARY 由 orchestrator 提交以避免兩 repo 併發寫入。
 - [Phase 04.2]: code review WR-05/06/07/11(前端 race / 過時回應)已修;WR-09(除權日預設依市場時區,需改 UI-SPEC)與 WR-01(資產下架後無法沖銷)Yuan 同意延後,已列入 PROJECT.md Active。**2026-11-07 更新:已由 quick 261107-1j4 修正,PROJECT.md 移到 Validated。**
@@ -228,9 +229,9 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-11-09
-Stopped at: Phase 05 Wave 1–2 完成(05-01 ~ 05-11,兩 repo 已推送 `claude/epic-curie-lj8alo`),下一步 05-12 閘門
-Resume file: .planning/phases/05-cross-repo-browser-flow-verification-contract-hardening/05-12-PLAN.md
-Next action: `/gsd-execute-phase 5`(從 05-12 續行;05-13 起必須等 Yuan 合併 Wave 1 PR 且兩 repo develop CI 綠)。
+Stopped at: 05-12 完成(Wave 1 已合併進兩 repo develop,分支已 fast-forward 到 develop),下一步 Wave 2
+Resume file: .planning/phases/05-cross-repo-browser-flow-verification-contract-hardening/05-13-PLAN.md
+Next action: `/gsd-execute-phase 5`(從 05-13 / 05-16 續行;D-25 閘門已通過)。
 
 ~~**前端 repo 的狀態**:04-06 ~ 04-09 的 commit 只在本機、分支未推送。~~
 (2026-10-23 更正:已過時。Phase 4 前端經 PR #9 合併進 `develop @ a00fb29`,前端 repo 為 `tommot20077/stock-web-v2-front-end`。)
