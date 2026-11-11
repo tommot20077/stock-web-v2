@@ -1,5 +1,11 @@
 # develop 全面審查 — 架構維度
 
+> **歷史文件** — 本文是當時的審查(2026-09-02)紀錄,不隨程式維護。現況以 `ai-docs/`、`docs/architecture/overview.md`、`docs/api/reference.md`、`docs/testing/overview.md`、`docs/configuration/overview.md` 與 `.planning/codebase/` 為準。
+>
+> 2026-11-07 文件比對發現以下內容已與現況不同:
+> - M-3 所述各 controller 複製的 `authenticatedUserId(Authentication)` / `resolveUserId` 已重構移除。
+
+
 - 後端:`origin/develop` @ 334cb34(PR #20 merge 後);前端:`feature/phase-04-manual-trade-creation` @ fde9968(等同即將合併的 develop)
 - 方法:read-only 親讀 + grep 實查;規範依 `ai-docs/architecture.md`、`code-standards.md`、`testing-standards.md`、`event-conventions.md`、`redis-convention.md`、`flyway-convention.md`、前端 `AGENTS.md`
 - 日期:2026-09-02

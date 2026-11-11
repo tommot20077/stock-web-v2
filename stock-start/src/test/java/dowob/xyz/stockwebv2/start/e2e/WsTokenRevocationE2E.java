@@ -1,6 +1,6 @@
 package dowob.xyz.stockwebv2.start.e2e;
 
-import dowob.xyz.stockwebv2.start.e2e.support.AbstractWsE2ETest;
+import dowob.xyz.stockwebv2.start.e2e.support.AbstractWsE2E;
 import dowob.xyz.stockwebv2.start.e2e.support.DatabaseCleaner;
 
 import org.junit.jupiter.api.AfterEach;
@@ -39,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @version 1.0.0
  */
 @DisplayName("WebSocket Token Revocation E2E")
-class WsTokenRevocationE2ETest extends AbstractWsE2ETest {
+class WsTokenRevocationE2E extends AbstractWsE2E {
 
     @Autowired
     private DatabaseCleaner databaseCleaner;

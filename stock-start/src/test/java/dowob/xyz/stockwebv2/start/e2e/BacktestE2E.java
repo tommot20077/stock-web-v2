@@ -1,6 +1,6 @@
 package dowob.xyz.stockwebv2.start.e2e;
 
-import dowob.xyz.stockwebv2.start.e2e.support.AbstractStockE2ETest;
+import dowob.xyz.stockwebv2.start.e2e.support.AbstractStockE2E;
 import dowob.xyz.stockwebv2.start.e2e.support.AuthE2EHelper;
 import dowob.xyz.stockwebv2.start.e2e.support.DatabaseCleaner;
 
@@ -19,7 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @DisplayName("Backtest E2E")
-class BacktestE2E extends AbstractStockE2ETest {
+class BacktestE2E extends AbstractStockE2E {
 
     @Autowired
     private AuthE2EHelper auth;

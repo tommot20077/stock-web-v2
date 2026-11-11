@@ -1,0 +1,1 @@
+No external API integration: Phase 5 verifies and hardens the internal backend-to-frontend contract (own REST API, own WebSocket, big.js as a local library); GitHub REST is used only by gate plans as CI tooling, not integrated into the product.

@@ -1,20 +1,19 @@
 ---
 gsd_state_version: "1.0"
 milestone: v1.0
-current_phase: 5
+current_phase: 05
 current_phase_name: Cross-Repo Browser Flow Verification & Contract Hardening
-status: Phase 04.2 complete;quick 261107-1j4 done;ready to map codebase then discuss Phase 5
-stopped_at: Phase 04.2 complete, ready to plan Phase 5
-last_updated: "2026-11-07T02:55:31.685Z"
-last_activity: 2026-11-07
-last_activity_desc: Completed quick task 261107-1j4 (small-fixes batch B + 04.2 review closeout)
-state_head: eb2650a0a54592bcbd5a0057de9c514d1055d937
+status: Phase 05 executing — Wave 1–2(05-01 ~ 05-11)完成,停在 05-12 閘門
+stopped_at: 05-12(Wave 1 PR 與 CI 證據閘門)
+last_updated: "2026-11-09T15:40:42.891Z"
+last_activity: 2026-11-09
+last_activity_desc: Phase 05 Wave 1–2 執行完成(11/25)
+state_head: 432529ef12bf98b6a9f23bc05984427e5eef0cce
 progress:
   total_phases: 7
   completed_phases: 5
-  total_plans: 79
-  completed_plans: 79
-  percent: 14
+  total_plans: 104
+  completed_plans: 90
 milestone_name: milestone
 ---
 
@@ -25,14 +24,14 @@ milestone_name: milestone
 See: .planning/PROJECT.md (updated 2026-11-04)
 
 **Core value:** Users can safely sign in, inspect portfolio state, and record trades through one coherent frontend/backend flow.
-**Current focus:** Phase 5 — Cross-Repo Browser Flow Verification & Contract Hardening
+**Current focus:** Phase 05 — Cross-Repo Browser Flow Verification & Contract Hardening
 
 ## Current Position
 
-Phase: 5 — Cross-Repo Browser Flow Verification & Contract Hardening
-Plan: Not started
-Next: `/gsd-map-codebase` → `/gsd-docs-update`(重產後端 AGENTS.md)→ `/gsd-discuss-phase 5`(輸入:todo `2026-11-07-phase-5-scope-decisions`)。
-Last activity: 2026-11-07 - Completed quick task 261107-1j4: 小型修補批次 B + 04.2 審查收尾 + 2026-11-07 待辦裁決紀錄
+Phase: 05 (Cross-Repo Browser Flow Verification & Contract Hardening) — EXECUTING
+Plan: 12 of 25
+Next: 05-12 — 本機全套閘門 → 推送 → 開 Wave 1 PR(兩 repo)→ CI 證據入 05-COVERAGE-AUDIT.md → Yuan 合併並確認 develop 綠,才可進 05-13。
+Last activity: 2026-11-09 — Phase 05 Wave 1–2 執行完成(11/25;IT / E2E / 真後端 browser E2E 待 CI)
 
 > ✅ **Phase 4 已完成（2026-09-04）。** 13 個 plan 全數執行完畢，`04-13` 的 blocking human-verify
 > checkpoint 由 Yuan 親自走完甲／乙／丙三段共 17 步後通過（未提出任何不符項）。
@@ -169,6 +168,7 @@ Recent decisions affecting current work:
 
 - [Phase 04.2]: 04.2-02 決策閘門 Yuan 回覆「ok」→ option-recommended:股利 / 股數調整新表(append-only + reversal_of_id)、roi 公式不變因而含股利、POST /trades 拒絕早於最晚未沖銷股數調整的 executedAt。
 - [Phase 04.2]: 2026-11-04 Yuan 裁決「同日依記錄順序疊加」:同一除權日可多筆,Q_asOf 含同日先記錄者,最晚一筆依 (effective_at desc, id desc),只能倒序沖銷。
+- [Phase 05]: Wave 1–2 沿用 04.2 的「每 repo 一條執行線」(isolation=none,以 `dispatch-isolation --force-isolation none --phase 05` 寫 run-scoped sentinel;sentinel 有時效,每次派工前需重寫)。05-03 為跨 repo plan,改由閒置的後端線執行以縮短等待。前端線 SUMMARY 由 orchestrator 提交。
 - [Phase 04.2]: 執行改用「每 repo 一條執行線」(isolation=none,run-scoped 覆寫):plan 為跨 repo 絕對路徑,worktree 不適用;前端 plan 的 SUMMARY 由 orchestrator 提交以避免兩 repo 併發寫入。
 - [Phase 04.2]: code review WR-05/06/07/11(前端 race / 過時回應)已修;WR-09(除權日預設依市場時區,需改 UI-SPEC)與 WR-01(資產下架後無法沖銷)Yuan 同意延後,已列入 PROJECT.md Active。**2026-11-07 更新:已由 quick 261107-1j4 修正,PROJECT.md 移到 Validated。**
 - [2026-11-07 待辦裁決]: 大型功能(帳戶層級報酬率、匯兌損益與匯率歷史、K 線還原權息、資產主檔、資產分類)不排在 Phase 5 前,v1.0 後開新 milestone;Phase 5 範圍與金額字串化(decimal 套件、請求回應皆字串)記於 todo `2026-11-07-phase-5-scope-decisions`;`HoldingDto` 加 `market`(261107-1j4 E1)。
@@ -227,11 +227,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-04T12:28:33Z
-Stopped at: Phase 04.2 complete, ready to plan Phase 5
-前端契約凍結(見 04-05-SUMMARY 末節)。
-Resume file: None
-Next action: `/gsd-map-codebase` → `/gsd-docs-update` → `/gsd-discuss-phase 5`。
+Last session: 2026-11-09
+Stopped at: Phase 05 Wave 1–2 完成(05-01 ~ 05-11,兩 repo 已推送 `claude/epic-curie-lj8alo`),下一步 05-12 閘門
+Resume file: .planning/phases/05-cross-repo-browser-flow-verification-contract-hardening/05-12-PLAN.md
+Next action: `/gsd-execute-phase 5`(從 05-12 續行;05-13 起必須等 Yuan 合併 Wave 1 PR 且兩 repo develop CI 綠)。
 
 ~~**前端 repo 的狀態**:04-06 ~ 04-09 的 commit 只在本機、分支未推送。~~
 (2026-10-23 更正:已過時。Phase 4 前端經 PR #9 合併進 `develop @ a00fb29`,前端 repo 為 `tommot20077/stock-web-v2-front-end`。)

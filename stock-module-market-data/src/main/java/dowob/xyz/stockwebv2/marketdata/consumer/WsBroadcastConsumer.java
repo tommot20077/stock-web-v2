@@ -99,11 +99,14 @@ public class WsBroadcastConsumer {
      * 自動 commit。<strong>不可拿掉 {@code containerFactory}</strong> —— 預設 factory 套用全域 ack-mode，
      * 而本方法沒有 {@code Acknowledgment} 參數，會變成永不 commit（重啟即重播整個 topic）。
      *
+     * <p>topic 與 group 以 {@link KafkaConfig} 的 placeholder 宣告(預設 {@value KafkaConfig#TOPIC_PRICE_TICK} /
+     * {@value KafkaConfig#GROUP_WS_BROADCAST}),只為 IT 以唯一名稱隔離(D-29);正式環境不設定 property。
+     *
      * @param event 來自 Kafka 的 tick 事件
      */
     @KafkaListener(
-            groupId = "market-data.ws-broadcast",
-            topics = KafkaConfig.TOPIC_PRICE_TICK,
+            groupId = KafkaConfig.GROUP_WS_BROADCAST_PLACEHOLDER,
+            topics = KafkaConfig.TOPIC_PRICE_TICK_PLACEHOLDER,
             containerFactory = "wsBroadcastKafkaListenerContainerFactory"
     )
     public void onTick(PriceTickEvent event) {

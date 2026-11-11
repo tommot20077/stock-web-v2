@@ -1,6 +1,6 @@
 package dowob.xyz.stockwebv2.start.e2e;
 
-import dowob.xyz.stockwebv2.start.e2e.support.AbstractWsE2ETest;
+import dowob.xyz.stockwebv2.start.e2e.support.AbstractWsE2E;
 
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.DisplayName;
@@ -29,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @version 1.0
  */
 @DisplayName("WebSocket 每帳號連線上限 E2E")
-class WsConnectionLimitE2ETest extends AbstractWsE2ETest {
+class WsConnectionLimitE2E extends AbstractWsE2E {
 
     @Test
     @DisplayName("同帳號第 3 條連線建立時最舊連線被以 4002 驅逐")

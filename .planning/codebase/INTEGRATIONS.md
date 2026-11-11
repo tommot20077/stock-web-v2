@@ -1,177 +1,96 @@
 ---
-last_mapped_commit: 5ca148d0e17ea7e2cafc957738dbfc70fe6dfa74
+last_mapped_commit: adae04117fcfa99db40b8ca304fb5cb9c5e36ec9
+last_mapped_at: 2026-11-07
 ---
-
 # External Integrations
 
-**Analysis Date:** 2026-11-06(初次分析 2026-05-30)
+**Analysis Date:** 2026-11-07
 
-**Refresh:** 2026-11-06 targeted refresh (quick-261106-fbs Task 3) — 以程式核對並修正與現況衝突處,**不是** `/gsd-map-codebase` 全量重產(本次執行環境無法派 mapper agents;建議日後全量重產)。前端路徑以 Yuan 本機佈局 `../../vue/stock-v2/vue-app` 表示(cloud 環境為 `../stock-web-v2-front-end/vue-app`)。
+> 前端路徑相對於「前端 repo 根」（本機 / cloud 路徑對照見 `ai-docs/judgment.md` §8）。
 
 ## APIs & External Services
 
-**Backend HTTP API:**
-- Spring MVC REST API - Main backend API under `/api/v1`.
-  - SDK/Client: Browser `fetch` through sibling frontend `../../vue/stock-v2/vue-app/src/services/apiClient.ts`.
-  - Auth: browser clients use HttpOnly cookies `stock_access` / `stock_refresh` plus double-submit CSRF (`XSRF-TOKEN` cookie + `X-XSRF-TOKEN` header) for unsafe methods; non-browser clients use `Authorization: Bearer <accessToken>` from `POST /api/v1/auth/token`. Both are parsed by `SecurityConfig` (`JwtAuthenticationFilter`, `BrowserCsrfFilter`); contract in `ai-docs/browser-auth-contract.md`.
-  - Public endpoints (URL layer): `GET /api/v1/assets`, `GET /api/v1/csrf`, `/api/v1/auth/{register,login,token,refresh,logout}`, `/actuator/health`, `/v3/api-docs/**`, `/swagger-ui/**`, and `/ws/v1/market/**` in `stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java`.
-  - Protected endpoints: `/api/v1/me`, `/api/v1/me/preferences`, market latest/K-line/backfill/ticket APIs, backtests, trades, portfolio (holdings, summary, cash entries, dividends, share adjustments, activities), watchlists, and `/api/admin/**` (ADMIN) in `stock-module-*`.
+**行情資料來源（Market Data Provider）:**
+- 目前只有 Mock — `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/provider/MockDataProvider.java`，經 `MockOnlyProviderRegistry` 路由
+  - 抽象：`DataProvider` / `ProviderRegistry`（同目錄），接真實 HTTP provider 時在此新增實作
+  - 排程：`ingest/ScheduledIngestor.java` 每 `market-data.ingestor.fixed-delay-ms`（預設 1000 ms）抓所有 active+tradeable asset，可用 `market-data.ingestor.enabled=false` 關閉
+  - 後端目前無任何對外 HTTP client（無 `RestClient` / `WebClient` 使用）
 
-**OpenAPI:**
-- Springdoc OpenAPI/Swagger UI - API docs exposed through `/v3/api-docs/**` and `/swagger-ui/**`.
-  - SDK/Client: `springdoc-openapi-starter-webmvc-ui` in `stock-start/pom.xml`.
-  - Auth: Public route in `stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java`.
-  - Toggle: `STOCK_OPENAPI_ENABLED` and `STOCK_SWAGGER_UI_ENABLED` in `stock-start/src/main/resources/application.yaml`.
+**前端 ↔ 後端（內部契約）:**
+- Transport 唯一邊界：`vue-app/src/services/apiClient.ts`（credentials、CSRF header、`ApiResponse<T>` 信封 `{success, data, error, meta}` 解析、401/403 處理）
+- Domain services：`vue-app/src/services/{authApi,tradingApi,portfolioApi,cashApi,holdingEventApi,marketApi,watchlistApi,profileApi,backtestApi}.ts` 接真 API；`opsApi.ts`、`aiAccessApi.ts` 後端無端點，仍為 Preview
+- 後端端點前綴：`/api/v1`（assets、market、market/backfill、market/ws、backtests、watchlists、trades 等）、`/api/admin`
+- 契約文件：`ai-docs/browser-auth-contract.md`、`ai-docs/trading-portfolio-contract.md`、`ai-docs/watchlist-contract.md`；前端 `docs/api-contracts/mock-to-real-contract.md`
 
-**Market Data Provider:**
-- Mock market data provider - Current runtime provider implementation for latest and historical ticks.
-  - SDK/Client: Internal `DataProvider` abstraction in `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/provider/DataProvider.java`.
-  - Auth: Not applicable.
-  - Implementation: `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/provider/MockDataProvider.java`.
-  - Routing: `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/provider/MockOnlyProviderRegistry.java`.
-  - Toggle: `market-data.mock.enabled=true` by default via `@ConditionalOnProperty`.
-  - Planned external providers are implied by interface comments, but no Binance/Finnhub/Polygon backend SDK or HTTP client implementation was detected.
-
-**Frontend Third-Party Script:**
-- TradingView chart widget - Sibling frontend dynamically loads `https://s3.tradingview.com/tv.js`.
-  - SDK/Client: Browser script injection in `../../vue/stock-v2/vue-app/src/pages/Chart.vue`.
-  - Auth: None detected.
-  - Usage: Symbol mapping to TradingView ticker namespaces in `../../vue/stock-v2/vue-app/src/pages/Chart.vue`.
-
-**Frontend API Adapter Contracts:**
-- All domain adapters go through `../../vue/stock-v2/vue-app/src/services/apiClient.ts` (`credentials: 'include'`, CSRF header on unsafe methods, `ApiResponse<T>` envelope parsing, 401 refresh-once). Adapters wired to real backend endpoints in API mode: auth, portfolio, trading, cash, holding events (dividends / share adjustments), profile (base currency), market (REST + `quoteStream` WebSocket), watchlist, backtest.
-- Backtest API adapter - calls `/api/v1/backtests/*`.
-  - SDK/Client: `../../vue/stock-v2/vue-app/src/services/backtestApi.ts`.
-- Ops API adapter - Sibling frontend can call `/api/v1/ops/*` endpoints, but backend ops controllers were not detected.
-  - SDK/Client: `../../vue/stock-v2/vue-app/src/services/opsApi.ts`.
-  - Auth: Same `apiClient.ts` behavior as above; the pages stay labelled Preview.
-- AI Access API adapter - Sibling frontend can call `/api/v1/ai-access/*` endpoints, but backend AI-access controllers were not detected.
-  - SDK/Client: `../../vue/stock-v2/vue-app/src/services/aiAccessApi.ts`.
-  - Auth: Same `apiClient.ts` behavior as above.
-- Mock MCP endpoints - Sibling frontend mock data references `https://mcp.resource.app/v1/readonly`, `https://mcp.resource.app/v1/trading`, and `https://mcp.resource.app/v1/admin`.
-  - SDK/Client: Mock-only records in `../../vue/stock-v2/vue-app/src/services/aiAccessApi.ts`.
-  - Auth: Not implemented; mock data only.
+**即時行情 WebSocket:**
+- 後端 `WS_PATH = "/ws/v1/market"`（`stock-module-market-data/.../config/WsConfig.java`），以 ticket 驗證（`ws/WebSocketAuthValidator.java`，ticket 由 `POST /api/v1/market/ws/ticket` 取得），allowed origins 同 CORS
+- 前端唯一建立點：`vue-app/src/services/quoteStream.ts`（`wsBoundary.test.ts` 守門）
 
 ## Data Storage
 
 **Databases:**
-- PostgreSQL / TimescaleDB
-  - Connection: `STOCK_DB_URL`, `STOCK_DB_USERNAME`, and `STOCK_DB_PASSWORD` in `stock-start/src/main/resources/application-dev.yaml` and `stock-start/src/main/resources/application-demo.yaml`.
-  - Client: Spring Data JDBC `JdbcClient`, used by repositories such as `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/repository/JdbcUserRepository.java`.
-  - Migrations: Flyway locations `classpath:db/migration` in `stock-start/src/main/resources/application-dev.yaml`.
-  - Extensions: `uuid-ossp` in `stock-db-migration/src/main/resources/db/migration/V1__foundation_schema.sql` and `timescaledb` in `stock-db-migration/src/main/resources/db/migration/V4__market_data_hypertable.sql`.
-  - Time-series structures: `market_prices` hypertable and `kline_*` continuous aggregates in `V4__market_data_hypertable.sql`, `V5__market_data_continuous_aggregates.sql` and `V12__kline_real_time_aggregates.sql`.
-  - FX rates: `fx_rates` (static V2 seed; read by `FxRateFacadeImpl`, no writer) — see todo `2026-09-28-fx-pnl-and-rate-history`.
-- H2
-  - Connection: Test-only dependency in `stock-start/pom.xml`.
-  - Client: Spring Boot test auto-configuration.
+- PostgreSQL 16 + TimescaleDB（hypertable / continuous aggregates：`V4__market_data_hypertable.sql`、`V5__market_data_continuous_aggregates.sql`、`V12__kline_real_time_aggregates.sql`）
+  - Connection：`STOCK_DB_URL`、`STOCK_DB_USERNAME`（+ 密碼變數）
+  - Client：手寫 `Jdbc*Repository` + `JdbcClient`（market-data 批次寫入用 `NamedParameterJdbcTemplate`；`spring-boot-starter-data-jdbc` 只為 JDBC 基礎設施，非 Spring Data JDBC repository）；schema 由 Flyway 管理（`stock-db-migration/src/main/resources/db/migration/`），Spring Batch metadata 亦由 migration 建立（`V6__...`，`initialize-schema: never`）
+  - 交易表 append-only trigger：`V8__transactions_append_only_trigger.sql`
+
+**Message Broker:**
+- Apache Kafka — `STOCK_KAFKA_BOOTSTRAP_SERVERS`（預設 `localhost:9092`）
+  - Topics（`stock-module-market-data/.../config/KafkaConfig.java`）：`market.price.tick.v1`、`market.price.backfill.v1`（3 partitions、保留 24h）及 `.DLT` 死信 topic
+  - Producer idempotent、`acks: all`；JSON serializer，trusted package `dowob.xyz.stockwebv2.common.event`
+  - Consumers：`consumer/PriceWriterConsumer.java`（寫 DB）、`consumer/WsBroadcastConsumer.java`（推 WebSocket）
 
 **File Storage:**
-- Local repository resources only. No S3, GCS, Azure Blob, or filesystem upload integration was detected.
+- Local filesystem only（無物件儲存）
 
 **Caching:**
-- Redis
-  - Connection: `STOCK_REDIS_HOST`, `STOCK_REDIS_PORT`, `STOCK_REDIS_DATABASE`, and optional `STOCK_REDIS_PASSWORD` in `stock-start/src/main/resources/application-dev.yaml` and `stock-start/src/main/resources/application-demo.yaml`.
-  - Client: `StringRedisTemplate` bean in `stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/config/RedisConfig.java`.
-  - Auth state: `user:auth:{userId}` in `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/service/RefreshTokenService.java` and `stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java`.
-  - Refresh tokens: `user:refresh:{token}` and `user:refresh:index:{userId}` in `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/service/RefreshTokenService.java`.
-  - WebSocket tickets: `ws:ticket:{ticket}` in `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/ws/WsTicketService.java`.
-  - Latest market ticks: `market:latest:{assetId}` in `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/consumer/WsBroadcastConsumer.java` and `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/api/MarketLatestService.java`.
-  - Backfill idempotency: `market:backfill:idem:{key}` in `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/api/BackfillIdempotencyService.java`.
-  - Trading cache: `portfolio:valuation:v2:{userId}:{assetId}` and `portfolio:summary:v3:{userId}:{baseCurrency}` (60 s) in `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/service/PortfolioCache.java`.
-  - Rate limiting: `rl:{bucket}:{identity}` in `stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/security/RateLimitService.java`; login lockout `user:login:fail:{userId}`; refresh replay `user:refresh:used:{token}`. Full table: `ai-docs/redis-convention.md`.
+- Redis — `STOCK_REDIS_HOST`、`STOCK_REDIS_PORT`、`STOCK_REDIS_DATABASE`（預設 1）；用於 `stock-infrastructure`、`stock-module-market-data`、`stock-module-trading`
 
 ## Authentication & Identity
 
 **Auth Provider:**
-- Custom username/password authentication.
-  - Implementation: `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/api/AuthController.java` handles register, login, bearer `token`, refresh, `me`, and logout; `CsrfController` issues the CSRF cookie; `UserPreferenceController` updates the base currency; `AdminUserController` unlocks accounts.
-  - Password hashing: BCrypt strength 10 in `stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/config/PasswordConfig.java`.
-  - User persistence: PostgreSQL `users` table in `stock-db-migration/src/main/resources/db/migration/V1__foundation_schema.sql`.
-  - Access token: ES256 JWT generated and parsed by `stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/security/JwtService.java`.
-  - JWT key configuration: `STOCK_JWT_PRIVATE_KEY`, `STOCK_JWT_ACCESS_TOKEN_TTL`, and `STOCK_JWT_REFRESH_TOKEN_TTL` in `stock-start/src/main/resources/application.yaml`.
-  - Refresh token store: Redis through `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/service/RefreshTokenService.java`.
-  - Request auth: Stateless Spring Security filter in `stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java`.
-  - Authorization: Role and permission authorities derived from JWT claims in `stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java`.
-
-**WebSocket Identity:**
-- One-time WebSocket ticket exchange.
-  - Ticket issue endpoint: `POST /api/v1/market/ws/ticket` in `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/api/WsTicketController.java`.
-  - Ticket storage: Redis `GETDEL` flow in `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/ws/WsTicketService.java`.
-  - Handshake validation: `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/ws/MarketHandshakeInterceptor.java`.
-  - WebSocket route: `/ws/v1/market` in `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/config/WsConfig.java`.
+- 自建（無第三方 IdP）
+  - JWT：EC P-256 JWK 簽章（`stock.jwt.private-key` / `STOCK_JWT_PRIVATE_KEY`），dev/test/e2e 可留空自動產生暫時金鑰；工具 `scripts/GenerateJwtJwk.java`、`JwkKeyConverter`
+  - Token 只放 HttpOnly cookie：`stock_access`、`stock_refresh`（`STOCK_AUTH_COOKIE_*` 控制 SameSite/Secure/Domain/TTL）；前端禁止存入 localStorage/sessionStorage/Pinia
+  - CSRF header 由 `vue-app/src/services/apiClient.ts` 附帶；契約見 `ai-docs/browser-auth-contract.md`
+  - 以 IP 為鍵的登入限流 / 鎖定依賴 `forward-headers-strategy: native`（Tomcat RemoteIpValve）
 
 ## Monitoring & Observability
 
 **Error Tracking:**
-- No external error tracking service was detected.
+- None
 
-**Logs:**
-- Spring/SLF4J logging is used throughout backend classes.
-- `AUDIT` logger is used for WebSocket auth events in `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/ws/MarketHandshakeInterceptor.java` and `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/api/WsTicketController.java`.
-- Request trace IDs are added by `stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/web/TraceIdFilter.java` and exposed in CORS via `stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java`.
-
-**Metrics & Health:**
-- Spring Boot Actuator exposes `health`, `info`, and `metrics`, configured in `stock-start/src/main/resources/application.yaml`.
-- Market-data health checks Kafka via `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/observability/MarketDataHealthIndicator.java`.
-- Market-data info contribution lives in `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/observability/MarketDataInfoContributor.java`.
-- Market-data Micrometer metrics live in `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/observability/MarketDataMetrics.java`.
+**Logs / Metrics:**
+- SLF4J（Spring Boot 預設 Logback）；`dev` profile 下 `dowob.xyz.stockwebv2: DEBUG`
+- Actuator 於 management port `11181` 暴露 `health,info,metrics`，health probes 開啟；Micrometer metrics
+- 追蹤 id 走 `ApiResponse.meta.traceId`
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- Not detected. No Dockerfile, Kubernetes manifests, Helm charts, or deployment workflow were found in the backend root.
+- K3s（ingress 之後）；repo 內無 Dockerfile / manifest
 
 **CI Pipeline:**
-- GitHub Actions CI in `.github/workflows/ci.yml`.
-- Unit job runs `./mvnw -B test --fail-at-end --no-transfer-progress`.
-- Integration job runs `./mvnw -B -pl stock-start -am verify -Dspring-boot.repackage.skip=true --fail-at-end --no-transfer-progress`.
-- E2E job runs `./mvnw -B -pl stock-start -am test -Pe2e --no-transfer-progress`.
-- Test reports use `dorny/test-reporter@v1` and artifacts via `actions/upload-artifact@v4`.
-- Spotless job runs `./mvnw -B spotless:check`.
-- Browser E2E job checks out the frontend repo (`tommot20077/stock-web-v2-front-end`, same branch name if it exists, else `develop`), installs Node 20 + Playwright Chromium and runs `e2e/run-e2e.sh`.
-- The frontend repo has its own CI (`.github/workflows/`, Node 20): `npm ci → lint → test → build` on develop push / PR.
+- 後端 GitHub Actions `.github/workflows/ci.yml`：Lint（`spotless:check`）→ Unit（`mvnw test`）→ Integration（`-pl stock-start -am verify`）→ E2E（`-Pe2e`）→ Browser E2E（checkout 前端同名分支否則 `develop`，Node 20、`npm ci`、Playwright chromium、`bash e2e/run-e2e.sh`）
+- 前端 GitHub Actions（前端 repo 根 `.github/workflows/ci.yml`）：develop push / PR 跑 `npm ci → lint → test → build`
 
 ## Environment Configuration
 
 **Required env vars:**
-- `STOCK_DB_URL` - JDBC URL for PostgreSQL/TimescaleDB.
-- `STOCK_DB_USERNAME` - Database user.
-- `STOCK_DB_PASSWORD` - Database password.
-- `STOCK_REDIS_HOST` - Redis host.
-- `STOCK_REDIS_PORT` - Redis port.
-- `STOCK_REDIS_DATABASE` - Redis database index, default `1`.
-- `STOCK_REDIS_PASSWORD` - Optional Redis password.
-- `STOCK_KAFKA_BOOTSTRAP_SERVERS` - Kafka bootstrap servers, default `localhost:9092`.
-- `SERVER_PORT` - HTTP server port, default `11180`.
-- `STOCK_MANAGEMENT_PORT` - Actuator management server port, default `11181`.
-- `STOCK_CORS_ALLOWED_ORIGINS` - Allowed browser origins, default `http://localhost:5173`.
-- `STOCK_JWT_PRIVATE_KEY` - Required outside `dev`, `test`, and `e2e`.
-- `STOCK_JWT_ACCESS_TOKEN_TTL` - Access token TTL, default `PT30M`.
-- `STOCK_JWT_REFRESH_TOKEN_TTL` - Refresh token TTL, default `P14D`.
-- `STOCK_OPENAPI_ENABLED` - OpenAPI docs toggle, default `false`.
-- `STOCK_SWAGGER_UI_ENABLED` - Swagger UI toggle, default `false`.
-- `STOCK_AUTH_COOKIE_*` - Browser auth cookie names / SameSite / Secure / TTLs (defaults in `ai-docs/browser-auth-contract.md`).
-- `VITE_DATA_MODE` - Sibling frontend runtime adapter mode: unset / empty → `mock`, `api` → HTTP adapters, any other value throws `RuntimeDataModeError` (fail fast) in `../../vue/stock-v2/vue-app/src/services/runtimeDataMode.ts`.
+- 後端：`STOCK_DB_URL`、`STOCK_DB_USERNAME`、DB 密碼、`STOCK_REDIS_HOST`、`STOCK_REDIS_PORT`、`STOCK_KAFKA_BOOTSTRAP_SERVERS`、`STOCK_JWT_PRIVATE_KEY`（正式環境必填）、`STOCK_CORS_ALLOWED_ORIGINS`、`STOCK_AUTH_COOKIE_SECURE`（正式應為 true）
+- 前端：`VITE_DATA_MODE`
 
 **Secrets location:**
-- Backend dev profile imports optional `.env` as Spring properties in `stock-start/src/main/resources/application-dev.yaml`.
-- `.env.example` exists at the backend root and was not read.
-- No secret manager integration was detected.
+- 本機：repo 根 `.env`（gitignored，範本 `.env.example`）；正式環境由部署平台注入環境變數
 
 ## Webhooks & Callbacks
 
 **Incoming:**
-- No third-party webhook endpoints were detected.
-- Browser WebSocket clients connect to `/ws/v1/market`, registered in `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/config/WsConfig.java`.
-- Backend market data consumers receive Kafka events through `@KafkaListener` in `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/consumer/PriceWriterConsumer.java` and `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/consumer/WsBroadcastConsumer.java`.
+- None
 
 **Outgoing:**
-- Kafka producers publish live ticks to `market.price.tick.v1` and backfill ticks to `market.price.backfill.v1` in `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/ingest/MarketDataIngestService.java`.
-- Kafka DLT topics are `market.price.tick.v1.DLT` and `market.price.backfill.v1.DLT`, configured in `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/config/KafkaConfig.java`.
-- No outbound HTTP integrations were detected in backend source. The current backend market provider is mock-only.
-- Sibling frontend performs outbound browser request to TradingView script host from `../../vue/stock-v2/vue-app/src/pages/Chart.vue`.
+- None
 
 ---
 
-*Integration audit: 2026-05-30;targeted refresh 2026-11-06*
+*Integration audit: 2026-11-07*

@@ -6,7 +6,7 @@
 
 *   **Modular Monolith**: Distinct modules (`user`, `asset`, `backtest`, `trading`, `market-data`) with strict boundaries.
 *   **Facade Pattern**: Modules interact ONLY via Service Interfaces defined in `stock-infrastructure`, never direct Repository/SQL access. Facades today (2026-11-06): `AssetFacade` / `FxRateFacade` (implemented in asset), `MarketDataFacade` (market-data), `UserPreferenceFacade` (user).
-*   **DDD-Lite (as implemented: transaction script)**: Domain objects are immutable `record`s with no behaviour (e.g. `Holding`, `TradeTransaction`); business rules live in pure calculators (`HoldingCalculator`, `TradePayloadMatcher`) and application services (`TradingService`). Aggregate boundaries below still govern persistence. This is a deliberate fit for Spring Data JDBC — do not describe it as "rich domain models".
+*   **DDD-Lite (as implemented: transaction script)**: Domain objects are immutable `record`s with no behaviour (e.g. `Holding`, `TradeTransaction`); business rules live in pure calculators (`HoldingCalculator`, `TradePayloadMatcher`) and application services (`TradingService`). Aggregate boundaries below still govern persistence. This is a deliberate fit for hand-written JDBC repositories — do not describe it as "rich domain models".
 *   **Switchable module (not independently deployable)**: `stock-module-market-data` can be *turned off* piecewise (`market-data.ingestor.enabled`, `market-data.scheduling.enabled`, mock provider) but there is only one runnable application (`stock-start`); market-data has no `@SpringBootApplication` or repackage config. True standalone deployment is not implemented.
 
 ## Module Structure
@@ -26,7 +26,7 @@ stock-web-v2/                        ← parent pom
 
 ## Tech Stack & Decisions
 
-*   **Data Access**: **Spring Data JDBC** (not JPA). Explicit SQL mapping, no lazy loading, no session management.
+*   **Data Access**: Hand-written `Jdbc*Repository` classes over `JdbcClient` (market-data batch writes use `NamedParameterJdbcTemplate`); not JPA and not Spring Data JDBC repositories — `spring-boot-starter-data-jdbc` is only the JDBC infrastructure dependency. Explicit SQL mapping, no lazy loading, no session management.
 *   **Security**:
     *   **ECDSA (ES256)** for JWT (Never use RSA).
     *   **Stateful JWT**: Redis `user:auth:{id}` stores Token Version.
@@ -130,9 +130,9 @@ Added alongside each feature implementation — never retrofitted. See [security
 *   **Redis for hot reads**: latest prices (`market:latest:*`) and portfolio views (`portfolio:*`) are cached in Redis; the DB remains the source of truth. There is no daily write-back batch.
 *   **Portfolio storage**: only `holdings` (trade-triggered) is persisted; valuations are derived on read. A separate `portfolio_valuations` table does not exist.
 
-## Aggregate Root Boundaries (Spring Data JDBC)
+## Aggregate Root Boundaries
 
-Spring Data JDBC requires explicit Aggregate Root definitions. Each Aggregate is managed through its Root's Repository.
+Aggregate Root definitions stay explicit. Each aggregate is persisted through its root's hand-written repository.
 
 | Module | Aggregate Root | Value Objects / Child Entities | Cross-Aggregate Reference |
 |--------|---------------|-------------------------------|--------------------------|

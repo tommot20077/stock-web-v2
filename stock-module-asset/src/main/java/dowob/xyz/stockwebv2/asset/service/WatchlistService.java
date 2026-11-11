@@ -229,8 +229,9 @@ public class WatchlistService {
      *
      * <p>{@code strip()} 依 {@link Character#isWhitespace} 判斷，不涵蓋不換行空白（U+00A0 / U+2007 / U+202F）；
      * strip 後若每個 code point 都是 {@link Character#isWhitespace} 或 {@link Character#isSpaceChar}，
-     * 同樣視為空白名稱（04.2 IN-04）。名稱中間的不換行空白照常保留。DB 的 {@code btrim} CHECK 未同步擴充
-     * （需要新 migration；服務是唯一寫入者）。</p>
+     * 同樣視為空白名稱（04.2 IN-04）。名稱中間的不換行空白照常保留。DB 由 V20 {@code ck_watchlists_name_not_blank}
+     * 以同一字元集兜底（{@code btrim(name, <isWhitespace ∪ isSpaceChar 的 28 個字元>) <> ''}，Phase 5 D-02b）；
+     * 本判斷式改變字元集時，要以新的 migration 重建該約束。</p>
      *
      * @param name 使用者輸入
      * @return 正規化後的名稱

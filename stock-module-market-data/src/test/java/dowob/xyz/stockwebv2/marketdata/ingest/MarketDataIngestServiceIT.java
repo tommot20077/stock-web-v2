@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.marketdata.ingest;
 
 import dowob.xyz.stockwebv2.common.event.PriceTickEvent;
 import dowob.xyz.stockwebv2.marketdata.config.KafkaConfig;
+import dowob.xyz.stockwebv2.marketdata.support.MarketDataContainers;
 
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -20,10 +21,6 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.springframework.kafka.support.serializer.JsonSerializer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.kafka.KafkaContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -34,29 +31,36 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * {@link MarketDataIngestService} 整合測試 — 以 Kafka Testcontainer 驗證：
+ * {@link MarketDataIngestService} 整合測試 — 以共用 Kafka 容器驗證：
  * <ul>
- *   <li>{@code publishTick} 寫入正確 topic 且 partition key 為 assetId 字串</li>
- *   <li>{@code publishBackfillTick} 寫入 backfill topic 且 partition key 正確</li>
+ *   <li>{@code publishTick} 寫入注入的 tick topic 且 partition key 為 assetId 字串</li>
+ *   <li>{@code publishBackfillTick} 寫入注入的 backfill topic 且 partition key 正確</li>
  *   <li>傳入 {@code null} 拋出 {@link NullPointerException}</li>
  * </ul>
  *
+ * <p><strong>隔離(D-29)</strong>:Kafka 由 {@link MarketDataContainers#kafka()} 與其他 IT 共用,
+ * 因此 tick / backfill topic 皆以 {@link MarketDataContainers#uniqueName(String)} 產生、consumer group 每次唯一,
+ * 且 {@link #pollOne(KafkaConsumer, String)} 只接受 key 相符的那一筆,不取「第一筆」。</p>
+ *
  * @author Yuan
- * @version 1.0.0
+ * @version 1.1.0
  */
-@Testcontainers
 class MarketDataIngestServiceIT {
 
-    @Container
-    static final KafkaContainer kafka = new KafkaContainer(
-            DockerImageName.parse("apache/kafka:4.2.0"));
+    /** 本類別專用的 tick topic;正式名稱只當前綴,方便在 broker log 中辨識。 */
+    static final String TICK_TOPIC = MarketDataContainers.uniqueName(KafkaConfig.TOPIC_PRICE_TICK);
+
+    /** 本類別專用的 backfill topic。 */
+    static final String BACKFILL_TOPIC = MarketDataContainers.uniqueName(KafkaConfig.TOPIC_PRICE_BACKFILL);
+
+    /** {@link #pollOne(KafkaConsumer, String)} 等待相符訊息的上限。 */
+    private static final long POLL_TIMEOUT_MS = 10_000;
 
     static MarketDataIngestService service;
     static KafkaTemplate<String, Object> template;
@@ -72,7 +76,7 @@ class MarketDataIngestServiceIT {
         valueSerializer.setAddTypeInfo(false);
 
         Map<String, Object> producerProps = Map.of(
-                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers(),
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, MarketDataContainers.kafka().getBootstrapServers(),
                 ProducerConfig.ACKS_CONFIG, "all",
                 ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true
         );
@@ -80,14 +84,14 @@ class MarketDataIngestServiceIT {
         DefaultKafkaProducerFactory<String, Object> factory = new DefaultKafkaProducerFactory<>(
                 producerProps, new StringSerializer(), valueSerializer);
         template = new KafkaTemplate<>(factory);
-        service = new MarketDataIngestService(template);
+        service = new MarketDataIngestService(template, TICK_TOPIC, BACKFILL_TOPIC);
 
-        // 手動建立 topics（Spring KafkaAdmin 未啟動）
-        try (AdminClient admin = AdminClient.create(Map.of("bootstrap.servers", kafka.getBootstrapServers()))) {
-            admin.createTopics(List.of(
-                    TopicBuilder.name(KafkaConfig.TOPIC_PRICE_TICK).partitions(3).replicas((short) 1).build(),
-                    TopicBuilder.name(KafkaConfig.TOPIC_PRICE_BACKFILL).partitions(3).replicas((short) 1).build()
-            )).all().get(10, TimeUnit.SECONDS);
+        // 手動建立 topics（Spring KafkaAdmin 未啟動）;共用 broker 下經 ensureTopics(已存在視為成功)
+        try (AdminClient admin = AdminClient.create(
+                Map.of("bootstrap.servers", MarketDataContainers.kafka().getBootstrapServers()))) {
+            MarketDataContainers.ensureTopics(admin,
+                    TopicBuilder.name(TICK_TOPIC).partitions(3).replicas((short) 1).build(),
+                    TopicBuilder.name(BACKFILL_TOPIC).partitions(3).replicas((short) 1).build());
         }
     }
 
@@ -104,13 +108,13 @@ class MarketDataIngestServiceIT {
 
         SendResult<String, Object> result = service.publishTick(event).get(5, TimeUnit.SECONDS);
 
-        assertThat(result.getRecordMetadata().topic()).isEqualTo(KafkaConfig.TOPIC_PRICE_TICK);
+        assertThat(result.getRecordMetadata().topic()).isEqualTo(TICK_TOPIC);
         assertThat(result.getProducerRecord().key()).isEqualTo("42");
 
         // 以 consumer 驗證訊息確實寫入
         try (KafkaConsumer<String, PriceTickEvent> consumer = newConsumer(PriceTickEvent.class)) {
-            consumer.subscribe(List.of(KafkaConfig.TOPIC_PRICE_TICK));
-            ConsumerRecord<String, PriceTickEvent> rec = pollOne(consumer);
+            consumer.subscribe(List.of(TICK_TOPIC));
+            ConsumerRecord<String, PriceTickEvent> rec = pollOne(consumer, "42");
             assertThat(rec.key()).isEqualTo("42");
             assertThat(rec.value().symbol()).isEqualTo("AAPL");
             assertThat(rec.value().price()).isEqualByComparingTo("187.45");
@@ -123,13 +127,14 @@ class MarketDataIngestServiceIT {
 
         SendResult<String, Object> result = service.publishBackfillTick(event).get(5, TimeUnit.SECONDS);
 
-        assertThat(result.getRecordMetadata().topic()).isEqualTo(KafkaConfig.TOPIC_PRICE_BACKFILL);
+        assertThat(result.getRecordMetadata().topic()).isEqualTo(BACKFILL_TOPIC);
         assertThat(result.getProducerRecord().key()).isEqualTo("7");
 
         // 以 consumer 驗證訊息確實寫入
         try (KafkaConsumer<String, PriceTickEvent> consumer = newConsumer(PriceTickEvent.class)) {
-            consumer.subscribe(List.of(KafkaConfig.TOPIC_PRICE_BACKFILL));
-            ConsumerRecord<String, PriceTickEvent> rec = pollOne(consumer);
+            consumer.subscribe(List.of(BACKFILL_TOPIC));
+            ConsumerRecord<String, PriceTickEvent> rec = pollOne(consumer, "7");
+            assertThat(rec.key()).isEqualTo("7");
             assertThat(rec.value().source()).isEqualTo("backfill");
             assertThat(rec.value().assetId()).isEqualTo(7L);
         }
@@ -162,21 +167,32 @@ class MarketDataIngestServiceIT {
         valueDeserializer.addTrustedPackages("*");
 
         Map<String, Object> consumerProps = new HashMap<>();
-        consumerProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
-        consumerProps.put(ConsumerConfig.GROUP_ID_CONFIG, "test-" + UUID.randomUUID());
+        consumerProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, MarketDataContainers.kafka().getBootstrapServers());
+        consumerProps.put(ConsumerConfig.GROUP_ID_CONFIG, MarketDataContainers.uniqueName("ingest-it"));
         consumerProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 
         return new KafkaConsumer<>(consumerProps, new StringDeserializer(), valueDeserializer);
     }
 
-    private <V> ConsumerRecord<String, V> pollOne(KafkaConsumer<String, V> consumer) {
-        long deadline = System.currentTimeMillis() + 10_000;
+    /**
+     * 輪詢直到收到 key 等於 {@code expectedKey} 的訊息;其他 key 的訊息略過(D-29 風險處理)。
+     *
+     * @param consumer    已訂閱目標 topic 的 consumer
+     * @param expectedKey 預期的 partition key(assetId 字串)
+     * @param <V>         value 型別
+     * @return 第一筆 key 相符的訊息
+     * @throws AssertionError {@value #POLL_TIMEOUT_MS} ms 內沒收到相符訊息
+     */
+    private <V> ConsumerRecord<String, V> pollOne(KafkaConsumer<String, V> consumer, String expectedKey) {
+        long deadline = System.currentTimeMillis() + POLL_TIMEOUT_MS;
         while (System.currentTimeMillis() < deadline) {
             ConsumerRecords<String, V> records = consumer.poll(Duration.ofMillis(500));
-            if (!records.isEmpty()) {
-                return records.iterator().next();
+            for (ConsumerRecord<String, V> rec : records) {
+                if (expectedKey.equals(rec.key())) {
+                    return rec;
+                }
             }
         }
-        throw new AssertionError("No record received within 10s");
+        throw new AssertionError("No record with key " + expectedKey + " received within 10s");
     }
 }

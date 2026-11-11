@@ -1,6 +1,6 @@
 package dowob.xyz.stockwebv2.start.e2e;
 
-import dowob.xyz.stockwebv2.start.e2e.support.AbstractPortfolioE2ETest;
+import dowob.xyz.stockwebv2.start.e2e.support.AbstractPortfolioE2E;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -46,7 +46,7 @@ import tools.jackson.databind.JsonNode;
  * @version 1.0
  */
 @DisplayName("Watchlist E2E")
-class WatchlistE2E extends AbstractPortfolioE2ETest {
+class WatchlistE2E extends AbstractPortfolioE2E {
 
     private static final String DEFAULT_NAME = "我的自選";
 

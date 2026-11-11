@@ -237,8 +237,38 @@ Plans:
   4. Browser verification 可確認 auth cookies 為 httpOnly、CSRF token/header 正確、protected requests 帶 credentials、logout 後 `/me` 回 401。
   5. API mode integration failure 會顯示錯誤/重試狀態，不會被 mock data 掩蓋。
 
-**Plans**: TBD
+**Plans**: 11/25 plans executed(13 GSD waves;D-24 / D-25:PR Wave 1 安全網 = 05-01 ~ 05-12,05-12 為 Yuan 合併 + develop 綠的閘門;PR Wave 2 金額字串化硬切 = 05-13 ~ 05-25,前端依型別閉包分為 05-16 ~ 05-24,05-25 為依宣告順序(前端先、後端緊接)的同時窗合併閘門)。本環境無 Docker,IT / E2E / 真後端 browser E2E 以 CI 為證。
 **UI hint**: yes
+
+Plans:
+- [x] `05-01-PLAN.md` — 契約全程 journey J0(SC3 + SC4,D-10 ~ D-13;phase tracer)(wave 1,frontend)
+- [x] `05-02-PLAN.md` — apiClient NETWORK_ERROR 正規化(D-26)+ SC2 缺口 + SC5 18 組失敗矩陣與 mock 哨兵(D-16 ~ D-20)(wave 1,frontend)
+- [x] `05-03-PLAN.md` — Vite 代理 env 預設 11180(D-21)、run-e2e 跑全部(D-14)、前端 CI 真後端 browser-e2e(D-15)(wave 1,cross-repo)
+- [x] `05-04-PLAN.md` — SC1 稽核缺口 G1 ~ G5(cookie 屬性、CSRF、登出 401、403 信封)(wave 1,backend)
+- [x] `05-05-PLAN.md` — access token TTL 對齊 PT15M + 啟動守衛(D-22)、契約 / 設定 / 架構用詞一致性(D-03)(wave 1,backend)
+- [x] `05-06-PLAN.md` — 7 個 *E2ETest 與 3 個抽象基底改名 + 命名守門(D-23 / D-27)(wave 2,backend)
+- [x] `05-07-PLAN.md` — market-data IT 共用容器基礎與 8 個 IT 遷移(D-04)(wave 1,backend)
+- [x] `05-08-PLAN.md` — Kafka topic / group 可設定 + 3 個 Kafka IT 唯一 topic + 亂序執行(D-29)(wave 2,backend)
+- [x] `05-09-PLAN.md` — executedAt 未來時間補 fields(D-02a)+ V20 觀察清單名稱 CHECK(D-02b)(wave 2,backend)
+- [x] `05-10-PLAN.md` — 固定錯誤色 --danger 與漲跌 rgba 改 token(D-02c / D-28)(wave 1,frontend)
+- [x] `05-11-PLAN.md` — CashEntryDialog / OrderTicket 改用 useNow(D-02d)+ fields.executedAt 綁定測試(wave 2,frontend)
+- [ ] `05-12-PLAN.md` — Wave 1 閘門:覆蓋稽核表(D-01)、PR、CI 證據、Yuan 合併 + develop 綠(D-25)(wave 3,checkpoint)
+- [ ] `05-13-PLAN.md` — 後端 tracer:@DecimalString + 現金金額字串化與精度回歸(D-05 ~ D-07)(wave 4,backend)
+- [ ] `05-14-PLAN.md` — 全 API BigDecimal 字串化 + ArchUnit 守門 + 快取 v4(D-05 / D-06 / D-09)(wave 5,backend)
+- [ ] `05-15-PLAN.md` — IT / E2E 字串斷言遷移、交易字串冪等、契約改字串(D-09)(wave 6,backend)
+- [ ] `05-16-PLAN.md` — 前端 tracer:big.js + decimal.ts + moneyFormat + 現金 slice(D-08)(wave 4,frontend)
+- [ ] `05-17-PLAN.md` — portfolio summary / 現金餘額 / 配置 Decimal 化(summary 型別閉包)(wave 5,frontend)
+- [ ] `05-18-PLAN.md` — 持倉 Decimal 化:Positions 持倉計算、OrderTicket 可賣數量、HoldingEventDialog 持股數(holdings 型別閉包)(wave 6,frontend)
+- [ ] `05-19-PLAN.md` — 手動交易請求 / 回應、OrderTicket 文字輸入與估算、LastFill、近期交易 Decimal 化(交易型別閉包)(wave 7,frontend)
+- [ ] `05-20-PLAN.md` — 股利與股數調整 Decimal 化(含沖銷請求)(wave 8,frontend)
+- [ ] `05-21-PLAN.md` — 活動列 / Trades 頁 / CSV / 沖銷原列 Decimal 化(活動列型別閉包)(wave 9,frontend)
+- [ ] `05-22-PLAN.md` — 標的報價 / 觀察清單 / 搜尋 / 報價列疊加 Decimal 化(AssetDto 型別閉包)(wave 10,frontend)
+- [ ] `05-23-PLAN.md` — WS 即時報價 LiveTick Decimal 化(wave 11,frontend)
+- [ ] `05-24-PLAN.md` — 回測 Decimal 化、E2E helper 改字串、decimal 邊界守門與文件(wave 12,frontend)
+- [ ] `05-25-PLAN.md` — Wave 2 閘門:PR、CI 證據、Yuan 依宣告順序同時窗合併(前端先、後端緊接)+ develop 綠(D-07)(wave 13,checkpoint)
+
+**Cross-cutting constraints:**
+- npm test(mock 與 api 兩種 mode)、npm run build、layout.spec 全綠
 
 ## Progress
 
@@ -253,4 +283,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 4.1 -> 4.2 -> 5
 | 4. Manual Trade Creation, Idempotency & Post-Trade Refetch | 13/13 | Completed | 2026-09-04 |
 | 04.1 Backend Data Gap Backfill (INSERTED) | 32/32 | Completed | 2026-10-31 |
 | 04.2 Dividends, Share Adjustments & Watchlist (INSERTED) | 26/26 | Complete    | 2026-11-04 |
-| 5. Cross-Repo Browser Flow Verification & Contract Hardening | 0/TBD | Not started | - |
+| 5. Cross-Repo Browser Flow Verification & Contract Hardening | 11/25 | In Progress | - |

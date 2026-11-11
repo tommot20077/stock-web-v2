@@ -1,5 +1,12 @@
 # Browser E2E Testing Design(Playwright 全鏈路測試)
 
+> **歷史文件** — 本文是當時的設計(2026-07-16)紀錄,不隨程式維護。現況以 `ai-docs/`、`docs/architecture/overview.md`、`docs/api/reference.md`、`docs/testing/overview.md`、`docs/configuration/overview.md` 與 `.planning/codebase/` 為準。
+>
+> 2026-11-07 文件比對發現以下內容已與現況不同:
+> - 文中的 repo 路徑(`java/stock-web-v2`、`vue/stock-v2`)為當時的本機佈局;兩個 repo 的路徑對照見 `ai-docs/judgment.md` §8。
+> - 前端 `test:e2e` 與 CI 預設只跑 `@smoke`;`@extended` 何時進 CI 見 `.planning/todos/pending/2026-11-07-phase-5-scope-decisions.md`。
+
+
 日期:2026-07-16(同日修訂 v2:test case 依程式碼查證重寫,詳 §5)
 狀態:設計已核可(Yuan;v2 修訂範圍與案例亦經 Yuan 裁決)
 範圍:跨 repo——後端 `java/stock-web-v2` 與前端 `vue/stock-v2`

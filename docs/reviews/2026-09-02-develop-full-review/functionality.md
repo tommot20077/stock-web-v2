@@ -1,5 +1,11 @@
 # develop 功能維度審查(2026-09-02)
 
+> **歷史文件** — 本文是當時的審查(2026-09-02)紀錄,不隨程式維護。現況以 `ai-docs/`、`docs/architecture/overview.md`、`docs/api/reference.md`、`docs/testing/overview.md`、`docs/configuration/overview.md` 與 `.planning/codebase/` 為準。
+>
+> 2026-11-07 文件比對發現以下內容已與現況不同:
+> - 文中 `file:line` 行號為當時版本,可能已位移。
+
+
 - 後端:`origin/develop` @ 334cb34(PR #20 merge commit)
 - 前端:`feature/phase-04-manual-trade-creation` @ fde9968(含 F-1/F-2/F-3 與 flushAsync 修正;等同即將合併的 develop)
 - 方法:靜態親讀程式碼與測試,未跑測試、未改檔。所有「✓」皆指名測試或 file:line。

@@ -1,5 +1,8 @@
 # Stock Foundation Implementation Plan
 
+> **歷史文件** — 本文是當時的實作計畫(2026-05-16)紀錄,不隨程式維護。現況以 `ai-docs/`、`docs/architecture/overview.md`、`docs/api/reference.md`、`docs/testing/overview.md`、`docs/configuration/overview.md` 與 `.planning/codebase/` 為準。
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the Foundation-first backend for `stock-web-v2`: multi-module structure, environment-driven YAML config, common API/error contracts, Flyway schema, Redis-backed auth, seed asset query, Actuator, OpenAPI, and integration tests.

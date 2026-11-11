@@ -86,7 +86,7 @@
 |---|---|---|
 | 400 | `VALIDATION_FAILED` | body 欄位或 `Idempotency-Key` 不合法；看 `error.fields` |
 | 400 | `VALIDATION_FAILED` | body 不是合法 JSON 或欄位型別錯（2026-10-24 前為 500，D-27）；訊息固定、無 `error.fields` |
-| 400 | `VALIDATION_FAILED` | `executedAt` 晚於伺服器時間 5 分鐘以上；訊息 `executedAt must not be in the future`、**無 `error.fields`**（既有形狀） |
+| 400 | `VALIDATION_FAILED` | `executedAt` 晚於伺服器時間 5 分鐘以上 → `error.fields.executedAt = "must not be in the future"`（Phase 5 D-02a；先前無 fields），與 1900 下限同形；在任何資產解析與寫入之前擋下，訊息不回射輸入。5 分鐘以內視為時鐘偏移，照常入帳 |
 | 400 | `VALIDATION_FAILED` | 〔quick-261107-1j4〕`executedAt` 早於 `1900-01-01T00:00:00Z`（下限含邊界，比較 instant：台北本地 `1900-01-01T00:00+08:00` = `1899-12-31T16:00Z` 被拒）→ `error.fields.executedAt = "must not be before 1900-01-01"`；在任何資產解析與寫入之前擋下，訊息不回射輸入。先前 DB 存不下的極端值會在 insert 變成 500 |
 | 400 | `VALIDATION_FAILED` | 〔04.2〕`executedAt` 早於該標的最晚一筆**未沖銷**股數調整的 `effective_at`（除權日交易日起點）→ `error.fields.executedAt`；交易與持倉皆不變。理由：持倉是物化狀態，拆股後補登拆股前的買入會以拆前股數加進拆後持倉（靜默錯帳）。沒有股數調整的標的行為與 Phase 4 相同。要補登更早的交易，先沖銷該調整、補登後再重記 |
 | 400 | `TRADE_UNSUPPORTED_TYPE` | `type` 不是 BUY / SELL |
@@ -590,6 +590,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 ## 變更紀錄
 
+- 2026-11-09（Phase 5 D-02a，05-09）：`POST /trades` 的 `executedAt` 晚於伺服器時間 5 分鐘以上時，400 `VALIDATION_FAILED` 改帶 `fields.executedAt = "must not be in the future"`（先前無 `fields`、訊息 `executedAt must not be in the future`），與 1900 下限同形，前端下單表單可把錯誤綁到成交時間欄位。HTTP status、`error.code`、5 分鐘容忍度不變；只看 `error.code` 的 client 不受影響。
 - 2026-11-07（quick-261107-1j4，Yuan 裁決）：holdings 新增 `market`（string | null，JSON 位置緊接 `sector` 之後）：交易市場代號，與 `sector` 取自同一份資產屬性，資產屬性缺失或資產未設定市場時為 `null`。前端從持倉開啟股利 / 股數調整對話框時直接以 `market` + `assetType` 決定該市場的今天，不再額外依代號查資產。`market` 隨原幣估值寫入持倉快取，所以持倉鍵由 `portfolio:valuation:v2` 升 `portfolio:valuation:v3`（舊鍵 60 秒內自然過期）；summary 形狀與 `portfolio:summary:v3` 不變。純新增欄位，既有 client 不受影響。
 - 2026-11-07（quick-261107-1j4，04.2 WR-01）：`POST /portfolio/dividends` 與 `POST /portfolio/share-adjustments` 的標的狀態檢查只套用在**新紀錄**：帶 `reversalOfId` 的沖銷與同 key 冪等重送不再要求標的 active + tradeable（先前標的下架後無法更正既有紀錄，逾時重送也會被 404 擋下）。新紀錄的 404 `ASSET_NOT_FOUND` 訊息與 `fields.symbol` 不變；活動列表的 `reversible` 仍只看帳本。
 - 2026-11-07（quick-261107-1j4）：`POST /trades` 的 `executedAt` 與 `POST /portfolio/cash-entries` 的 `occurredAt` 新增下限 1900-01-01T00:00:00Z（含邊界、比較 instant）：早於者回 400 `VALIDATION_FAILED`，`fields.executedAt` / `fields.occurredAt` = `must not be before 1900-01-01`，在資產解析與寫入之前擋下（先前 DB 存不下的極端值會變成 500；形狀同 quick-261106-fbs 的 `paidAt` / `effectiveDate`）。`executedAt` 晚於現在的既有錯誤不變（仍無 `fields`）。

@@ -1,6 +1,6 @@
 package dowob.xyz.stockwebv2.start.e2e;
 
-import dowob.xyz.stockwebv2.start.e2e.support.AbstractPortfolioE2ETest;
+import dowob.xyz.stockwebv2.start.e2e.support.AbstractPortfolioE2E;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,7 +36,7 @@ import tools.jackson.databind.JsonNode;
  * @version 1.0
  */
 @DisplayName("Dividend E2E")
-class DividendE2E extends AbstractPortfolioE2ETest {
+class DividendE2E extends AbstractPortfolioE2E {
 
     /** AAPL 實領 120、預扣稅 30 的股利（入帳時間由後端補現在）。 */
     private static final String AAPL_120_TAX_30 = """

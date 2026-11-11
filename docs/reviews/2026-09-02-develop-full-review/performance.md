@@ -1,5 +1,11 @@
 # develop 全面審查 — 性能維度
 
+> **歷史文件** — 本文是當時的審查(2026-09-02)紀錄,不隨程式維護。現況以 `ai-docs/`、`docs/architecture/overview.md`、`docs/api/reference.md`、`docs/testing/overview.md`、`docs/configuration/overview.md` 與 `.planning/codebase/` 為準。
+>
+> 2026-11-07 文件比對發現以下內容已與現況不同:
+> - `sumRealizedPnl` 已不存在;`BackfillController` 的 `MAX_RANGE` 已移到第 54 行。其餘 `file:line` 行號可能已位移。
+
+
 - 審查對象:後端 `origin/develop` @ `334cb34`(PR #20 merge;工作樹已驗證與其零差異)、前端 `feature/phase-04-manual-trade-creation` @ `fde9968`
 - 方式:read-only 親讀程式碼與既有 surefire 報告;未跑測試、未改檔
 - 判斷基準:`ai-docs/architecture.md`(Facade ≤ 3 次/request、Redis 預計算)、`ai-docs/redis-convention.md`、`ai-docs/event-conventions.md`、`ai-docs/flyway-convention.md`、V1–V11 migration

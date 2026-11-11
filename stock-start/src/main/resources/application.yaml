@@ -80,7 +80,9 @@ stock:
     # EC JWK(JSON,含私鑰分量 d 與公鑰座標 x/y),不是 PEM。
     # 舊的 PEM 值請用 JwkKeyConverter 轉換,不要貼到線上轉換器:
     #   openssl pkey -in private.pem -pubout -out public.pem
-    #   java -cp <app.jar> dowob.xyz.stockwebv2.infrastructure.security.JwkKeyConverter private.pem public.pem
+    #   java -cp <app.jar> -Dloader.main=dowob.xyz.stockwebv2.infrastructure.security.JwkKeyConverter org.springframework.boot.loader.launch.PropertiesLauncher private.pem public.pem
+    # (app.jar 是 Spring Boot fat jar,類別在 BOOT-INF/classes,須經 PropertiesLauncher 指定 loader.main)
     private-key: ${STOCK_JWT_PRIVATE_KEY:}
-    access-token-ttl: ${STOCK_JWT_ACCESS_TOKEN_TTL:PT30M}
+    # 必須等於 stock.auth.cookie.access-token-ttl,否則 AccessTokenTtlConsistencyGuard 拒絕啟動(D-22)
+    access-token-ttl: ${STOCK_JWT_ACCESS_TOKEN_TTL:PT15M}
     refresh-token-ttl: ${STOCK_JWT_REFRESH_TOKEN_TTL:P14D}

@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.marketdata.api;
 
+import dowob.xyz.stockwebv2.marketdata.support.MarketDataContainers;
+
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -7,35 +9,32 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * {@link BackfillIdempotencyService} 的 Redis 整合測試。
  *
- * <p>使用 Testcontainers 啟動 Redis 8.8.0-alpine，驗證 SET NX EX 語義。
+ * <p>使用共用 Redis 容器({@link MarketDataContainers})的 database index {@value #REDIS_DATABASE}，
+ * 驗證 SET NX EX 語義(D-04;清理用 {@code flushDb},不影響其他 IT 的 index)。
  *
  * @author Yuan
  * @version 1.0.0
  */
-@Testcontainers
 class BackfillIdempotencyServiceIT {
 
-    @Container
-    static final GenericContainer<?> redis = new GenericContainer<>(
-        DockerImageName.parse("redis:8.8.0-alpine")).withExposedPorts(6379);
+    /** 本類專用的 Redis database index;WsTicketServiceIT 用 1,勿重複。 */
+    static final int REDIS_DATABASE = 2;
 
     static StringRedisTemplate template;
     static BackfillIdempotencyService service;
 
     @BeforeAll
     static void setup() {
-        LettuceConnectionFactory factory = new LettuceConnectionFactory(
-            new RedisStandaloneConfiguration(redis.getHost(), redis.getMappedPort(6379)));
+        RedisStandaloneConfiguration config = new RedisStandaloneConfiguration(
+            MarketDataContainers.redis().getHost(), MarketDataContainers.redis().getMappedPort(6379));
+        config.setDatabase(REDIS_DATABASE);
+        LettuceConnectionFactory factory = new LettuceConnectionFactory(config);
         factory.afterPropertiesSet();
         template = new StringRedisTemplate(factory);
         template.afterPropertiesSet();
@@ -44,7 +43,7 @@ class BackfillIdempotencyServiceIT {
 
     @BeforeEach
     void flush() {
-        template.getConnectionFactory().getConnection().serverCommands().flushAll();
+        template.getConnectionFactory().getConnection().serverCommands().flushDb();
     }
 
     @Test

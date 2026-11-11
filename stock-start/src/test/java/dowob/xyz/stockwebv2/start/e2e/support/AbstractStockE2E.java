@@ -11,7 +11,7 @@ import tools.jackson.databind.ObjectMapper;
 
 @AutoConfigureMockMvc
 @ActiveProfiles("e2e")
-public abstract class AbstractStockE2ETest extends ContainerIT {
+public abstract class AbstractStockE2E extends ContainerIT {
 
     @Autowired
     protected MockMvc mockMvc;

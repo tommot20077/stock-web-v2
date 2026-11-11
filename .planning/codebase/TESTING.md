@@ -1,421 +1,232 @@
 ---
-last_mapped_commit: 5ca148d0e17ea7e2cafc957738dbfc70fe6dfa74
-sibling_frontend_last_mapped_commit: 5e215a00510e25fddce7d02b6aa3bf7d0942748d
+last_mapped_commit: adae04117fcfa99db40b8ca304fb5cb9c5e36ec9
+last_mapped_at: 2026-11-07
 ---
 # Testing Patterns
 
-**Analysis Date:** 2026-11-06(初次分析 2026-05-30)
+**Analysis Date:** 2026-11-07
 
-**Refresh:** 2026-11-06 targeted refresh (quick-261106-fbs Task 3) — 以程式核對並修正與現況衝突處,**不是** `/gsd-map-codebase` 全量重產(本次執行環境無法派 mapper agents;建議日後全量重產)。前端路徑以 Yuan 本機佈局 `../../vue/stock-v2/vue-app` 表示(cloud 環境為 `../stock-web-v2-front-end/vue-app`)。
+涵蓋後端(本 repo 根)與前端 repo 根(本機 `../../vue/stock-v2`、cloud `../stock-web-v2-front-end`,路徑對照見 `ai-docs/judgment.md` §8;前端路徑相對於前端 repo 根)。權威規範:`ai-docs/testing-standards.md`、前端 `AGENTS.md`「驗證命令」與 `docs/LEARNINGS.md`。
 
-## TDD Expectations
-
-**Mandatory workflow:**
-- Red: write a failing test before production changes and run it to confirm failure.
-- Green: implement the smallest production change that passes the test.
-- Refactor: improve structure while keeping tests green.
-- This rule comes from `CLAUDE.md` and applies to backend and sibling frontend integration work.
-
-**Coverage expectation:**
-- Unit, integration, and E2E coverage are expected unless Yuan explicitly waives a layer.
-- Test output should stay clean unless the test is explicitly exercising error logging.
-- Security-sensitive changes need positive and negative tests, especially ownership, authentication, authorization, and non-leaking error responses.
+規則:Unit、Integration、E2E 都是必要的,除非 Yuan 明確豁免;「不適用」不是理由。
 
 ## Test Framework
 
-**Backend runner:**
-- JUnit 5 through Spring Boot test dependencies.
-- Maven wrapper: `mvnw` and `mvnw.cmd`.
-- Config: root `pom.xml`, module POMs such as `stock-start/pom.xml` and `stock-module-market-data/pom.xml`.
+**後端 Runner:**
+- JUnit 5(Spring Boot 4.0.4 parent 管理版本)+ Mockito + AssertJ;Spring Test(`@WebMvcTest`、`@SpringBootTest`、`MockMvc`、`@MockitoBean`)。
+- Testcontainers `1.21.4`(BOM)、ArchUnit `1.3.0`、Awaitility(`stock-start`)。
+- JaCoCo `0.8.13`:`prepare-agent` + `verify` phase 產 report(無門檻)。
+- Config:根 `pom.xml`、`stock-start/pom.xml`(surefire exclude `**/*E2E.java`、failsafe、`e2e` profile)。
 
-**Backend assertion library:**
-- AssertJ for unit/integration assertions, e.g. `assertThat` and `assertThatThrownBy` in `stock-module-user/src/test/java/dowob/xyz/stockwebv2/user/service/AuthServiceTest.java`.
-- Spring MockMvc result matchers for web/API assertions, e.g. `stock-start/src/test/java/dowob/xyz/stockwebv2/start/AuthFlowIT.java`.
-- Hamcrest appears in MockMvc JSON path assertions, e.g. `equalTo` and `notNullValue` in `stock-start/src/test/java/dowob/xyz/stockwebv2/start/AuthFlowIT.java`.
+**前端 Runner:**
+- Vitest `^4.1.6`,`environment: 'jsdom'`、`globals: true`、`setupFiles: ['./src/testSetup.ts']`、`pool: 'threads'`、`fileParallelism: false`、排除 `e2e/**`;Config 在 `vue-app/vite.config.ts` 的 `test` 區塊。
+- Playwright `^1.61.1`,Config `vue-app/playwright.config.ts`(chromium、`fullyParallel`、`retries: 1`、`workers: 4`、trace/video `retain-on-failure`;webServer 以 `VITE_DATA_MODE=api` 重新 build 後 `vite preview` 在 4173)。
 
-**Backend test support:**
-- Mockito and Spring `@MockitoBean` / `@MockitoSpyBean` for mocks and spies, e.g. `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/api/MarketControllerTest.java`.
-- Testcontainers for PostgreSQL/TimescaleDB, Redis, and Kafka, e.g. `stock-start/src/test/java/dowob/xyz/stockwebv2/start/support/ContainerIT.java`.
-- Awaitility for async/background assertions, e.g. `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/batch/BackfillJobIT.java`.
-
-**Frontend runner:**
-- Vitest 4 with jsdom through Vite config.
-- Config: `../../vue/stock-v2/vue-app/vite.config.ts`.
-- Package scripts: `../../vue/stock-v2/vue-app/package.json`.
-
-**Frontend assertion library:**
-- Vitest `expect`, `vi`, `describe`, `it`, `afterEach`, e.g. `../../vue/stock-v2/vue-app/src/services/apiClient.test.ts`.
-- DOM mounting uses Vue `createApp`, Pinia `createPinia`, and custom helpers in `../../vue/stock-v2/vue-app/src/testUtils.ts`.
+**Assertion Library:** 後端 AssertJ `assertThat` / `assertThatThrownBy` + MockMvc `jsonPath` / Hamcrest;前端 Vitest `expect`、Playwright `expect`。
 
 **Run Commands:**
+
 ```bash
-./mvnw test --fail-at-end --no-transfer-progress
-./mvnw -pl stock-start -am verify -Dspring-boot.repackage.skip=true --fail-at-end --no-transfer-progress
-./mvnw -pl stock-start -am test -Pe2e --no-transfer-progress
-cd ../../vue/stock-v2/vue-app && npm test
-cd ../../vue/stock-v2/vue-app && npm run test:watch
-cd ../../vue/stock-v2/vue-app && npm run build
-cd ../../vue/stock-v2/vue-app && npm run lint
-cd ../../vue/stock-v2/vue-app && npx playwright test e2e/tests/layout.spec.ts
-./mvnw spotless:check
+
+# 後端(本 repo 根)
+
+./mvnw spotless:check                                   # 格式(CI Lint job)
+./mvnw test                                             # Unit + WebMvc(surefire,*Test.java)
+./mvnw -pl stock-start -am verify -Dspring-boot.repackage.skip=true   # *IT(failsafe + Testcontainers,CI Integration job)
+./mvnw -pl stock-start -am test -Pe2e                   # 後端 *E2E.java(CI E2E job)
+
+# JaCoCo report: <module>/target/site/jacoco/index.html(verify 後)
+
+# 前端(前端 repo 根/vue-app)
+
+npm run lint && npm test && npm run build               # 標準閘門(=前端 CI;build 含 vue-tsc)
+VITE_DATA_MODE=api npm test && npm run build            # 動到 API mode 時加跑
+npm run test:watch                                      # Watch mode
+npx playwright test e2e/tests/layout.spec.ts            # 動到版面 / CSS(page.route stub,不需後端)
+npm run test:e2e                                        # Playwright @smoke(需真後端,e2e/run-e2e.sh)
 ```
 
-## CI Pipeline
-
-**Backend CI:**
-- GitHub Actions workflow: `.github/workflows/ci.yml`.
-- Triggers: push to all branches, pull requests to `main` and `develop`, and manual `workflow_dispatch`.
-- Java setup: Temurin Java 21 with Maven cache.
-- Spotless job runs `./mvnw -B spotless:check`.
-- Unit job runs `./mvnw -B test --fail-at-end --no-transfer-progress`.
-- Integration job runs `./mvnw -B -pl stock-start -am verify -Dspring-boot.repackage.skip=true --fail-at-end --no-transfer-progress` after unit tests.
-- E2E job runs `./mvnw -B -pl stock-start -am test -Pe2e --no-transfer-progress` after integration tests.
-- Browser E2E job checks out the frontend repo (matching branch, else `develop`), sets up Node 20 + Playwright Chromium, and runs `e2e/run-e2e.sh` (Playwright journeys in the frontend `vue-app/e2e/tests/` against the real backend).
-- Test reports are published with `dorny/test-reporter@v1` and uploaded as artifacts.
-
-**Frontend CI:**
-- The frontend repo has its own workflow at the repo root `.github/workflows/` (Node 20, `vue-app/` working directory): `npm ci → lint → test → build` on develop push / PR.
-- Backend CI runs the frontend only for browser E2E (above); Vitest / build / lint run in the frontend CI.
+**CI:**
+- 後端 `.github/workflows/ci.yml`:`lint` → `unit`(`./mvnw -B test`)、`integration`(verify)、`e2e`(`-Pe2e`)、`Browser E2E`(checkout 前端同名分支否則 `develop`,Node 20 跑 Playwright)。報告經 `dorny/test-reporter` 發布。
+- 前端 `.github/workflows/ci.yml`(Node 20):`npm ci → lint → test → build`。
 
 ## Test File Organization
 
-**Backend location:**
-- Tests are co-located by Maven module under `*/src/test/java`.
-- Current backend scan (2026-11-06) found 177 Java test files and 237 Java main files; `./mvnw test -Dtest='!*IT,!*E2E*'` runs 949 unit / web tests.
-- Unit tests live beside module code, e.g. `stock-module-trading/src/test/java/dowob/xyz/stockwebv2/trading/domain/HoldingCalculatorTest.java`.
-- Web layer tests live in module API packages, e.g. `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/api/MarketControllerTest.java`.
-- Full app integration tests live in `stock-start/src/test/java/dowob/xyz/stockwebv2/start/`.
-- E2E tests live in `stock-start/src/test/java/dowob/xyz/stockwebv2/start/e2e/`.
+**後端 Location:** 鏡像 main 套件,放在各模組 `src/test/java/...`;跨模組 / 需完整 context 的 IT 與 E2E 集中在 `stock-start/src/test/java/dowob/xyz/stockwebv2/start/`。
 
-**Backend naming:**
-- Unit tests: `*Test.java`, e.g. `stock-module-user/src/test/java/dowob/xyz/stockwebv2/user/service/AuthServiceTest.java`.
-- Web layer tests: `*ControllerTest.java` or `*ControllerWebMvcTest.java`, e.g. `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/api/BackfillControllerTest.java`.
-- Integration tests: `*IT.java`, e.g. `stock-start/src/test/java/dowob/xyz/stockwebv2/start/AuthFlowIT.java`.
-- E2E tests: `*E2E.java` (included by the `-Pe2e` profile) or `*E2ETest.java`, e.g. `stock-start/src/test/java/dowob/xyz/stockwebv2/start/e2e/WatchlistE2E.java`, `MarketRestApiE2ETest.java`.
+**後端 Naming(後綴決定由誰執行):**
 
-**Frontend location:**
-- Tests are co-located under `../../vue/stock-v2/vue-app/src`.
-- Current frontend scan (2026-11-06) found 59 `.test.ts` files (1138 tests) and 80 TypeScript/Vue source files under `src`, plus Playwright specs under `../../vue/stock-v2/vue-app/e2e/tests/` (`layout.spec.ts` with stubs; `auth`, `trade`, `cash-journey`, `holding-event-journey`, `watchlist-*`, `backtest`, `smoke` journeys for full-stack E2E).
-- Service tests live next to adapters, e.g. `../../vue/stock-v2/vue-app/src/services/backtestApi.test.ts`.
-- Component tests live next to components, e.g. `../../vue/stock-v2/vue-app/src/components/settings/SettingsAiAccess.test.ts`.
-- Cross-page behavior tests live at `src` root, e.g. `../../vue/stock-v2/vue-app/src/api-adapter-wiring.test.ts`.
+| 層 | 命名 | 工具 | 執行者 |
+|---|---|---|---|
+| Unit | `*Test.java`(`TradingServiceTest`、`HoldingCalculatorTest`) | JUnit 5 + Mockito | surefire(`./mvnw test`) |
+| Web 層 | `*ControllerWebMvcTest.java` / `*ControllerTest.java` / `*RequestValidationTest.java` | `@WebMvcTest` + `@MockitoBean` | surefire |
+| SQL / mapper | `Jdbc*Repository*Test.java`、`TradingSqlBoundaryTest.java` | 純單元 | surefire |
+| Integration | `*IT.java`(約 51 個,`TradingApiIT`、`ErrorHandlingIT`) | `@SpringBootTest` + Testcontainers | **failsafe**(`verify`) |
+| 後端 E2E | `*E2E.java`(`stock-start/.../e2e/`,21 個) | 繼承 `AbstractStockE2E` / `AbstractPortfolioE2E` / `AbstractWsE2E` | surefire `-Pe2e` |
+| 架構 | `ArchitectureRulesTest`、`EndpointAuthorizationRulesTest`、`E2eNamingRulesTest` | ArchUnit | surefire |
 
-**Structure:**
-```text
-stock-module-*/src/test/java/dowob/xyz/stockwebv2/<module>/<layer>/*Test.java
-stock-module-*/src/test/java/dowob/xyz/stockwebv2/<module>/<layer>/*IT.java
-stock-start/src/test/java/dowob/xyz/stockwebv2/start/*IT.java
-stock-start/src/test/java/dowob/xyz/stockwebv2/start/e2e/*E2E.java | *E2ETest.java
-../../vue/stock-v2/vue-app/src/**/*.test.ts
+需要容器的測試**必須**以 `IT` 結尾(或 `E2E`),不得加進 surefire includes;`./mvnw test` 不需要 Docker。`stock-start/.../e2e/` 套件(含 `support/`)內禁止以 `Test` 結尾的類別(抽象基底也不例外),具體 E2E 類別必須以 `E2E` 結尾,由 `E2eNamingRulesTest`(ArchUnit)守門(D-23 / D-27)。
+
+**後端 Structure:**
+
 ```
+stock-module-trading/src/test/java/dowob/xyz/stockwebv2/trading/
+├── TradingTestApplication.java     # 模組切片測試用 @SpringBootApplication
+├── api/        # *ControllerWebMvcTest、*RequestValidationTest
+├── domain/     # *CalculatorTest、*PayloadMatcherTest、*SortKeyTest
+├── repository/ # Jdbc*Test(SQL / mapper)
+└── service/    # *ServiceTest(Mockito)
+stock-start/src/test/java/dowob/xyz/stockwebv2/start/
+├── *IT.java、ArchitectureRulesTest.java、E2eNamingRulesTest.java
+├── support/ContainerIT.java        # 共用容器基底
+└── e2e/ + e2e/support/             # AbstractStockE2E、AbstractPortfolioE2E、AbstractWsE2E、AuthE2EHelper、DatabaseCleaner、StockE2EAssertions
+```
+
+**前端 Location / Naming:**
+- Vitest 與被測檔**同目錄**,`<name>.test.ts`(`vue-app/src/services/tradingApi.test.ts`、`components/OrderTicket.test.ts`、`pages/Trades.test.ts`);跨領域守護測試放 `vue-app/src/` 根(`mockStoreBoundary.test.ts`、`wsBoundary.test.ts`、`contrastTokens.test.ts`)。共 64 個測試檔。
+- 測試替身放 `vue-app/src/testing/`(`fakeWebSocket.ts`、`fakeQuoteStream.ts`、`watchlistFetchDouble.ts`、`wcag.ts`);掛載工具 `vue-app/src/testUtils.ts`。
+- Playwright:`vue-app/e2e/tests/*.spec.ts`(kebab-case,`trade.spec.ts`、`cash-journey.spec.ts`),支援檔 `vue-app/e2e/support/`(`fixtures.ts`、`journeyApi.ts`、`portfolioStubs.ts`、`selectors.md`)。
+- 歷史檔名 `task4.test.ts`…`task8.test.ts` 不要再仿效;新測試以被測模組命名。
 
 ## Test Structure
 
-**Backend suite organization:**
+**後端命名規則:** 方法名英文 camelCase(**禁止中文**),`@DisplayName` 寫繁中描述;類別也加 `@DisplayName`。類別 Javadoc 說明本測試鎖住的契約與決策編號。
+
 ```java
-class AuthServiceTest {
+@DisplayName("交易清單查詢參數解析")
+class TradingServiceTest {
+    /** 刻意可辨識的冪等鍵:用來斷言任何錯誤訊息都沒有把它回射出去(T-04-03)。 */
+    private static final String CANARY_KEY = "LEAK-CANARY-12345";
+
     @Test
-    void registerCreatesActiveUserWithHashedPassword() {
-        InMemoryUserRepository repository = new InMemoryUserRepository();
-        AuthService service = new AuthService(repository, new BCryptPasswordEncoder(10));
-
-        User user = service.register(new RegisterRequest("yuan@example.com", "yuan", "Password1"));
-
-        assertThat(user.id()).isEqualTo(1L);
-    }
+    @DisplayName("Traditional Chinese description here")
+    void whenAssetNotFound_returnsEmpty() { ... }
 }
 ```
 
-**Backend web slice pattern:**
-```java
-@WebMvcTest(MarketController.class)
-@Import({MarketControllerTest.OpenSecurityConfig.class, MarketControllerTest.TestExceptionHandler.class})
-class MarketControllerTest {
-    @Autowired MockMvc mvc;
-    @MockitoBean MarketLatestService latestService;
+- 測試類別與方法為 package-private(無 `public`)。
+- `@BeforeEach` 手動建 mock 並 new 被測物件(`mock(TradingRepository.class)`),不使用 `@ExtendWith(MockitoExtension.class)` 為必要條件。
+- 斷言錯誤:`assertThatThrownBy(...).isInstanceOf(BusinessException.class)` 並檢查 `errorCode()` 與訊息不含 canary。
+- `@ParameterizedTest` + `@ValueSource` 用於非法輸入列舉。
 
-    @Test
-    @DisplayName("GET /{symbol}/latest: 有資料 → 200 + DTO（BigDecimal 序列化為字串）")
-    void latest_returns200WithDto() throws Exception {
-        when(latestService.findLatest("AAPL")).thenReturn(Optional.of(aaplDto()));
+**前端:**
 
-        mvc.perform(get("/api/v1/market/AAPL/latest").accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.success").value(true));
-    }
-}
-```
-
-**Backend integration pattern:**
-```java
-@AutoConfigureMockMvc
-class AuthFlowIT extends ContainerIT {
-    @Autowired MockMvc mockMvc;
-
-    @Test
-    void registerLoginMeLogoutFlowWorks() throws Exception {
-        mockMvc.perform(post("/api/v1/auth/register")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"email\":\"yuan@example.com\",\"username\":\"yuan\",\"password\":\"Password1\"}"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.success", equalTo(true)));
-    }
-}
-```
-
-**Frontend suite organization:**
 ```typescript
-describe('apiClient', () => {
-  it('throws typed errors for API error envelopes', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      error: { code: 'OPS_PERMISSION_DENIED', message: 'Forbidden' },
-      requestId: 'req_2',
-    }), { status: 403, headers: { 'Content-Type': 'application/json' } })));
-
-    await expect(apiRequest('/api/v1/ops/jobs')).rejects.toMatchObject({
-      name: 'ApiClientError',
-      status: 403,
-      code: 'OPS_PERMISSION_DENIED',
-    });
+describe('tradingApi http adapter — payload 契約(TRAD-01 / TRAD-02)', () => {
+  it('sends exactly the seven backend contract fields, nothing more', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(successEnvelope(TRADE_DTO))));
+    await createHttpTradingApi('/api/v1').createTrade(TRADE_REQUEST, 'key-1');
+    expect(Object.keys(bodyAt(0)).sort()).toEqual(CONTRACT_FIELDS);
   });
 });
 ```
 
-**Patterns:**
-- Arrange/Act/Assert is implicit: create collaborators, invoke behavior, assert state/output.
-- Prefer behavior names in English camelCase test methods for Java.
-- Use `@DisplayName("Traditional Chinese description")` for Java tests when adding or touching tests.
-- Use frontend `describe` names by unit under test and `it` names by observable behavior.
+- `describe` 名稱可含繁中與需求編號,`it` 用英文句子;Playwright `test` 名稱用繁中 + 案例編號 + tag(`'T1 買進 → ... @smoke'`)。
+- Setup:`beforeEach` 中 `setActivePinia(createPinia())`;需要 CSRF 時預先 `document.cookie = 'XSRF-TOKEN=...; path=/'` 避免多一次 `/api/v1/csrf` bootstrap。
+- Teardown:`afterEach(() => vi.unstubAllGlobals())`;元件用 `cleanupMounted()`。
 
 ## Mocking
 
-**Backend framework:** Mockito, Spring Boot test Mockito integration, custom in-memory fakes.
+**後端:**
+- Unit:Mockito `mock()` / `when()` / `verify()` / `verifyNoInteractions()` / `verifyNoMoreInteractions()` / `ArgumentCaptor`(攔截 `TradeQuery` 以鎖定解析契約)。
+- WebMvc 切片:`@MockitoBean` 取代 service 與 `AuditLogger`;需要繞過授權時以內部 `@TestConfiguration OpenSecurityConfig` 替換 `SecurityFilterChain`;認證用 `SecurityMockMvcRequestPostProcessors.user(...)` 或 `@WithMockUser`。
+- **禁止**硬編 JWT fixture(`"eyJ..."`);JWT 私鑰每次執行隨機產生。
+- IT / E2E 不 mock:真 DB / Redis / Kafka 容器。
 
-**Backend patterns:**
-```java
-@MockitoBean
-MarketLatestService latestService;
+**前端:**
 
-when(latestService.findLatest("AAPL")).thenReturn(Optional.of(aaplDto()));
-```
-
-```java
-static class InMemoryUserRepository implements UserRepository {
-    private final Map<Long, User> byId = new ConcurrentHashMap<>();
-
-    @Override
-    public Optional<User> findById(Long id) {
-        return Optional.ofNullable(byId.get(id));
-    }
-}
-```
-
-**Frontend framework:** Vitest `vi`.
-
-**Frontend patterns:**
 ```typescript
-vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-  data: { ok: true },
-  requestId: 'req_1',
-}), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+// 子元件 stub:vi.hoisted 探針 + vi.mock 動態 import vue
+const chartProbe = vi.hoisted(() => ({ data: null as unknown, renders: 0 }));
+vi.mock('./LineChart.vue', async () => {
+  const { defineComponent, h } = await import('vue');
+  return { default: defineComponent({ /* 記錄 props */ }) };
+});
+// HTTP:stub 全域 fetch,回傳後端信封
+vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(successEnvelope(dto))));
+// 模式:testSetup.ts 預設 vi.stubEnv('VITE_DATA_MODE','mock');需 api 時在測試內覆蓋
+vi.stubEnv('VITE_DATA_MODE', 'api');
 ```
 
-**What to Mock:**
-- Backend unit tests: repositories, external clients, clocks/randomness when deterministic behavior matters.
-- Backend web slice tests: services behind controllers and security config when the slice is not testing security.
-- Frontend service tests: `fetch` with representative backend envelopes.
-- Frontend component tests: callbacks/events and DOM, using helpers from `../../vue/stock-v2/vue-app/src/testUtils.ts`.
+- 原始碼斷言:以 Vite `?raw` 匯入 `.vue` 原始碼,斷言「某段程式碼不存在」(例:元件不得直接讀 mock store、不得 `Math.random` 生成成交價;`OrderTicket.test.ts`、`Positions.test.ts`)。
+- Playwright layout 測試用 `page.route` stub(`e2e/support/portfolioStubs.ts`),journey 測試打真後端並用 `uniqueAccount` fixture(`e2e/support/fixtures.ts` 的 `base.extend`)隔離帳號。
+
+**What to Mock:** 後端單元層的 repository / Facade / 外部 provider;前端的 `fetch`、`WebSocket`(`src/testing/fakeWebSocket.ts`)、重型子元件(圖表)。
 
 **What NOT to Mock:**
-- Do not hardcode JWT token fixtures; generate tokens or use Spring Security test support.
-- Do not mock database/Redis/Kafka in integration tests that are validating persistence, cache, or messaging semantics; use Testcontainers.
-- Do not mock the API envelope contract in only one layer when changing backend/frontend integration; add backend MockMvc/API tests and frontend adapter tests.
+- 後端 IT 的 DB / Redis / Kafka、`GlobalExceptionHandler`(信封形狀的權威驗證在 `stock-start` 的 `ErrorHandlingIT` 等 IT,WebMvc 切片不能證明信封)。
+- 前端 `apiClient.ts` 本身(service 測試經真 `apiClient` + stub fetch,才能驗 CSRF header、401 refresh replay 沿用同一把 `Idempotency-Key`)。
+- `testSetup.ts` 刻意**不 import 任何 service module**,否則會搶在各檔 `vi.mock` 前綁定真實實作。
 
 ## Fixtures and Factories
 
-**Backend test data:**
-```java
-private AuthTokens register(String email, String username, String password) throws Exception {
-    String body = mockMvc.perform(post("/api/v1/auth/register")
-            .contentType(MediaType.APPLICATION_JSON)
-            .content("""
-                {"email":"%s","username":"%s","password":"%s"}
-                """.formatted(email, username, password)))
-        .andExpect(status().isOk())
-        .andReturn()
-        .getResponse()
-        .getContentAsString();
-    return readTokens(body);
-}
-```
+**後端:**
+- 共用容器基底 `stock-start/src/test/java/dowob/xyz/stockwebv2/start/support/ContainerIT.java`:static singleton `timescale/timescaledb:2.27.2-pg18`、`redis:8.8.0-alpine`、`apache/kafka:4.2.0`(KRaft),`Startables.deepStart` 每 JVM 啟動一次,不用 `withReuse(true)`;預設關閉 rate limit(`AuthRateLimitAndLockoutIT` 覆寫)。新 IT:`@AutoConfigureMockMvc class XxxIT extends ContainerIT`。
+- 模組 IT(asset / market-data)自行宣告容器。
+- E2E 基底 `e2e/support/AbstractStockE2E`(提供 `mockMvc`、`apiSuccess()` matcher 於 `StockE2EAssertions`)、`DatabaseCleaner`、`AuthE2EHelper`。
+- 測試資料以具名常數表達意圖並寫 Javadoc 說明為何如此設計:
+  ```java
+  /** 三筆固定交易的成交時間;刻意與插入順序不一致,用來證明排序以 executed_at 為準。 */
+  private static final String EXECUTED_AT_OLDEST = "2026-01-10T00:00:00Z";
+  ```
+- Flyway seed 資料(assets ≥ 19 筆)可被 E2E 依賴(`SmokeE2E`)。
 
-**Frontend test data:**
-```typescript
-const request: BacktestRunRequest = {
-  strategyId: 'ma_cross',
-  strategyCode: null,
-  symbol: 'AAPL',
-  period: '3Y',
-  initialCapital: 100000,
-  currency: 'USD',
-  benchmark: 'buy_hold',
-  dataMode: 'cached',
-};
-```
-
-**Location:**
-- Backend helper classes: `stock-start/src/test/java/dowob/xyz/stockwebv2/start/support/` and `stock-start/src/test/java/dowob/xyz/stockwebv2/start/e2e/support/`.
-- Frontend helpers: `../../vue/stock-v2/vue-app/src/testUtils.ts`.
-- Frontend mock state: `../../vue/stock-v2/vue-app/src/stores/mockPortfolio.ts`, `../../vue/stock-v2/vue-app/src/stores/mockNotifications.ts`, `../../vue/stock-v2/vue-app/src/stores/mockPreview.ts`.
+**前端:**
+- 手寫 fixture 常數置於測試檔頂部,每個標註後端 `file:line` 出處(`TRADE_REQUEST`、`TRADE_DTO`,`tradingApi.test.ts`);信封 helper `successEnvelope` / `failureEnvelope` / `jsonResponse` 目前為各檔內定義。
+- 掛載:`mountWithPinia(Component, props)` / `mountComponent(...)`,搭配 `flushAsync(n)` 等待 fetch→json→render 鏈(`vue-app/src/testUtils.ts`)。
 
 ## Coverage
 
-**Requirements:** JaCoCo 0.8.13 is configured in the root `pom.xml` (`prepare-agent` + `report`) without a numeric threshold. Project standards require feature coverage and all three test layers unless Yuan waives a layer.
+**Requirements:** 無數值門檻。後端 JaCoCo 只產報告;前端未設定 coverage。要求是「測試涵蓋功能」+ 每個 user-owned endpoint 都有「非擁有者回 404」測試。
 
 **View Coverage:**
-```bash
-./mvnw verify   # JaCoCo report (bound to verify) under each module's target/site/jacoco/; no frontend coverage script
-```
 
-**Practical expectation:**
-- Add focused unit tests for business rules.
-- Add web/API tests for status codes, envelopes, validation, and security behavior.
-- Add integration/E2E tests for persistence, Redis, Kafka, JWT, and backend/frontend contract changes.
+```bash
+./mvnw verify    # 後端,<module>/target/site/jacoco/index.html
+```
 
 ## Test Types
 
-**Unit Tests:**
-- Scope: service/domain logic, record invariants, mapping, pure adapters.
-- Backend examples: `stock-module-user/src/test/java/dowob/xyz/stockwebv2/user/service/AuthServiceTest.java`, `stock-module-trading/src/test/java/dowob/xyz/stockwebv2/trading/domain/HoldingCalculatorTest.java`.
-- Frontend examples: `../../vue/stock-v2/vue-app/src/services/apiClient.test.ts`, `../../vue/stock-v2/vue-app/src/settingsAiAccessView.test.ts`.
+**Unit Tests:** 後端 service 與 `domain/*Calculator` 純邏輯、SQL 字串邊界;前端純函式、service adapter(兩種 mode)、元件行為。
 
-**Web Layer Tests:**
-- Scope: controller routing, validation, response envelope, HTTP status, and security behavior at the slice level.
-- Use `@WebMvcTest`, `MockMvc`, `@MockitoBean`, and local test exception handlers when `stock-start` global advice is outside the slice.
-- Examples: `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/api/MarketControllerTest.java`, `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/api/BackfillControllerTest.java`.
-
-**Integration Tests:**
-- Scope: full Spring context, database migrations, repositories, Redis, Kafka, auth flow, CORS, and error handling.
-- Shared full-app container base: `stock-start/src/test/java/dowob/xyz/stockwebv2/start/support/ContainerIT.java`.
-- Examples: `stock-start/src/test/java/dowob/xyz/stockwebv2/start/AuthFlowIT.java`, `stock-start/src/test/java/dowob/xyz/stockwebv2/start/ErrorHandlingIT.java`.
+**Integration Tests:** 後端 `*IT` 打完整 Spring context + 真容器,驗信封、HTTP status、append-only trigger(`TransactionsAppendOnlyIT`)、冪等(`TransactionsIdempotencyIT`)、安全標頭、CORS、rate limit。
 
 **E2E Tests:**
-- Backend E2E uses MockMvc against a full app context with `@ActiveProfiles("e2e")`.
-- Base class: `stock-start/src/test/java/dowob/xyz/stockwebv2/start/e2e/support/AbstractStockE2ETest.java`.
-- Examples: `stock-start/src/test/java/dowob/xyz/stockwebv2/start/e2e/MarketRestApiE2ETest.java`, `stock-start/src/test/java/dowob/xyz/stockwebv2/start/e2e/WsAuthFlowE2ETest.java`.
-- Frontend E2E: Playwright (`../../vue/stock-v2/vue-app/e2e/`); browser full-stack runs via backend CI `e2e/run-e2e.sh`.
-
-**Contract / Adapter Tests:**
-- Frontend adapter tests assert exact backend paths, HTTP methods, headers, JSON payloads, paginated envelopes, and typed error conversion.
-- Examples: `../../vue/stock-v2/vue-app/src/services/backtestApi.test.ts`, `../../vue/stock-v2/vue-app/src/services/opsApi.test.ts`, `../../vue/stock-v2/vue-app/src/services/aiAccessApi.test.ts`.
-- Backend/frontend integration phases should pair these with backend MockMvc tests for the same endpoint.
+- 後端:`*E2E.java` 多步驟使用者流程(MockMvc 或 WebSocket RANDOM_PORT)。
+- 瀏覽器:Playwright,`@smoke`(CI / `npm run test:e2e` 跑)與 `@extended` tag;啟動腳本 `vue-app/e2e/run-e2e.sh` / `.ps1` + `e2e/docker-compose.yml`;`layout.spec.ts` 以 page.route stub 掃寬度(300–1440px),量元素是否在視窗與捲動容器可視框內。
 
 ## Common Patterns
 
-**Async Testing:**
-```java
-Awaitility.await()
-    .atMost(Duration.ofSeconds(10))
-    .untilAsserted(() -> assertThat(repository.findRange(1L, from, to)).hasSize(1440));
-```
+**Async Testing(前端):**
 
 ```typescript
-vi.useFakeTimers();
-await vi.advanceTimersByTimeAsync(650);
+await createHttpTradingApi('/api/v1').createTrade(TRADE_REQUEST, 'key-1');
+await flushAsync();      // 真計時器:macrotask hop(setImmediate)
+await flushAsync(16);    // 任何假計時器(含 toFake: ['Date'])下只跑 microtask,送出路徑要多輪
 ```
+
+有 interval 的元件(`HoldingEventDialog`、`LiveQuoteStatus`)不要用 `vi.runAllTimers()`。後端非同步用 Awaitility。
 
 **Error Testing:**
+
 ```java
-assertThatThrownBy(() -> service.verifyCredentials("yuan@example.com", "bad"))
+assertThatThrownBy(() -> service.createTrade(userId, request, CANARY_KEY))
     .isInstanceOf(BusinessException.class)
-    .extracting("errorCode")
-    .isEqualTo(ErrorCode.AUTH_INVALID_CREDENTIALS);
+    .satisfies(e -> assertThat(e.getMessage()).doesNotContain(CANARY_KEY));
 ```
 
 ```typescript
-await expect(apiRequest('/api/v1/example')).rejects.toMatchObject({
-  name: 'ApiClientError',
-  status: 200,
-  code: 'INVALID_JSON_RESPONSE',
-});
+vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(failureEnvelope('TRADE_CONFLICT', 'msg', 't1'), 409)));
+await expect(api.createTrade(req, 'k')).rejects.toBeInstanceOf(ApiClientError);
 ```
 
-**MockMvc API Envelope Testing:**
-```java
-mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + tokens.accessToken()))
-    .andExpect(status().isOk())
-    .andExpect(jsonPath("$.data.email", equalTo("yuan@example.com")));
-```
-
-**Frontend DOM Cleanup:**
-```typescript
-afterEach(() => {
-  cleanupMounted();
-});
-```
-
-## Testcontainers Pattern
-
-**Shared app container base:**
-- `stock-start/src/test/java/dowob/xyz/stockwebv2/start/support/ContainerIT.java` starts PostgreSQL/TimescaleDB, Redis, and Kafka statically and registers dynamic Spring properties.
-- Use this base for full-app integration tests in `stock-start`.
-
-**Module-local containers:**
-- Some module tests use `@Testcontainers` and `@Container` directly, e.g. `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/ws/WsTicketServiceIT.java`.
-- Use module-local containers when testing one infrastructure dependency without booting the full application.
-
-**Documented target pattern:**
-- `ai-docs/testing-standards.md` sketches singleton containers with `withReuse(true)`. Current `ContainerIT` uses static singleton containers (`timescale/timescaledb:2.17.2-pg16`, `redis:7.4-alpine`, `confluentinc/cp-kafka:7.6.0`) without `withReuse(true)`; cross-IT sharing for market-data is backlog todo `2026-09-27-it-shared-containers`.
-
-## Java Test Naming Rules
-
-**Required:**
-- Test method names must be English camelCase.
-- Chinese characters are forbidden in Java test method names.
-- Use `@DisplayName("Traditional Chinese description")` for human-readable Traditional Chinese descriptions.
-
-**Current state:**
-- Many market-data and E2E tests use `@DisplayName`, e.g. `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/api/MarketControllerTest.java`.
-- Some older/simple unit tests do not use `@DisplayName`, e.g. `stock-module-user/src/test/java/dowob/xyz/stockwebv2/user/service/AuthServiceTest.java`. Add `@DisplayName` when touching or adding tests.
-
-## Security Testing Rules
-
-**Authentication and JWT:**
-- Do not hardcode JWT strings.
-- Use registration/login helpers or Spring Security test support.
-- Test malformed and missing bearer token behavior, as in `stock-start/src/test/java/dowob/xyz/stockwebv2/start/AuthFlowIT.java`.
-
-**Authorization:**
-- Test URL-layer and method-layer protection when changing security config.
-- Every ownership scenario requires a non-owner returns 404 test per `ai-docs/security.md`.
-- For WebSocket auth, test ticket issuance, single-use consumption, expiration, revocation, and unauthorized handshakes, as represented by `stock-start/src/test/java/dowob/xyz/stockwebv2/start/e2e/WsAuthFlowE2ETest.java`.
-
-## ArchUnit Expectations
-
-**Implemented (ArchUnit 1.3.0, `stock-start/src/test/java/dowob/xyz/stockwebv2/start/`):**
-- `ArchitectureRulesTest`: L2 modules must not depend on each other; facade interfaces live in `stock-infrastructure`; controllers must not depend on repositories; controllers must not depend on facades.
-- `EndpointAuthorizationRulesTest`: every endpoint method declares `@PreAuthorize` or is on a reasoned allow-list (stale entries fail).
-- Ownership is not an ArchUnit rule: it is query scoping (`where user_id = :userId`) verified by per-endpoint "non-owner returns 404" tests; `SecurityUtils.assertOwnerOrAdmin` was retired 2026-09-28.
-
-**When adding ArchUnit:**
-- Place architecture tests under `stock-start/src/test/java` or a dedicated module-level test package that can see all relevant modules.
-- Keep rules small and actionable; start with 3-5 foundational rules from `ai-docs/testing-standards.md`.
-
-## Backend/Frontend Integration Testing Guidance
-
-**For each backend endpoint used by the Vue app:**
-- Backend: add MockMvc or integration tests for route, auth, validation, success envelope, failure envelope, and status mapping.
-- Frontend: add service adapter tests that assert exact URL, query string, method, headers, request body, success unwrap, paginated unwrap, and typed error conversion.
-- Cross-check shared types in `../../vue/stock-v2/vue-app/src/services/apiTypes.ts` against backend DTOs such as `stock-module-backtest/src/main/java/dowob/xyz/stockwebv2/backtest/api/BacktestRunDto.java`.
-
-**Recommended verification set for integration phases:**
-```bash
-./mvnw -pl stock-start -am test --fail-at-end --no-transfer-progress
-./mvnw -pl stock-start -am verify -Dspring-boot.repackage.skip=true --fail-at-end --no-transfer-progress
-cd ../../vue/stock-v2/vue-app && npm test
-cd ../../vue/stock-v2/vue-app && npm run build
-```
+**已知陷阱(見前端 `docs/LEARNINGS.md`):**
+- 中途呼叫 `cleanupMounted()` 會 `vi.unstubAllEnvs()` 清掉 mock 預設;同測試需兩種模式就拆測試或明確 `vi.stubEnv`。
+- 斷言 mock adapter 沒被呼叫:先 `stubEnv('mock')` + `resetRuntimeApiClientsForTests()`,再 `vi.spyOn(getRuntimeApiClients().market, ...)`,最後掛載。
+- jsdom `getBoundingClientRect()` 恆為 0,版面問題用 Playwright 量。
+- 用 sorted key `toEqual` 而非 `toMatchObject` 驗 payload(後者抓不到多送欄位)。
+- Node 20(CI)與本機 Node 版本 tick 數不同,`fnm exec --using=20` 重現 CI。
 
 ---
 
-*Testing analysis: 2026-05-30;targeted refresh 2026-11-06*
+*Testing analysis: 2026-11-07*

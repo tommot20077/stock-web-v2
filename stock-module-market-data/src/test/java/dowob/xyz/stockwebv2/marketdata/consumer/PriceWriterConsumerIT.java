@@ -3,6 +3,7 @@ package dowob.xyz.stockwebv2.marketdata.consumer;
 import dowob.xyz.stockwebv2.common.event.PriceTickEvent;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPrice;
 import dowob.xyz.stockwebv2.marketdata.persistence.MarketPriceRepository;
+import dowob.xyz.stockwebv2.marketdata.support.MarketDataContainers;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
@@ -12,10 +13,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -27,7 +24,8 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 /**
  * {@link PriceWriterConsumer} 整合測試。
  *
- * <p>使用 TimescaleDB testcontainer 驗證：
+ * <p>使用共用 TimescaleDB 容器({@link MarketDataContainers})中的獨立 database {@code md_price_writer}
+ * 驗證(D-04;清表只影響本類):
  * <ul>
  *   <li>批次寫入多筆事件 → DB 有對應筆數</li>
  *   <li>重複推送相同事件 → DB 仍只有一筆（idempotent）</li>
@@ -40,24 +38,23 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  * @author Yuan
  * @version 1.0.0
  */
-@Testcontainers
 class PriceWriterConsumerIT {
 
-    @Container
-    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
-            DockerImageName.parse("timescale/timescaledb:2.27.2-pg18")
-                    .asCompatibleSubstituteFor("postgres"))
-            .withDatabaseName("price_writer_test")
-            .withUsername("test")
-            .withPassword("test");
+    /** 本類在共用 TimescaleDB 容器中的獨立 database(D-04)的 JDBC URL 與帳密。 */
+    static String jdbcUrl;
+    static String dbUser;
+    static String dbPassword;
 
     static MarketPriceRepository repository;
     static PriceWriterConsumer consumer;
 
     @BeforeAll
     static void setup() {
+        jdbcUrl = MarketDataContainers.freshDatabase("price_writer");
+        dbUser = MarketDataContainers.postgres().getUsername();
+        dbPassword = MarketDataContainers.postgres().getPassword();
         Flyway.configure()
-                .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+                .dataSource(jdbcUrl, dbUser, dbPassword)
                 .locations("classpath:db/migration")
                 .mixed(true)
                 .load()
@@ -65,9 +62,9 @@ class PriceWriterConsumerIT {
 
         DriverManagerDataSource ds = new DriverManagerDataSource();
         ds.setDriverClassName("org.postgresql.Driver");
-        ds.setUrl(postgres.getJdbcUrl());
-        ds.setUsername(postgres.getUsername());
-        ds.setPassword(postgres.getPassword());
+        ds.setUrl(jdbcUrl);
+        ds.setUsername(dbUser);
+        ds.setPassword(dbPassword);
 
         JdbcClient jdbcClient = JdbcClient.create(ds);
         NamedParameterJdbcTemplate npjt = new NamedParameterJdbcTemplate(ds);
@@ -79,9 +76,9 @@ class PriceWriterConsumerIT {
     void cleanTable() {
         DriverManagerDataSource ds = new DriverManagerDataSource();
         ds.setDriverClassName("org.postgresql.Driver");
-        ds.setUrl(postgres.getJdbcUrl());
-        ds.setUsername(postgres.getUsername());
-        ds.setPassword(postgres.getPassword());
+        ds.setUrl(jdbcUrl);
+        ds.setUsername(dbUser);
+        ds.setPassword(dbPassword);
         JdbcClient.create(ds).sql("DELETE FROM market_prices").update();
     }
 

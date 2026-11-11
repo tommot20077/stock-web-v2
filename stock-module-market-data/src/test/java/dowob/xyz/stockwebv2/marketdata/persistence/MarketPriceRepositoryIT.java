@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.marketdata.persistence;
 
+import dowob.xyz.stockwebv2.marketdata.support.MarketDataContainers;
+
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -8,10 +10,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -25,7 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * {@link MarketPriceRepository} 整合測試。
  *
- * <p>使用 TimescaleDB testcontainer 驗證：
+ * <p>使用共用 TimescaleDB 容器({@link MarketDataContainers})中的獨立 database
+ * {@code md_price_repository} 驗證(D-04;清表只影響本類):
  * <ul>
  *   <li>批次插入（idempotency / ON CONFLICT DO NOTHING）</li>
  *   <li>查最近一筆 tick</li>
@@ -36,18 +35,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @author Yuan
  * @version 1.0.0
  */
-@Testcontainers
 class MarketPriceRepositoryIT {
 
-    @Container
-    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
-            DockerImageName.parse("timescale/timescaledb:2.27.2-pg18")
-                    .asCompatibleSubstituteFor("postgres"))
-            .withDatabaseName("market_data_test")
-            .withUsername("test")
-            .withPassword("test");
-
     static MarketPriceRepository repo;
+
+    /** 本類獨立 database 的資料源;{@link #cleanTable()} 清表時重用。 */
+    static DriverManagerDataSource dataSource;
 
     /** 固定 assetId：對應 V2 seed 資料中第一筆 assets 記錄（id=1）。 */
     static final Long ASSET_A = 1L;
@@ -62,33 +55,31 @@ class MarketPriceRepositoryIT {
 
     @BeforeAll
     static void setup() {
+        String url = MarketDataContainers.freshDatabase("price_repository");
+        String user = MarketDataContainers.postgres().getUsername();
+        String password = MarketDataContainers.postgres().getPassword();
         Flyway.configure()
-                .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+                .dataSource(url, user, password)
                 .locations("classpath:db/migration")
                 .mixed(true)
                 .load()
                 .migrate();
 
-        DriverManagerDataSource ds = new DriverManagerDataSource();
-        ds.setDriverClassName("org.postgresql.Driver");
-        ds.setUrl(postgres.getJdbcUrl());
-        ds.setUsername(postgres.getUsername());
-        ds.setPassword(postgres.getPassword());
+        dataSource = new DriverManagerDataSource();
+        dataSource.setDriverClassName("org.postgresql.Driver");
+        dataSource.setUrl(url);
+        dataSource.setUsername(user);
+        dataSource.setPassword(password);
 
-        JdbcClient jdbcClient = JdbcClient.create(ds);
-        NamedParameterJdbcTemplate npjt = new NamedParameterJdbcTemplate(ds);
+        JdbcClient jdbcClient = JdbcClient.create(dataSource);
+        NamedParameterJdbcTemplate npjt = new NamedParameterJdbcTemplate(dataSource);
         repo = new MarketPriceRepository(jdbcClient, npjt);
     }
 
     @BeforeEach
     void cleanTable() {
-        // 每個測試前清空 market_prices，保持隔離
-        DriverManagerDataSource ds = new DriverManagerDataSource();
-        ds.setDriverClassName("org.postgresql.Driver");
-        ds.setUrl(postgres.getJdbcUrl());
-        ds.setUsername(postgres.getUsername());
-        ds.setPassword(postgres.getPassword());
-        JdbcClient.create(ds).sql("DELETE FROM market_prices").update();
+        // 每個測試前清空 market_prices，保持隔離;database 為本類獨有,不影響其他 IT
+        JdbcClient.create(dataSource).sql("DELETE FROM market_prices").update();
     }
 
     // ── insertAll ────────────────────────────────────────────────────────────

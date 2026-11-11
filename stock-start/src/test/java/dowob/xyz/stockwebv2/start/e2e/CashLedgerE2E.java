@@ -1,6 +1,6 @@
 package dowob.xyz.stockwebv2.start.e2e;
 
-import dowob.xyz.stockwebv2.start.e2e.support.AbstractPortfolioE2ETest;
+import dowob.xyz.stockwebv2.start.e2e.support.AbstractPortfolioE2E;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -39,7 +39,7 @@ import tools.jackson.databind.JsonNode;
  * @version 1.0
  */
 @DisplayName("Cash Ledger E2E")
-class CashLedgerE2E extends AbstractPortfolioE2ETest {
+class CashLedgerE2E extends AbstractPortfolioE2E {
 
     private static final String DEPOSIT_TWD_50000 = """
         {"type":"DEPOSIT","currency":"TWD","amount":50000,"occurredAt":"2026-10-01T09:00:00+08:00"}

@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.marketdata.ws;
 
+import dowob.xyz.stockwebv2.marketdata.support.MarketDataContainers;
+
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -7,10 +9,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 import java.time.Duration;
 
@@ -22,7 +20,8 @@ import tools.jackson.databind.ObjectMapper;
 /**
  * {@link WsTicketService} 整合測試。
  *
- * <p>使用 Redis testcontainer 驗證：
+ * <p>使用共用 Redis 容器({@link MarketDataContainers})的 database index {@value #REDIS_DATABASE}
+ * 驗證(D-04;清理用 {@code flushDb},不影響其他 IT 的 index):
  * <ul>
  *   <li>簽發 → 回傳非空 ticket</li>
  *   <li>消耗 → 一次性，第二次 miss</li>
@@ -34,27 +33,27 @@ import tools.jackson.databind.ObjectMapper;
  * @author Yuan
  * @version 1.0.0
  */
-@Testcontainers
 class WsTicketServiceIT {
 
-    @Container
-    static final GenericContainer<?> redis = new GenericContainer<>(
-            DockerImageName.parse("redis:8.8.0-alpine")).withExposedPorts(6379);
+    /** 本類專用的 Redis database index;BackfillIdempotencyServiceIT 用 2,勿重複。 */
+    static final int REDIS_DATABASE = 1;
 
     static StringRedisTemplate template;
     static ObjectMapper om = new ObjectMapper();
 
     @BeforeAll
     static void setup() {
-        LettuceConnectionFactory factory = new LettuceConnectionFactory(
-                new RedisStandaloneConfiguration(redis.getHost(), redis.getMappedPort(6379)));
+        RedisStandaloneConfiguration config = new RedisStandaloneConfiguration(
+                MarketDataContainers.redis().getHost(), MarketDataContainers.redis().getMappedPort(6379));
+        config.setDatabase(REDIS_DATABASE);
+        LettuceConnectionFactory factory = new LettuceConnectionFactory(config);
         factory.afterPropertiesSet();
         template = new StringRedisTemplate(factory);
     }
 
     @BeforeEach
     void flush() {
-        template.getConnectionFactory().getConnection().serverCommands().flushAll();
+        template.getConnectionFactory().getConnection().serverCommands().flushDb();
     }
 
     // ── issue ─────────────────────────────────────────────────────────────────

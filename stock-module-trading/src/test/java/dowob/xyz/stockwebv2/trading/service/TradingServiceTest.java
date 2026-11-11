@@ -387,16 +387,43 @@ class TradingServiceTest {
     }
 
     @Test
-    @DisplayName("未來 executedAt 的既有錯誤形狀不變：VALIDATION_FAILED 且無 fields（quick-261107-1j4 只加下限）")
-    void futureExecutedAtErrorKeepsNoFields() {
+    @DisplayName("未來 executedAt（超過 5 分鐘容忍度）：fields.executedAt 為靜態字串、訊息不回射輸入，與 1900 下限同形（Phase 5 D-02a）")
+    void futureExecutedAtErrorNamesTheField() {
+        OffsetDateTime future = OffsetDateTime.now().plusMinutes(6);
         CreateTradeRequest request = new CreateTradeRequest(
-            "AAPL", "BUY", BigDecimal.ONE, BigDecimal.TEN, null, null, OffsetDateTime.now().plusDays(1));
+            "AAPL", "BUY", BigDecimal.ONE, BigDecimal.TEN, null, null, future);
 
         assertThatThrownBy(() -> service.createTrade(7L, request, "key-1"))
-            .isInstanceOfSatisfying(BusinessException.class, ex -> {
-                assertThat(ex).isNotInstanceOf(FieldValidationException.class);
+            .isInstanceOfSatisfying(FieldValidationException.class, ex -> {
                 assertThat(ex.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                assertThat(ex.fields()).containsOnlyKeys("executedAt")
+                    .containsEntry("executedAt", "must not be in the future");
+                // canary:請求的時間字串不得出現在訊息或 fields 值(security L-1)
+                assertThat(ex.getMessage()).doesNotContain(future.toString());
+                assertThat(ex.fields().values()).noneMatch(value -> value.contains(future.toString()));
             });
+
+        verifyNoInteractions(assetFacade);
+        verifyNoInteractions(repository);
+        verifyNoInteractions(portfolioCache);
+    }
+
+    @Test
+    @DisplayName("未來 executedAt 在 5 分鐘時鐘偏移容忍度內：照常成交（Phase 5 D-02a 不改容忍度）")
+    void futureExecutedAtWithinToleranceIsAccepted() {
+        when(assetFacade.findBySymbol("AAPL")).thenReturn(Optional.of(
+            new AssetSummary(55L, "AAPL", "Apple Inc.", AssetType.STOCK, "US", true, true)));
+        when(repository.findHoldingForUpdate(7L, 55L)).thenReturn(Optional.empty());
+        when(repository.insertHoldingIfAbsent(any(Holding.class)))
+            .thenAnswer(invocation -> Optional.of(invocation.getArgument(0)));
+        when(repository.insertTransactionIfAbsent(any(TradeTransaction.class)))
+            .thenAnswer(invocation -> Optional.of(invocation.getArgument(0)));
+
+        OffsetDateTime nearFuture = OffsetDateTime.now().plusMinutes(4);
+        service.createTrade(7L, new CreateTradeRequest(
+            "AAPL", "BUY", BigDecimal.ONE, BigDecimal.TEN, null, null, nearFuture), "key-1");
+
+        verify(repository).insertTransactionIfAbsent(any(TradeTransaction.class));
     }
 
     @Test

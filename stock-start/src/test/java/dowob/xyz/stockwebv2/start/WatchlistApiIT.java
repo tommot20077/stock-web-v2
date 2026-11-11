@@ -8,6 +8,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
@@ -28,6 +29,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.equalTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -202,6 +204,50 @@ class WatchlistApiIT extends ContainerIT {
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
             .andExpect(jsonPath("$.error.fields.name").exists());
+    }
+
+    @Test
+    @DisplayName("V20：繞過服務直接 insert 只含不換行空白 / 全形空白的名稱，被 ck_watchlists_name_not_blank 拒絕（Phase 5 D-02b）")
+    void dbRejectsNameMadeOnlyOfNoBreakSpaces() throws Exception {
+        registerAndLogin("watch-db-blank@example.com", "watchdbblank");
+        Long userId = userId("watch-db-blank@example.com");
+
+        // V18 的 btrim(name) 只去除 U+0020,兩個 U+00A0 會被放行;V20 改以服務層同一字元集 btrim
+        assertThatThrownBy(() -> insertWatchlistDirectly(userId, "\u00A0\u00A0"))
+            .isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> insertWatchlistDirectly(userId, "\u3000"))
+            .isInstanceOf(DataIntegrityViolationException.class);
+
+        Integer rows = jdbcClient.sql("select count(*) from watchlists where user_id = :userId")
+            .param("userId", userId)
+            .query(Integer.class)
+            .single();
+        assertThat(rows).isZero();
+    }
+
+    @Test
+    @DisplayName("V20：名稱中間含不換行空白仍可直接 insert（btrim 只去兩端，Phase 5 D-02b）")
+    void dbAcceptsNameWithInnerNoBreakSpace() throws Exception {
+        registerAndLogin("watch-db-inner@example.com", "watchdbinner");
+        Long userId = userId("watch-db-inner@example.com");
+
+        assertThat(insertWatchlistDirectly(userId, "科技\u00A0股")).isEqualTo(1);
+
+        String stored = jdbcClient.sql("select name from watchlists where user_id = :userId")
+            .param("userId", userId)
+            .query(String.class)
+            .single();
+        assertThat(stored).isEqualTo("科技\u00A0股");
+    }
+
+    /**
+     * 繞過 {@code WatchlistService} 直接寫入 watchlists，只用來驗證 DB 約束本身（V20）。
+     */
+    private int insertWatchlistDirectly(Long userId, String name) {
+        return jdbcClient.sql("insert into watchlists (user_id, name) values (:userId, :name)")
+            .param("userId", userId)
+            .param("name", name)
+            .update();
     }
 
     @Test

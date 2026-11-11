@@ -1,6 +1,6 @@
 package dowob.xyz.stockwebv2.start.e2e;
 
-import dowob.xyz.stockwebv2.start.e2e.support.AbstractStockE2ETest;
+import dowob.xyz.stockwebv2.start.e2e.support.AbstractStockE2E;
 import dowob.xyz.stockwebv2.start.e2e.support.DatabaseCleaner;
 
 import org.junit.jupiter.api.AfterEach;
@@ -30,7 +30,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * @version 1.0.0
  */
 @DisplayName("Market REST API E2E")
-class MarketRestApiE2ETest extends AbstractStockE2ETest {
+class MarketRestApiE2E extends AbstractStockE2E {
 
     @Autowired
     private DatabaseCleaner databaseCleaner;

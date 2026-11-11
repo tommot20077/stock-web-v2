@@ -20,9 +20,11 @@
     | stock-module-backtest | 0.6233 | 0.62 | 0.7750 | 0.77 |
     | stock-module-market-data | 0.9067 | 0.90 | 0.8021 | 0.80 |
     | stock-module-trading | 0.7691 | 0.76 | 0.9014 | 0.90 |
-    | stock-start | 0.8813 | 0.88 | 0.6667 | 0.66 |
+    | stock-start | 0.87x(註) | 0.87 | 0.64x(註) | 0.64 |
 
     上調時改各模組 pom 的 `jacoco.minimum.*` 屬性,並同步更新本表。
+    註:stock-start 原為 0.8813 / 0.88、0.6667 / 0.66。2026-11-10 Yuan 核准調降:Phase 05-06(D-23)把 7 個需容器的 `*E2ETest` 改名為 `*E2E`,移到 `-Pe2e` 的 E2E job,`verify` 不再執行它們,stock-start 覆蓋率隨之下降。新下限取自 PR tommot20077/stock-web-v2#55 的 Integration job(run 42649422483,head `180a652`)`jacoco:check` 報告值(jacoco 以下限的小數位數無條件捨去比較)。
+
 *   **No Exceptions**: "Not applicable" is not an excuse. Unit, Integration, E2E tests are required unless explicitly waived by Yuan.
 
 ## Test Method Naming
@@ -57,7 +59,7 @@ void methodNameInChinese() { ... }
 
 ## Testcontainers Shared Container Pattern
 
-> As implemented (2026-11-06): `stock-start/src/test/java/dowob/xyz/stockwebv2/start/support/ContainerIT.java` is the shared base — static singleton containers `timescale/timescaledb:2.27.2-pg18`, `redis:8.8.0-alpine` and `apache/kafka:4.2.0`(KRaft, `org.testcontainers.kafka.KafkaContainer`), started once per JVM with `Startables.deepStart`; **no** `withReuse(true)`. It also disables rate limiting for the shared suite (`AuthRateLimitAndLockoutIT` overrides it). Module ITs (asset / market-data) declare their own containers. Sharing containers across market-data ITs is a backlog todo (`2026-09-27-it-shared-containers`). The snippet below is the original design sketch.
+> As implemented (2026-11-06): `stock-start/src/test/java/dowob/xyz/stockwebv2/start/support/ContainerIT.java` is the shared base — static singleton containers `timescale/timescaledb:2.27.2-pg18`, `redis:8.8.0-alpine` and `apache/kafka:4.2.0`(KRaft, `org.testcontainers.kafka.KafkaContainer`), started once per JVM with `Startables.deepStart`; **no** `withReuse(true)`. It also disables rate limiting for the shared suite (`AuthRateLimitAndLockoutIT` overrides it). asset module ITs declare their own containers; market-data ITs share lazily started singletons via `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/support/MarketDataContainers.java` (Phase 05-07 / 05-08: isolated per IT by its own database, Redis db index, or unique Kafka topic / consumer group; failsafe `runOrder=random`). The snippet below is the original design sketch.
 
 Use **singleton pattern** + `withReuse(true)` to share containers across test classes:
 

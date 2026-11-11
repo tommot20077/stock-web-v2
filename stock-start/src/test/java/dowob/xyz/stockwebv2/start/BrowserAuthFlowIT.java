@@ -99,6 +99,115 @@ class BrowserAuthFlowIT extends ContainerIT {
             .andExpect(jsonPath("$.success", equalTo(true)));
     }
 
+    /**
+     * 瀏覽器已帶<strong>有效</strong> access cookie 時,重新 POST /auth/login 也必須通過 CSRF。
+     *
+     * <p>這是 {@code ai-docs/browser-auth-contract.md} CSRF 節補述(D-03,由 05-05 寫入契約)的測試證據:
+     * {@code JwtAuthenticationFilter} 對有效 access cookie 設定 cookie 認證(transport=cookie),
+     * {@code BrowserCsrfFilter} 因此對 permitAll 的 login 也要求 double-submit。失效 cookie 不會擋
+     * 重新登入,見 {@link #staleAccessCookieDoesNotBlockReLoginOnPublicEndpoint()}。Phase 5 SC1 缺口 G3。
+     *
+     * @throws Exception MockMvc 執行失敗時
+     */
+    @Test
+    void loginWithValidAccessCookieRequiresCsrf() throws Exception {
+        MvcResult login = login("valid-cookie-login@example.com", "validcookielogin");
+        Cookie validAccess = login.getResponse().getCookie(ACCESS_COOKIE);
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"email":"valid-cookie-login@example.com","password":"Password1"}
+                    """)
+                .cookie(validAccess))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.success", equalTo(false)))
+            .andExpect(jsonPath("$.error.code", equalTo("AUTH_CSRF_TOKEN_INVALID")))
+            .andExpect(jsonPath("$.meta.traceId").exists());
+
+        Cookie xsrf = csrfCookie();
+        mockMvc.perform(post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"email":"valid-cookie-login@example.com","password":"Password1"}
+                    """)
+                .cookie(validAccess)
+                .cookie(xsrf)
+                .header(XSRF_HEADER, xsrf.getValue()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success", equalTo(true)));
+    }
+
+    /**
+     * 瀏覽器已帶<strong>有效</strong> access cookie 時,POST /auth/register 也必須通過 CSRF。
+     *
+     * <p>與 {@link #loginWithValidAccessCookieRequiresCsrf()} 同屬 {@code browser-auth-contract.md}
+     * CSRF 節補述(D-03)的測試證據。缺 CSRF 被拒後,以相符 CSRF 用<strong>同一個</strong> email 註冊
+     * 仍成功,順帶證明被拒的請求沒有建立帳號。Phase 5 SC1 缺口 G3。
+     *
+     * @throws Exception MockMvc 執行失敗時
+     */
+    @Test
+    void registerWithValidAccessCookieRequiresCsrf() throws Exception {
+        MvcResult login = login("valid-cookie-register@example.com", "validcookieregister");
+        Cookie validAccess = login.getResponse().getCookie(ACCESS_COOKIE);
+        String newAccountBody = """
+            {"email":"valid-cookie-register-new@example.com","username":"validcookieregnew","password":"Password1"}
+            """;
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(newAccountBody)
+                .cookie(validAccess))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.success", equalTo(false)))
+            .andExpect(jsonPath("$.error.code", equalTo("AUTH_CSRF_TOKEN_INVALID")))
+            .andExpect(jsonPath("$.meta.traceId").exists());
+
+        Cookie xsrf = csrfCookie();
+        mockMvc.perform(post("/api/v1/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(newAccountBody)
+                .cookie(validAccess)
+                .cookie(xsrf)
+                .header(XSRF_HEADER, xsrf.getValue()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success", equalTo(true)));
+    }
+
+    /**
+     * cookie 模式登出後,登出前取得的 access cookie 立即失效(security.md §5 Instant logout)。
+     *
+     * <p>bearer 版見 {@code LogoutInvalidatesAccessTokenIT#accessTokenIsRejectedAfterLogout};
+     * 這裡鎖住瀏覽器實際走的 cookie 路徑,並斷言 401 為完整失敗信封。Phase 5 SC1 缺口 G4(SC4 的後端面)。
+     *
+     * @throws Exception MockMvc 執行失敗時
+     */
+    @Test
+    void cookieLogoutRevokesAccessCookieForMe() throws Exception {
+        MvcResult login = login("cookie-logout-me@example.com", "cookielogoutme");
+        Cookie accessBeforeLogout = login.getResponse().getCookie(ACCESS_COOKIE);
+        Cookie refresh = login.getResponse().getCookie(REFRESH_COOKIE);
+        Cookie xsrf = csrfCookie();
+
+        mockMvc.perform(get("/api/v1/me").cookie(accessBeforeLogout))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/auth/logout")
+                .cookie(accessBeforeLogout)
+                .cookie(refresh)
+                .cookie(xsrf)
+                .header(XSRF_HEADER, xsrf.getValue()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success", equalTo(true)));
+
+        mockMvc.perform(get("/api/v1/me").cookie(accessBeforeLogout))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.success", equalTo(false)))
+            .andExpect(jsonPath("$.error.code", equalTo("AUTH_INVALID_CREDENTIALS")))
+            .andExpect(jsonPath("$.meta.traceId").exists());
+    }
+
     @Test
     void meAcceptsAccessCookieWithoutBearerHeader() throws Exception {
         MvcResult login = login("cookie-me@example.com", "cookieme");

@@ -2,6 +2,8 @@ package dowob.xyz.stockwebv2.start;
 
 import dowob.xyz.stockwebv2.start.support.ContainerIT;
 
+import jakarta.servlet.http.Cookie;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,6 +12,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 
 import java.math.BigDecimal;
@@ -89,6 +92,37 @@ class TradingApiIT extends ContainerIT {
                 .content(buyBody()))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.error.code", equalTo("AUTH_INVALID_CREDENTIALS")));
+    }
+
+    /**
+     * cookie 認證(無 Bearer)的 POST /trades 缺 {@code X-XSRF-TOKEN} 必須被 {@code BrowserCsrfFilter} 擋下。
+     *
+     * <p>Phase 5 SC1 缺口 G2(T-05-07):既有交易 IT 全走 bearer,不會觸發 CSRF;瀏覽器實際走的是
+     * {@code stock_access} cookie,這條鎖住「cookie 認證 + 無 CSRF = 403 AUTH_CSRF_TOKEN_INVALID」,
+     * 並以 cookie GET 列表與資料庫列數雙重確認被拒的請求沒有寫入任何交易。合法 body 與
+     * {@code Idempotency-Key} 都帶齊,確保 403 不是被驗證錯誤搶先攔下。
+     *
+     * @throws Exception MockMvc 執行失敗時
+     */
+    @Test
+    void cookieAuthenticatedTradeWithoutCsrfIsRejected() throws Exception {
+        String email = "trading-cookie-csrf@example.com";
+        Cookie accessCookie = cookieLogin(email, "tradingcookiecsrf");
+
+        mockMvc.perform(post("/api/v1/trades")
+                .contentType(MediaType.APPLICATION_JSON)
+                .cookie(accessCookie)
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .content(buyBody()))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.success", equalTo(false)))
+            .andExpect(jsonPath("$.error.code", equalTo("AUTH_CSRF_TOKEN_INVALID")))
+            .andExpect(jsonPath("$.meta.traceId").exists());
+
+        mockMvc.perform(get("/api/v1/trades").cookie(accessCookie))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(0)));
+        assertThat(transactionRows(email)).isZero();
     }
 
     @Test
@@ -605,7 +639,7 @@ class TradingApiIT extends ContainerIT {
     }
 
     @Test
-    @DisplayName("未來的 executedAt 建立交易被拒，補登舊交易仍可建立")
+    @DisplayName("未來的 executedAt 建立交易被拒且 fields.executedAt 指名欄位（Phase 5 D-02a），補登舊交易仍可建立")
     void futureExecutedAtIsRejectedButBackfillIsAllowed() throws Exception {
         AuthTokens tokens = register("trading-futuredate@example.com", "tradingfuturedate", "Password1");
 
@@ -617,7 +651,9 @@ class TradingApiIT extends ContainerIT {
                     {"symbol":"AAPL","type":"BUY","quantity":1,"price":100,"fee":0,"executedAt":"2099-01-01T00:00:00Z"}
                     """))
             .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")));
+            .andExpect(jsonPath("$.error.code", equalTo("VALIDATION_FAILED")))
+            // Phase 5 D-02a:與 1900 下限同形,前端 OrderTicket 才能把錯誤綁到成交時間欄位
+            .andExpect(jsonPath("$.error.fields.executedAt", equalTo("must not be in the future")));
 
         mockMvc.perform(post("/api/v1/trades")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -1166,6 +1202,34 @@ class TradingApiIT extends ContainerIT {
         return """
             {"symbol":"AAPL","type":"BUY","quantity":10,"price":100,"fee":5,"note":"initial buy"}
             """;
+    }
+
+    /**
+     * 以瀏覽器流程註冊並登入,回傳 HttpOnly 的 {@code stock_access} cookie(仿 {@code BrowserAuthFlowIT#login})。
+     *
+     * @param email    帳號 email
+     * @param username 使用者名稱
+     * @return 登入回應寫出的 access cookie
+     * @throws Exception MockMvc 執行失敗時
+     */
+    private Cookie cookieLogin(String email, String username) throws Exception {
+        mockMvc.perform(post("/api/v1/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"email":"%s","username":"%s","password":"Password1"}
+                    """.formatted(email, username)))
+            .andExpect(status().isOk());
+
+        MvcResult login = mockMvc.perform(post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"email":"%s","password":"Password1"}
+                    """.formatted(email)))
+            .andExpect(status().isOk())
+            .andReturn();
+        Cookie accessCookie = login.getResponse().getCookie("stock_access");
+        assertThat(accessCookie).isNotNull();
+        return accessCookie;
     }
 
     private AuthTokens register(String email, String username, String password) throws Exception {

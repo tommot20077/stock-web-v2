@@ -1,341 +1,220 @@
 ---
-last_mapped_commit: 5ca148d0e17ea7e2cafc957738dbfc70fe6dfa74
+last_mapped_commit: adae04117fcfa99db40b8ca304fb5cb9c5e36ec9
+last_mapped_at: 2026-11-07
 ---
-<!-- refreshed: 2026-05-30 -->
+<!-- refreshed: 2026-11-07 -->
+
 # Architecture
 
-**Analysis Date:** 2026-11-06(初次分析 2026-05-30)
+**Analysis Date:** 2026-11-07
 
-**Refresh:** 2026-11-06 targeted refresh (quick-261106-fbs Task 3) — 以程式核對並修正與現況衝突處,**不是** `/gsd-map-codebase` 全量重產(本次執行環境無法派 mapper agents;建議日後全量重產)。前端路徑以 Yuan 本機佈局 `../../vue/stock-v2/vue-app` 表示(cloud 環境為 `../stock-web-v2-front-end/vue-app`)。
+> 跨 repo 產品:後端 = 本 repo(Java 21 / Spring Boot 多模組 Maven modular monolith);前端 = 前端 repo 根(程式在 `vue-app/`)。本機 `../../vue/stock-v2` 與 cloud `../stock-web-v2-front-end` 的路徑對照見 `ai-docs/judgment.md` §8。前端檔案路徑一律相對於前端 repo 根。
 
 ## System Overview
 
 ```text
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        Spring Boot composition app                           │
-│  `stock-start/src/main/java/dowob/xyz/stockwebv2/start/StockWebV2Application.java` │
-├──────────────────┬──────────────────┬──────────────────┬───────────────────┤
-│ User/Auth        │ Assets           │ Backtest         │ Trading           │
-│ `stock-module-user` │ `stock-module-asset` │ `stock-module-backtest` │ `stock-module-trading` │
-└────────┬─────────┴────────┬─────────┴────────┬─────────┴─────────┬─────────┘
-         │                  │                  │                   │
-         ▼                  ▼                  ▼                   ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ Market Data module: REST + WebSocket + scheduler + Kafka consumers          │
-│ `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata`     │
-└───────────────────────────────┬─────────────────────────────────────────────┘
-                                ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ Shared contracts and infrastructure                                         │
-│ `stock-common`, `stock-infrastructure`, `stock-db-migration`                │
-└───────────────────────────────┬─────────────────────────────────────────────┘
-                                ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ PostgreSQL/TimescaleDB + Redis + Kafka                                      │
-│ `stock-db-migration/src/main/resources/db/migration`                        │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ Sibling Vue frontend                                                        │
-│ `../../vue/stock-v2/vue-app/src/App.vue` + `../../vue/stock-v2/vue-app/src/services` │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│ 前端 repo 根 `vue-app/` (Vue 3 + Pinia + Vue Router + Vite)            │
+│  pages/*.vue ── components/*.vue ── composables/use*.ts               │
+│            │ (只經 service interface)                                 │
+│  `vue-app/src/services/pageApiClients.ts` getRuntimeApiClients()      │
+│     ├─ mode=mock → `vue-app/src/stores/mock*.ts`                      │
+│     └─ mode=api  → `vue-app/src/services/apiClient.ts` (唯一 fetch)    │
+│                    `vue-app/src/services/quoteStream.ts` (唯一 WS)     │
+└───────────────┬────────────────────────────────────┬─────────────────┘
+   REST /api/v1/** (cookie + X-XSRF-TOKEN)   WS /ws/v1/market (ticket)
+                ▼                                    ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│ L3 `stock-start` — StockWebV2Application, SecurityConfig(JWT cookie   │
+│    filter + BrowserCsrfFilter), GlobalExceptionHandler, RateLimit     │
+├──────────┬──────────┬───────────┬──────────────┬─────────────────────┤
+│ L2 user  │ L2 asset │ L2 trading│ L2 backtest  │ L2 market-data       │
+│ auth/csrf│ assets/  │ trades/   │ runs/engine  │ ingest→Kafka→TSDB/   │
+│ prefs    │ watchlist│ cash/div  │              │ Redis→WebSocket      │
+│          │ FX       │ portfolio │              │                      │
+├──────────┴──────────┴───────────┴──────────────┴─────────────────────┤
+│ L1 `stock-infrastructure` — Facade 介面、JwtService、RateLimit、       │
+│    TraceIdFilter、ApiMetaFactory、AuditLogger、Redis config            │
+├──────────────────────────────────────────────────────────────────────┤
+│ L0 `stock-common` (ApiResponse/ErrorCode/enums/PriceTickEvent)        │
+│ L0 `stock-db-migration` (Flyway V1..V19)                              │
+└───────────────┬──────────────────────────────────────────────────────┘
+                ▼
+   PostgreSQL + TimescaleDB · Redis · Kafka (KRaft)
 ```
 
 ## Component Responsibilities
 
 | Component | Responsibility | File |
 |-----------|----------------|------|
-| Spring Boot start module | Composes all backend modules through broad component scanning and owns runtime security/error config. | `stock-start/src/main/java/dowob/xyz/stockwebv2/start/StockWebV2Application.java` |
-| Security configuration | Stateless JWT filter (cookie or bearer), browser CSRF filter, CORS, method security, auth/authorization error envelopes; general API rate limiting via `ApiRateLimitInterceptor`. | `stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java` |
-| Global exception handling | Converts validation/business/runtime failures into `ApiResponse.failure(...)`. | `stock-start/src/main/java/dowob/xyz/stockwebv2/start/error/GlobalExceptionHandler.java` |
-| Common contracts | API envelopes, error codes, enums, and cross-module event records. | `stock-common/src/main/java/dowob/xyz/stockwebv2/common` |
-| Infrastructure | JWT, rate limiting, Redis/password config, trace IDs, audit logger, event/search abstractions (reserved), cross-module facade contracts (`AssetFacade`, `FxRateFacade`, `MarketDataFacade`, `UserPreferenceFacade`). | `stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure` |
-| Database migrations | Flyway schema and seed ownership (V1–V19) for users, assets, FX rates, backtests, market prices, Spring Batch metadata, trading, cash ledger, dividends, share adjustments and watchlists. | `stock-db-migration/src/main/resources/db/migration` |
-| User module | Registration, login (browser cookie + bearer token), refresh-token lifecycle, CSRF token, `/me`, base-currency preference, admin unlock, and user persistence. | `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user` |
-| Asset module | Public asset search, `AssetFacade` / `FxRateFacade` implementations, and per-user watchlists. | `stock-module-asset/src/main/java/dowob/xyz/stockwebv2/asset` |
-| Backtest module | Strategy validation, deterministic backtest engine, run/result persistence, and backtest REST API. | `stock-module-backtest/src/main/java/dowob/xyz/stockwebv2/backtest` |
-| Market-data module | Latest/K-line REST API, WebSocket tickets, scheduler ingest, Kafka persistence/broadcast consumers, and observability. | `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata` |
-| Trading module | Trades, holdings, portfolio summary (base currency, day P&L, cash, allocation), portfolio Redis cache, cash ledger, cash dividends, share adjustments, unified activity list, and their persistence. | `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading` |
-| Vue app shell | Owns visible page state, header/navigation, global overlays, order ticket, shortcuts, and tweaks. | `../../vue/stock-v2/vue-app/src/App.vue` |
-| Vue service adapters | Switch between mock and HTTP clients using `VITE_DATA_MODE` for every domain (auth, portfolio, trading, cash, holding events, profile, market + quote stream, watchlist, backtest, ops, AI access); ops / AI access have no backend yet and stay Preview. | `../../vue/stock-v2/vue-app/src/services/pageApiClients.ts` |
+| Application entry | `@SpringBootApplication(scanBasePackages="dowob.xyz.stockwebv2")` | `stock-start/src/main/java/dowob/xyz/stockwebv2/start/StockWebV2Application.java` |
+| Security chain | JWT(header 或 access cookie)、自訂 `BrowserCsrfFilter`(double-submit)、路徑授權 | `stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java` |
+| 全域錯誤 → envelope | Exception → `ApiResponse` failure | `stock-start/src/main/java/dowob/xyz/stockwebv2/start/error/GlobalExceptionHandler.java` |
+| API envelope | `ApiResponse<T>{success,data,error,meta}`、`PageResponse<T>` | `stock-common/src/main/java/dowob/xyz/stockwebv2/common/api/` |
+| 錯誤碼 / 例外 | `ErrorCode`、`BusinessException` 等 | `stock-common/src/main/java/dowob/xyz/stockwebv2/common/error/` |
+| 跨模組 Facade | `AssetFacade`、`FxRateFacade`、`MarketDataFacade`、`UserPreferenceFacade` | `stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/{asset,fx,marketdata,user}/` |
+| Auth / cookie | 登入、refresh rotation、browser cookie、CSRF bootstrap | `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/{api/AuthController,api/CsrfController,service/BrowserAuthCookieService}.java` |
+| 交易 / 持倉 | 已成交手動紀錄、持倉計算、現金、股利、股數調整 | `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/` |
+| 行情 | Ingest、Kafka consumer、K 線查詢、WS ticket、WS push | `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/` |
+| 回測 | 決定性回測引擎、策略驗證 | `stock-module-backtest/src/main/java/dowob/xyz/stockwebv2/backtest/engine/DeterministicBacktestEngine.java` |
+| 前端 transport 邊界 | credentials、CSRF header、信封解析、401 refresh 重試 | `vue-app/src/services/apiClient.ts` |
+| 前端 service 組裝 | 依 `VITE_DATA_MODE` 建立各 domain API(singleton) | `vue-app/src/services/pageApiClients.ts`、`vue-app/src/services/runtimeDataMode.ts` |
+| 前端即時報價 | WS ticket → 連線 → 訂閱、狀態機 | `vue-app/src/services/quoteStream.ts`、`vue-app/src/composables/useLiveQuotes.ts` |
 
 ## Pattern Overview
 
-**Overall:** Modular monolith with package-by-feature Spring modules, shared common/infrastructure contracts, and a separate Vite/Vue frontend that is gradually moving from mock data to backend API adapters.
+**Overall:** 後端為分層 modular monolith(L0→L3)+ Facade 跨模組 + Kafka 事件扇出;前端為 SPA,以 service interface + runtime data mode(mock/api)隔離 transport。
 
 **Key Characteristics:**
-- Use one runtime application in `stock-start`; it depends on every backend module in `stock-start/pom.xml` and scans `dowob.xyz.stockwebv2`.
-- Keep business features in Maven modules named `stock-module-*`; inside each module, use `api`, `service`, `domain`, and `repository` packages.
-- Put stable cross-module contracts in `stock-common` or `stock-infrastructure`; avoid direct feature-module imports except where the Maven dependency explicitly allows them.
-- Use raw SQL through Spring `JdbcClient` repositories rather than JPA entities.
-- Return all REST responses through the common `ApiResponse<T>` envelope from `stock-common/src/main/java/dowob/xyz/stockwebv2/common/api/ApiResponse.java`.
-- Use Redis for auth state, refresh token state, rate-limit counters, latest price cache, portfolio cache, backfill idempotency, and WebSocket tickets.
-- Use Kafka as the market-data event bus; real-time ticks and historical backfill ticks use separate topics.
-- Keep frontend API integration behind `../../vue/stock-v2/vue-app/src/services/*Api.ts`, selected by `../../vue/stock-v2/vue-app/src/services/runtimeDataMode.ts`.
+- 模組只能經 `stock-infrastructure` 的 Facade 介面互相呼叫,禁止跨模組直接存取 Repository/SQL(由 `stock-start/src/test/java/dowob/xyz/stockwebv2/start/ArchitectureRulesTest.java` ArchUnit 守護)。
+- DDD-Lite 實為 transaction script:domain 是不可變 `record`,規則在純 calculator(`HoldingCalculator`、`CashBalanceCalculator`、`DayPnlCalculator`)與 application service。
+- 資料存取用手寫 `Jdbc*Repository` + `JdbcClient`(market-data 批次寫入用 `NamedParameterJdbcTemplate`);非 JPA、非 Spring Data JDBC repository,`spring-boot-starter-data-jdbc` 只為 JDBC 基礎設施。
+- 對外 ID 一律 UUID;所有 REST 回 `ApiResponse<T>`,traceId 只在 `meta.traceId`。
+- 前端元件不得 `fetch`、不得 import mock store;mock 是明確模式,無效值 fail fast(`RuntimeDataModeError`)。
 
 ## Layers
 
-**Start/Composition Layer:**
-- Purpose: Compose all modules into one executable Spring Boot process.
-- Location: `stock-start/src/main/java/dowob/xyz/stockwebv2/start`
-- Contains: `StockWebV2Application`, `SecurityConfig`, `ApiRateLimitInterceptor` / `ApiRateLimitConfig`, `GlobalExceptionHandler`, test-only support controller.
-- Depends on: Every domain module plus `stock-common`, `stock-infrastructure`, `stock-db-migration`.
-- Used by: Maven boot plugin in `stock-start/pom.xml`.
+**L0 `stock-common`:**
+- Purpose: 共用 DTO、enum、錯誤碼、事件
+- Location: `stock-common/src/main/java/dowob/xyz/stockwebv2/common/`
+- Contains: `api/`、`error/`、`event/PriceTickEvent`、`model/`(`AssetType`、`CurrencyCode`、`Role`…)、`time/ApiTimeParser`
+- Depends on: 無(專案內)
+- Used by: 所有模組
 
-**API Layer:**
-- Purpose: Define HTTP endpoints, parse request parameters, resolve `Authentication`, apply validation annotations, and wrap responses.
-- Location: `stock-module-*/src/main/java/dowob/xyz/stockwebv2/*/api`
-- Contains: `*Controller`, `*Dto`, request records.
-- Depends on: Service classes, `ApiResponse`, `ApiMeta`, `BusinessException`, `TraceIdFilter`.
-- Used by: Spring WebMVC auto-detection from `StockWebV2Application`.
+**L0 `stock-db-migration`:**
+- Purpose: 集中 Flyway schema(`V1__`…`V19__`)
+- Location: `stock-db-migration/src/main/resources/db/migration/`
+- Used by: `stock-start` 啟動時
 
-**Application Service Layer:**
-- Purpose: Orchestrate domain rules, repository calls, cache invalidation, external/event publishing, and DTO mapping.
-- Location: `stock-module-*/src/main/java/dowob/xyz/stockwebv2/*/service`
-- Contains: `AuthService`, `AssetQueryService`, `WatchlistService`, `BacktestService`, `TradingService`, `PortfolioQueryService`, `CashLedgerService`, `DividendService`, `ShareAdjustmentService`, `ActivityQueryService`, `PortfolioCache`, module-specific mappers.
-- Depends on: Repositories, domain records, infrastructure facades, Redis/Kafka clients where appropriate.
-- Used by: Controllers and scheduled/background components.
+**L1 `stock-infrastructure`:**
+- Purpose: Facade 介面、安全(`JwtService` ES256)、rate limit、web 支援(`TraceIdFilter`、`ApiMetaFactory`、`AuthenticatedUserResolver`、`ClientIpResolver`)、`AuditLogger`、`RedisConfig`
+- Location: `stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/`
+- Depends on: `stock-common`
+- Used by: L2 模組、`stock-start`
 
-**Domain Layer:**
-- Purpose: Represent module-owned business concepts and deterministic domain calculations.
-- Location: `stock-module-*/src/main/java/dowob/xyz/stockwebv2/*/domain`
-- Contains: Java records/enums such as `User`, `Asset`, `Watchlist`, `BacktestRun`, `Holding`, `TradeTransaction`, `CashLedgerEntry`, `CashDividend`, `ShareAdjustment`, and pure calculators (`HoldingCalculator`, `DayPnlCalculator`, `AllocationCalculator`, `CashBalanceCalculator`, `ShareAdjustmentCalculator`).
-- Depends on: `stock-common` enums/errors where needed.
-- Used by: Services and repositories.
+**L2 業務模組(`stock-module-*`):**
+- Purpose: 各領域 `api/`(Controller + DTO)→ `service/` → `domain/` → `repository/`
+- Location: `stock-module-{user,asset,trading,backtest,market-data}/`
+- Depends on: L0、L1(Facade 介面)
+- Used by: `stock-start`;他模組僅透過 Facade 實作(如 `asset/service/AssetFacadeImpl.java`、`marketdata/api/MarketDataFacadeImpl.java`、`user/service/UserPreferenceFacadeImpl.java`)
 
-**Persistence Layer:**
-- Purpose: Read and write PostgreSQL/TimescaleDB using hand-written SQL.
-- Location: `stock-module-*/src/main/java/dowob/xyz/stockwebv2/*/repository` and `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/persistence`
-- Contains: Repository interfaces plus `Jdbc*Repository` implementations and row records.
-- Depends on: `JdbcClient`, module domain records, `PageResponse`.
-- Used by: Services and Kafka consumers.
+**L3 `stock-start`:**
+- Purpose: 聚合啟動、SecurityConfig、全域例外、API rate limit interceptor、整合測試(`*IT.java`)
+- Location: `stock-start/`
 
-**Shared Contract Layer:**
-- Purpose: Hold API envelopes, error catalog, enums, event records, and facade interfaces used by multiple modules.
-- Location: `stock-common/src/main/java/dowob/xyz/stockwebv2/common` and `stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure`
-- Contains: `ApiResponse`, `ErrorCode`, `CurrencyCode`, `PriceTickEvent`, `JwtService`, `TraceIdFilter`, `AssetFacade`, `FxRateFacade`, `MarketDataFacade`, `UserPreferenceFacade`.
-- Depends on: Spring/security/Jackson/Redis where infrastructure requires it.
-- Used by: All modules.
-
-**Market Event Layer:**
-- Purpose: Ingest, persist, cache, and broadcast market ticks.
-- Location: `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata`
-- Contains: `ScheduledIngestor`, `MarketDataIngestService`, `PriceWriterConsumer`, `WsBroadcastConsumer`, WebSocket handler/interceptor, Spring Batch backfill.
-- Depends on: Kafka, Redis, `AssetFacade`, market persistence repositories.
-- Used by: REST market endpoints and WebSocket clients.
-
-**Frontend Presentation Layer:**
-- Purpose: Render the app, manage local UI state, and route user actions to mock or HTTP service adapters.
-- Location: `../../vue/stock-v2/vue-app/src`
-- Contains: `App.vue`, `pages/*.vue`, `components/*.vue`, `stores/mock*.ts` (Pinia mock stores, reachable only through `services/` mock adapters), `data.ts`, `services/*.ts`.
-- Depends on: Vue 3, Pinia, Vue Router, fetch API.
-- Used by: Vite dev/build pipeline in `../../vue/stock-v2/vue-app/package.json`.
+**前端 `vue-app/src`:**
+- pages(`vue-app/src/pages/*.vue`)→ components / composables → services(`vue-app/src/services/*Api.ts`)→ `apiClient.ts` / `quoteStream.ts` 或 mock stores(`vue-app/src/stores/mock*.ts`)
 
 ## Data Flow
 
-### REST Request Path
+### Primary Request Path(前端 → 寫入交易)
 
-1. Client calls an endpoint under `/api/v1` such as `/api/v1/assets`, `/api/v1/backtests/runs`, or `/api/v1/trades` (`stock-module-asset/src/main/java/dowob/xyz/stockwebv2/asset/api/AssetController.java`, `stock-module-backtest/src/main/java/dowob/xyz/stockwebv2/backtest/api/BacktestController.java`, `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/api/TradingController.java`).
-2. `TraceIdFilter` creates or validates `X-Trace-Id` and puts it in MDC (`stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/web/TraceIdFilter.java`).
-3. `SecurityConfig.JwtAuthenticationFilter` parses the `stock_access` cookie or a bearer JWT and validates Redis auth state at `user:auth:{userId}`; `BrowserCsrfFilter` then enforces `X-XSRF-TOKEN` on cookie-authenticated unsafe requests, and `ApiRateLimitInterceptor` applies the general per-user / per-IP limit (`stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java`).
-4. Controller resolves request/auth data and delegates to a service (`stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/api/TradingController.java`).
-5. Service applies business rules, calls repositories/caches/facades, and returns DTOs (`stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/service/TradingService.java`).
-6. Controller wraps DTOs in `ApiResponse.success(...)` with `ApiMeta` trace/timestamp (`stock-common/src/main/java/dowob/xyz/stockwebv2/common/api/ApiResponse.java`).
-7. `GlobalExceptionHandler` maps `BusinessException`, validation failures, and unexpected runtime errors to common error envelopes (`stock-start/src/main/java/dowob/xyz/stockwebv2/start/error/GlobalExceptionHandler.java`).
+1. 頁面/對話框(如 `vue-app/src/components/OrderTicket.vue`)呼叫 `getRuntimeApiClients().trading`(`vue-app/src/services/pageApiClients.ts`)
+2. `vue-app/src/services/tradingApi.ts` 呼叫 `apiRequest()`(`vue-app/src/services/apiClient.ts:328`);unsafe method 先 `ensureCsrfToken()`(`:202`,打 `GET /api/v1/csrf`),附 `X-XSRF-TOKEN`、`credentials:'include'`(`:168`)
+3. 後端 `TraceIdFilter` → `SecurityConfig` 的 JWT cookie filter(讀 access cookie,`SecurityConfig.java:192`)→ `BrowserCsrfFilter` 比對 cookie/header(`:328-329`)
+4. `TradingController` → `TradingService` → `TradePayloadMatcher`/`HoldingCalculator` → `JdbcTradingRepository`(transactions 為 append-only,trigger 見 `V8__transactions_append_only_trigger.sql`)
+5. 回 `ApiResponse<TradeDto>`;前端 `apiClient` 解析信封,失敗轉 `ApiClientError`;401 走 `fetchWithSessionRecovery` refresh 後重放一次(`apiClient.ts:299-322`)
 
-### Authentication Path
+### 行情 ingest 與推播
 
-1. `AuthController.register` / `login` (browser: sets HttpOnly `stock_access` / `stock_refresh` cookies, never returns tokens) or `token` (bearer JSON) receives credentials at `/api/v1/auth/register`, `/api/v1/auth/login`, `/api/v1/auth/token` (`stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/api/AuthController.java`).
-2. `AuthService` normalizes email/username, validates uniqueness, hashes passwords, or verifies credentials (`stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/service/AuthService.java`).
-3. `JdbcUserRepository` persists/loads `users` rows with `JdbcClient` (`stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/repository/JdbcUserRepository.java`).
-4. `JwtService` signs ES256 access tokens with `stock.jwt` settings (`stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/security/JwtService.java`).
-5. `RefreshTokenService` issues and revokes refresh tokens in Redis using `JwtProperties.refreshTokenTtl()` (`stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/service/RefreshTokenService.java`).
-6. Later requests are authenticated by the security filter and authorized with roles/permissions from `Role.permissions()` (`stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java`).
+1. `ScheduledIngestor` 透過 `ProviderRegistry`/`DataProvider`(目前 `MockDataProvider`)取價(`marketdata/ingest/`)
+2. 發佈 Kafka `market.price.tick.v1`(key=assetId)
+3. `PriceWriterConsumer` 寫 `market_prices`(TimescaleDB hypertable,`kline_1m…1d` continuous aggregates)
+4. `WsBroadcastConsumer` 寫 Redis `market:latest:{assetId}` 並經 `SubscriptionManager`/`SessionSendDispatcher` 推 WS
+5. 前端 `quoteStream.ts`:`POST` ws-ticket(`WsTicketController`)→ 連 `/ws/v1/market`(`MarketHandshakeInterceptor` 驗 ticket)→ 訂閱 → `useLiveQuotes` 供元件
 
-### Market Data Ingest and Broadcast Path
+### 歷史回補
 
-1. `ScheduledIngestor` loads active/tradeable assets through `AssetFacade` after startup (`stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/ingest/ScheduledIngestor.java`).
-2. Each scheduled tick fetches a provider tick, creates `PriceTickEvent`, and calls `MarketDataIngestService.publishTick(...)` (`stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/ingest/ScheduledIngestor.java`).
-3. `MarketDataIngestService` publishes to Kafka topic constants in `KafkaConfig` using `assetId` as the partition key (`stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/ingest/MarketDataIngestService.java`).
-4. `PriceWriterConsumer` consumes real-time and backfill topics in batch and writes `market_prices` rows (`stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/consumer/PriceWriterConsumer.java`).
-5. `WsBroadcastConsumer` consumes real-time tick topic only, updates Redis `market:latest:{assetId}`, updates K-line buckets, and broadcasts `TICK`/`KLINE` payloads to subscribers (`stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/consumer/WsBroadcastConsumer.java`).
-6. REST latest/K-line endpoints read from `MarketLatestService` and `KlineQueryService` (`stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/api/MarketController.java`).
-
-### WebSocket Ticket Path
-
-1. Authenticated clients call `POST /api/v1/market/ws/ticket` (`stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/api/WsTicketController.java`).
-2. `WsTicketController` reads the current Redis token version from `user:auth:{userId}` and asks `WsTicketService` to issue a short-lived ticket (`stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/api/WsTicketController.java`).
-3. `WsConfig` registers `/ws/v1/market` with `MarketHandshakeInterceptor` and `MarketWebSocketHandler` (`stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/config/WsConfig.java`).
-4. The handshake consumes the ticket and injects user identity into the session (`stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/ws/MarketHandshakeInterceptor.java`).
-5. `MarketWebSocketHandler` manages messages and subscriptions through `SubscriptionManager` (`stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/ws/MarketWebSocketHandler.java`).
-6. `WsBroadcastConsumer` sends Kafka-derived tick/K-line payloads to subscribed sessions (`stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/consumer/WsBroadcastConsumer.java`).
-
-### Backtest Path
-
-1. Client creates a run via `POST /api/v1/backtests/runs` (`stock-module-backtest/src/main/java/dowob/xyz/stockwebv2/backtest/api/BacktestController.java`).
-2. `BacktestService` parses strategy/period/capital/options and verifies active symbol support (`stock-module-backtest/src/main/java/dowob/xyz/stockwebv2/backtest/service/BacktestService.java`).
-3. Custom strategies are validated by `StrategyValidator` (`stock-module-backtest/src/main/java/dowob/xyz/stockwebv2/backtest/service/BacktestService.java`).
-4. `DeterministicBacktestEngine` generates repeatable KPI/equity/drawdown/trade output from seeded inputs (`stock-module-backtest/src/main/java/dowob/xyz/stockwebv2/backtest/engine/DeterministicBacktestEngine.java`).
-5. `BacktestRepository` persists the run/result and service returns `BacktestRunDto` (`stock-module-backtest/src/main/java/dowob/xyz/stockwebv2/backtest/repository/BacktestRepository.java`).
-
-### Trading and Portfolio Path
-
-1. Client posts `/api/v1/trades` with authority `TRADE_EXECUTE` (`stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/api/TradingController.java`).
-2. `TradingService` resolves a tradeable asset through `AssetFacade`, locks current holdings, applies `HoldingCalculator`, writes holdings and transactions, then invalidates Redis portfolio cache (`stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/service/TradingService.java`).
-3. Portfolio reads use `PortfolioCache` with 60-second TTL before recalculating from repository rows and latest prices (`stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/service/PortfolioCache.java`).
-4. Holding and summary endpoints require `PORTFOLIO_VIEW`. `PortfolioQueryService` resolves the user's base currency (`UserPreferenceFacade`), FX rates (`FxRateFacade`), asset profiles (`AssetFacade`) and prices (`MarketDataFacade`) in batch; holdings carry `marketValueInBase` / `unrealizedPnlInBase` filled at response time; summary runs in a `REPEATABLE_READ` read-only transaction.
-5. Cash entries (`CashLedgerService`), cash dividends (`DividendService`) and share adjustments (`ShareAdjustmentService`) are append-only writes with `Idempotency-Key` and reversal rows; each evicts the affected cache keys after commit. `GET /api/v1/portfolio/activities` (`ActivityQueryService`) merges trades, dividends and adjustments into one list. Contract: `ai-docs/trading-portfolio-contract.md`.
-
-### Watchlist Path
-
-1. `WatchlistController` (`/api/v1/watchlists`, `WATCHLIST_MANAGE`) → `WatchlistService` → `JdbcWatchlistRepository` (asset module); list / item caps 20 / 100 enforced with row locks + post-lock counts. Contract: `ai-docs/watchlist-contract.md`. (`stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/api/TradingController.java`).
-
-### Frontend API Adapter Path
-
-1. `../../vue/stock-v2/vue-app/src/main.ts` mounts Vue, Pinia, and a hash router.
-2. `../../vue/stock-v2/vue-app/src/App.vue` still owns actual page rendering through a local `page` ref; `../../vue/stock-v2/vue-app/src/router.ts` has null-render routes as a transition registry.
-3. Pages call adapters from `getRuntimeApiClients()` (`../../vue/stock-v2/vue-app/src/pages/Backtest.vue:409`).
-4. `../../vue/stock-v2/vue-app/src/services/runtimeDataMode.ts` maps `VITE_DATA_MODE=api` to HTTP clients and everything else to mock clients.
-5. HTTP clients call backend-compatible `/api/v1` paths through `apiRequest(...)` (`../../vue/stock-v2/vue-app/src/services/apiClient.ts:71`).
-6. In mock mode the mock adapters read fixtures from `../../vue/stock-v2/vue-app/src/data.ts` and Pinia mock stores under `../../vue/stock-v2/vue-app/src/stores/`; components must not import mock stores directly (guarded by `mockStoreBoundary.test.ts`).
+`POST /api/v1/market/backfill`(`BackfillController`)→ Spring Batch(`marketdata/batch/BackfillJobConfig.java`)→ Kafka `market.price.backfill.v1` → `market_prices`。
 
 **State Management:**
-- Backend request state is stateless except for Redis-backed JWT token version/status and refresh token/session adjunct state.
-- Backend durable state is PostgreSQL/TimescaleDB with Flyway migrations in `stock-db-migration/src/main/resources/db/migration`.
-- Backend ephemeral/cache state is Redis (`user:auth:*`, refresh tokens, `user:login:fail:*`, `rl:*`, `market:latest:*`, `market:backfill:idem:*`, `portfolio:valuation:v2:*`, `portfolio:summary:v3:*`, WebSocket tickets).
-- Backend event state moves through Kafka topics declared in `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/config/KafkaConfig.java`.
-- Frontend app state is mostly local Vue refs in `../../vue/stock-v2/vue-app/src/App.vue` and pages; server state comes from service adapters (API mode) or Pinia mock stores (`stores/mockPortfolio.ts`, `mockNotifications.ts`, `mockPreview.ts`, mock mode only). The old `src/store.ts` no longer exists.
+- 後端無 session:stateful JWT,Redis 存 token version(`user:auth:{id}`);portfolio 讀取有 `trading/service/PortfolioCache.java`。
+- 前端:Pinia(`vue-app/src/main.ts`),mock 資料在 `vue-app/src/stores/`;token 只在 HttpOnly cookie,不進 JS 可讀儲存。
 
 ## Key Abstractions
 
-**API Envelope:**
-- Purpose: Make REST success/error responses consistent.
-- Examples: `stock-common/src/main/java/dowob/xyz/stockwebv2/common/api/ApiResponse.java`, `stock-common/src/main/java/dowob/xyz/stockwebv2/common/api/ApiError.java`, `stock-common/src/main/java/dowob/xyz/stockwebv2/common/api/ApiMeta.java`.
-- Pattern: Controllers return `ApiResponse.success(...)`; security and global exception handling return `ApiResponse.failure(...)`.
+**Facade:**
+- Purpose: 同步跨模組查詢
+- Examples: `stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/marketdata/MarketDataFacade.java`、`.../asset/AssetFacade.java`
+- Pattern: 介面在 L1、實作在擁有模組;只能由 Application Service 呼叫,Controller 不可
 
-**Error Catalog:**
-- Purpose: Centralize stable API error codes and HTTP statuses.
-- Examples: `stock-common/src/main/java/dowob/xyz/stockwebv2/common/error/ErrorCode.java`, `stock-common/src/main/java/dowob/xyz/stockwebv2/common/error/BusinessException.java`.
-- Pattern: Throw `BusinessException(ErrorCode, message)` from services/controllers; add new feature error codes to `ErrorCode`.
+**ApiResponse<T> / PageResponse<T>:**
+- Examples: `stock-common/src/main/java/dowob/xyz/stockwebv2/common/api/ApiResponse.java`;前端對應型別 `vue-app/src/services/apiTypes.ts`
 
-**Repository Interface + JDBC Implementation:**
-- Purpose: Keep service code independent from SQL details while avoiding JPA.
-- Examples: `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/repository/UserRepository.java`, `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/repository/JdbcUserRepository.java`, `stock-module-trading/src/main/java/dowob/xyz/stockwebv2/trading/repository/TradingRepository.java`.
-- Pattern: Interface in `repository`, implementation named `Jdbc*Repository`, SQL via `JdbcClient`.
+**DataProvider / ProviderRegistry:**
+- Examples: `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/provider/`
+- Pattern: 可插拔行情源(Strategy)
 
-**Cross-Module Facade:**
-- Purpose: Let modules consume another module's data (asset summaries / profiles, FX rates, latest prices / daily quotes, user base currency) without importing its domain internals.
-- Examples: `stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/asset/AssetFacade.java`, `stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/asset/AssetSummary.java`, `stock-module-asset/src/main/java/dowob/xyz/stockwebv2/asset/service/AssetFacadeImpl.java`.
-- Pattern: Define consumer-facing interface/DTO in `stock-infrastructure`; implement it in the owning feature module.
+**BacktestEngine:**
+- Examples: `stock-module-backtest/src/main/java/dowob/xyz/stockwebv2/backtest/engine/BacktestEngine.java`
 
-**Domain Event Record:**
-- Purpose: Share Kafka payload shape across producer and consumers.
-- Examples: `stock-common/src/main/java/dowob/xyz/stockwebv2/common/event/PriceTickEvent.java`.
-- Pattern: Java record with null checks and explicit JSON serialization for decimal precision.
-
-**Frontend Runtime API Client:**
-- Purpose: Route pages to mock or HTTP implementations without changing page code.
-- Examples: `../../vue/stock-v2/vue-app/src/services/pageApiClients.ts`, `../../vue/stock-v2/vue-app/src/services/backtestApi.ts`, `../../vue/stock-v2/vue-app/src/services/apiClient.ts`.
-- Pattern: Define an interface per API domain, provide `createMock*Api` and `createHttp*Api`, choose through `create*Api(mode, basePath)`.
+**前端 domain API factory:**
+- Examples: `vue-app/src/services/{tradingApi,portfolioApi,cashApi,marketApi,watchlistApi,backtestApi,authApi}.ts`
+- Pattern: `createXxxApi(mode, basePath)` 回傳 interface,mock / api 兩實作
 
 ## Entry Points
 
-**Backend Application:**
+**Backend app:**
 - Location: `stock-start/src/main/java/dowob/xyz/stockwebv2/start/StockWebV2Application.java`
-- Triggers: `mvn spring-boot:run`, packaged jar, or IDE Spring Boot run.
-- Responsibilities: Boot the Spring application and scan all `dowob.xyz.stockwebv2` packages.
+- Config: `stock-start/src/main/resources/application.yaml`(+ `-dev`、`-demo`、`-e2e-browser` profiles)
+- Dev script: `scripts/run-dev.ps1`
 
-**REST Controllers:**
-- Location: user `AuthController` / `CsrfController` / `UserPreferenceController` / `AdminUserController`; asset `AssetController` / `WatchlistController`; backtest `BacktestController`; market-data `MarketController` / `WsTicketController` / `BackfillController`; trading `TradingController` / `CashLedgerController` / `CashDividendController` / `ShareAdjustmentController` / `PortfolioActivityController` (each under `stock-module-*/src/main/java/dowob/xyz/stockwebv2/*/api/`).
-- Triggers: HTTP requests under `/api/v1` (and `/api/admin/**` for ADMIN).
-- Responsibilities: Request validation, auth extraction, service delegation, response envelope creation.
+**REST controllers:** `*Controller.java` 於各模組 `api/`,路徑前綴 `/api/v1/**`,admin `/api/admin/**`(`AdminUserController`,`hasRole("ADMIN")`)
 
-**WebSocket Endpoint:**
-- Location: `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/config/WsConfig.java`
-- Triggers: WebSocket handshake at `/ws/v1/market`.
-- Responsibilities: Register handler/interceptor and route ticket-authenticated sessions to `MarketWebSocketHandler`.
+**WebSocket:** `/ws/v1/market/**` — `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/ws/MarketWebSocketHandler.java`
 
-**Scheduled Market Ingest:**
-- Location: `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/ingest/ScheduledIngestor.java`
-- Triggers: `@Scheduled(fixedDelayString = "${market-data.ingestor.fixed-delay-ms:1000}")`.
-- Responsibilities: Poll providers and publish `PriceTickEvent` to Kafka.
+**Kafka consumers / schedulers:** `marketdata/consumer/*Consumer.java`、`marketdata/ingest/ScheduledIngestor.java`
 
-**Kafka Consumers:**
-- Location: `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/consumer/PriceWriterConsumer.java`, `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/consumer/WsBroadcastConsumer.java`.
-- Triggers: Kafka messages on market-data topics.
-- Responsibilities: Persist prices, update caches, broadcast WebSocket messages.
-
-**Spring Batch Backfill:**
-- Location: `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/batch/BackfillJobConfig.java`, `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/api/BackfillController.java`.
-- Triggers: Admin REST call to `/api/v1/market/backfill`.
-- Responsibilities: Read historical ticks and write backfill events to the backfill Kafka topic.
-
-**Frontend Application:**
-- Location: `../../vue/stock-v2/vue-app/src/main.ts`
-- Triggers: Vite app load.
-- Responsibilities: Mount Vue, Pinia, router, and CSS.
+**Frontend:**
+- `vue-app/index.html` → `vue-app/src/main.ts` → `vue-app/src/App.vue`
+- `vue-app/src/router.ts`:routes 的 component 為 `render: () => null`,實際頁面由 `App.vue` 依 route name 切換(import 於 `App.vue:87-99`)
+- Dev proxy:`vue-app/vite.config.ts`(`backendProxy`)
 
 ## Architectural Constraints
 
-- **Threading:** Backend uses Spring MVC request threads, Spring `@Scheduled` task execution, Kafka listener threads, WebSocket sessions, and Spring Batch job threads. Shared mutable state appears in `ScheduledIngestor.assetCache` and counters, WebSocket subscription/session managers, and Redis-backed caches.
-- **Global state:** Frontend has Pinia mock stores under `../../vue/stock-v2/vue-app/src/stores/` (mock mode only) and memoized runtime clients in `../../vue/stock-v2/vue-app/src/services/pageApiClients.ts`; tests reset the latter with `resetRuntimeApiClientsForTests()`.
-- **Circular imports:** No source-level circular package chain was detected in the sampled imports. Module dependencies form a composition graph through `stock-start`; `stock-module-market-data` depends on `stock-module-asset` at Maven level while also consuming `AssetFacade`, so keep future cross-module calls behind facade contracts.
-- **Module boundaries:** `stock-common` must remain dependency-light and free of feature-module imports. `stock-infrastructure` may define cross-module interfaces and infrastructure beans. Feature modules may depend on common/infrastructure; cross-feature access should use infrastructure facades or events.
-- **Persistence ownership:** Schema changes belong in `stock-db-migration/src/main/resources/db/migration` even when feature code lives in a `stock-module-*` Maven module.
-- **Frontend/backend envelope:** Resolved (2026-07-19): frontend `apiClient.ts` parses the backend `ApiResponse<T>` `{ success, data, error, meta }` and paginated `PageResponse<T>` `{ items, page, size, totalElements, totalPages }` 1:1; the trace id is read from `meta.traceId`. Backend `ApiResponse<T>` stays authoritative (`ai-docs/judgment.md` §4).
-- **Secrets:** `stock-start/src/main/resources/application-dev.yaml` imports optional `.env`; do not read or commit `.env` values. Use environment variable names only.
+- **Threading:** 後端 servlet thread-per-request;ingest 平行呼叫 provider 並有 per-call timeout;WS 每 session 有獨立 send queue(`SessionSendDispatcher`、`WsSendConfig`)。前端單執行緒。
+- **Global state:** 前端 `pageApiClients.ts` 模組級 `clients` singleton(含單一 `QuoteStream` 連線);`apiClient.ts` 模組級 session handlers(`configureApiClientSessionHandlers`)。
+- **Circular imports:** 未偵測到;L2 模組間無 Maven 依賴,ArchUnit 守護。
+- **單一可執行 app:** market-data 可用 `market-data.ingestor.enabled` 等開關停用,但非獨立部署。
+- **CSRF:** Spring 內建 CSRF 關閉(`SecurityConfig.java:69`),改由自訂 `BrowserCsrfFilter` 對 cookie 認證的 unsafe 請求強制 double-submit。
+- **交易語義:** `POST /api/v1/trades` 是已成交紀錄,非委託單。
 
 ## Anti-Patterns
 
-### Direct Feature Domain Imports Across Modules
+### 跨模組直接存取 Repository
 
-**What happens:** A consumer module imports another feature module's domain or repository classes directly.
-**Why it's wrong:** It bypasses Maven/package boundaries and makes independent feature changes brittle.
-**Do this instead:** Add or extend a contract in `stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure` and implement it in the owning module, following `stock-infrastructure/src/main/java/dowob/xyz/stockwebv2/infrastructure/asset/AssetFacade.java` and `stock-module-asset/src/main/java/dowob/xyz/stockwebv2/asset/service/AssetFacadeImpl.java`.
+**What happens:** 在 trading 內注入 asset 的 Repository 或寫 SQL 讀他模組表。
+**Why it's wrong:** 破壞模組邊界,ArchUnit 會失敗。
+**Do this instead:** 經 L1 Facade,如 `MarketDataFacade`(實作 `marketdata/api/MarketDataFacadeImpl.java`)。
 
-### Controller-Owned Business Rules
+### Controller 直接呼叫 Facade
 
-**What happens:** Controllers perform calculations, cache writes, repository orchestration, or permission-specific business decisions beyond request parsing/auth extraction.
-**Why it's wrong:** It duplicates behavior across endpoints and makes service tests less valuable.
-**Do this instead:** Keep controller logic shaped like `stock-module-asset/src/main/java/dowob/xyz/stockwebv2/asset/api/AssetController.java`: clamp/parse request values, call a service, and wrap the response.
+**What happens:** Controller 注入 `AssetFacade`。
+**Why it's wrong:** 違反 `ai-docs/architecture.md` 規則,Facade 只能由 Application Service 呼叫。
+**Do this instead:** 由 `service/` 層呼叫(參考 `trading/service/PortfolioQueryService.java`)。
 
-### New Frontend Fetches Embedded in Pages
+### 元件內自行 fetch 或 import mock store
 
-**What happens:** A Vue page calls `fetch(...)` directly.
-**Why it's wrong:** It bypasses mock/API mode, common error handling, and backend envelope parsing.
-**Do this instead:** Add an interface and `createMock*Api`/`createHttp*Api` pair in `../../vue/stock-v2/vue-app/src/services`, then expose it from `../../vue/stock-v2/vue-app/src/services/pageApiClients.ts`.
-
-### New SQL Outside Repositories
-
-**What happens:** Services or controllers embed SQL.
-**Why it's wrong:** It mixes orchestration with persistence mapping and makes transaction boundaries harder to review.
-**Do this instead:** Keep SQL in `repository` or `persistence` classes, following `stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/repository/JdbcUserRepository.java`.
+**What happens:** `.vue` 直接 `fetch('/api/v1/...')` 或 import `stores/mockPortfolio`。
+**Why it's wrong:** 繞過 CSRF/信封/401 處理,mock 變成隱性 fallback。
+**Do this instead:** 經 `getRuntimeApiClients()`(`vue-app/src/services/pageApiClients.ts`)。
 
 ## Error Handling
 
-**Strategy:** Throw typed domain/application exceptions and centralize conversion to API envelopes.
+**Strategy:** 後端丟 `BusinessException`(含 `ErrorCode`)及子類,`GlobalExceptionHandler` 統一轉 `ApiResponse` failure;security 錯誤由 `ApiSecurityErrorWriter` 寫同信封。前端 `apiClient.ts` 轉 `ApiClientError`(含 status、code、fields、traceId)。
 
 **Patterns:**
-- Use `BusinessException` with `ErrorCode` for expected business/API failures (`stock-common/src/main/java/dowob/xyz/stockwebv2/common/error/BusinessException.java`).
-- Use validation annotations on request records and let `GlobalExceptionHandler` convert binding/validation failures (`stock-start/src/main/java/dowob/xyz/stockwebv2/start/error/GlobalExceptionHandler.java`).
-- Translate security failures in `SecurityConfig.ApiSecurityErrorWriter` so auth errors also use the API envelope (`stock-start/src/main/java/dowob/xyz/stockwebv2/start/config/SecurityConfig.java`).
-- In background market-data paths, isolate per-item/session failures with WARN logging and continue processing (`stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/ingest/ScheduledIngestor.java`, `stock-module-market-data/src/main/java/dowob/xyz/stockwebv2/marketdata/consumer/WsBroadcastConsumer.java`).
-- Frontend service adapters throw `ApiClientError` for non-OK, malformed, or unexpected backend responses (`../../vue/stock-v2/vue-app/src/services/apiClient.ts`).
+- 欄位錯誤 `FieldValidationException` → `error.fields`,前端 `fieldsFrom()` 解析
+- 401(非 login/refresh 端點)→ refresh 一次再重放;仍 401 → session handler 通知 UI(`SessionBanner.vue`)
+- 429 → `RateLimitExceededException`
 
 ## Cross-Cutting Concerns
 
-**Logging:** Backend uses SLF4J. Request trace IDs are stored in MDC by `TraceIdFilter`. Audit events (auth, preferences, trades, cash / dividend / share-adjustment writes, WebSocket tickets) go through the `AUDIT` logger (`stock-infrastructure/.../audit/AuditLogger.java`, `logback-spring.xml` → `audit.log`). Background components log recoverable failures as warnings.
-
-**Validation:** Backend uses Jakarta Bean Validation in controller request bodies, manual parsing for query params, and service-level validation for domain rules. Frontend validates user inputs locally before calling adapters, especially in backtest custom strategy and initial capital handling.
-
-**Authentication:** Backend uses stateless ES256 JWT access tokens (HttpOnly cookie for browsers, bearer for other clients; browser unsafe requests also need CSRF) plus Redis auth state (`user:auth:{userId}`) for token version/status validation. Method security uses role/permission authorities from `Role.permissions()`. WebSocket uses one-time Redis tickets instead of JWTs in the WebSocket URL.
-
-**Configuration:** Backend config lives in `stock-start/src/main/resources/application.yaml`, `application-dev.yaml`, `application-demo.yaml`, and `application-e2e-browser.yaml`. Dev imports `.env` via `optional:file:.env[.properties]`. Frontend runtime API/mock mode uses `VITE_DATA_MODE` in `../../vue/stock-v2/vue-app/src/services/runtimeDataMode.ts`.
-
-**Database:** Flyway migrations are centralized in `stock-db-migration/src/main/resources/db/migration`. Market data uses TimescaleDB hypertables and continuous aggregates via `V4__market_data_hypertable.sql`, `V5__market_data_continuous_aggregates.sql` and `V12__kline_real_time_aggregates.sql`; the latest migration is `V19__assets_currency_check.sql`.
-
-**Caching:** Redis is used by auth, rate limiting, market latest prices, portfolio summaries/valuations, WebSocket tickets, and backfill idempotency (key table: `ai-docs/redis-convention.md`).
+**Logging:** SLF4J + `stock-start/src/main/resources/logback-spring.xml`;`TraceIdFilter` 設 traceId;稽核 `infrastructure/audit/AuditLogger.java`。
+**Validation:** Request DTO + Bean Validation;domain parser `trading/domain/ApiValueParser.java`、`common/time/ApiTimeParser.java`。
+**Authentication:** ES256 JWT(`JwtService`),browser 走 HttpOnly cookie + CSRF(契約 `ai-docs/browser-auth-contract.md`);登入鎖定 `LoginAttemptService`;rate limit `RateLimitService` + `ApiRateLimitInterceptor`。
+**Observability:** Actuator + `marketdata/observability/`(health、info、metrics)。
 
 ---
 
-*Architecture analysis: 2026-05-30;targeted refresh 2026-11-06*
+*Architecture analysis: 2026-11-07*
