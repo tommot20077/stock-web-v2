@@ -153,8 +153,8 @@ class PortfolioActivityControllerWebMvcTest {
             .andExpect(jsonPath("$.data.totalElements").value(1))
             .andExpect(jsonPath("$.data.items[0].id").value("44444444-4444-4444-4444-444444444444"))
             .andExpect(jsonPath("$.data.items[0].kind").value("CASH_DIVIDEND"))
-            .andExpect(jsonPath("$.data.items[0].amount").value(120))
-            .andExpect(jsonPath("$.data.items[0].withholdingTax").value(30))
+            .andExpect(jsonPath("$.data.items[0].amount").value("120"))
+            .andExpect(jsonPath("$.data.items[0].withholdingTax").value("30"))
             .andExpect(jsonPath("$.data.items[0].reversible").value(true))
             .andExpect(jsonPath("$.data.items[0].reversed").value(false))
             .andReturn()
@@ -167,6 +167,8 @@ class PortfolioActivityControllerWebMvcTest {
             assertThat(body).contains("\"" + field + "\":null");
         }
         assertThat(body).doesNotContain("idempotencyKey", "assetId");
+        /* jsonPath 的 value() 會把實際值轉成期望值的型別再比對，無法證明 wire 型別；以字面確認金額是 JSON 字串（Phase 5 D-05）。 */
+        assertThat(body).contains("\"amount\":\"120\"", "\"withholdingTax\":\"30\"");
     }
 
     /**
