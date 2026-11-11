@@ -11,6 +11,9 @@ import static org.hamcrest.Matchers.hasItem;
 /**
  * {@link DecimalStringMatchers} 的行為樣本:IT / E2E 本機無 Docker 跑不了,這裡以與 MockMvc {@code jsonPath(expr, matcher)}
  * 相同的 {@link JsonPathExpectationsHelper} 證明 matcher 分得出 JSON 字串與 JSON number、且數值比對不看 scale。
+ *
+ * @author Yuan
+ * @version 1.0
  */
 class DecimalStringMatchersTest {
 

@@ -17,6 +17,9 @@ import java.math.BigDecimal;
  *
  * <p>scale 本身就是測試重點的地方(例如精度回歸、DB {@code NUMERIC(24,8)} 原樣回傳)請改用
  * {@code equalTo("100.00000000")} 逐字比對。</p>
+ *
+ * @author Yuan
+ * @version 1.0
  */
 public final class DecimalStringMatchers {
 
