@@ -144,8 +144,14 @@
 
 ## develop
 
-> 待 Yuan 合併 Wave 1 PR 組(後端 PR #55、前端 PR #22)後,於 05-12 Task 3 補上:develop 上兩 repo 的 CI run id、各 job 結論與 merge commit SHA(D-25 閘門)。
-> 目前狀態:**待定(尚無 develop CI 證據)**。
+2026-11-11 Yuan 核准合併(對話中回覆「好合併」),依建議順序以 merge commit 合併:先後端、再前端。兩 repo 的 `claude/epic-curie-lj8alo` 隨後 fast-forward 到 develop。
+
+| repo | PR | develop merge commit | develop push CI run | job 結論 |
+|------|----|----------------------|---------------------|----------|
+| 後端 | tommot20077/stock-web-v2#55 | `56ee65c` | [42946358757](https://github.com/tommot20077/stock-web-v2/actions/runs/42946358757) | Lint / Unit Tests / Integration Tests / E2E Tests / Browser E2E Tests 皆 success |
+| 前端 | tommot20077/stock-web-v2-front-end#22 | `9e920b8` | [42946379447](https://github.com/tommot20077/stock-web-v2-front-end/actions/runs/42946379447) | frontend / Browser E2E (real backend) 皆 success |
+
+D-25 閘門通過:兩 repo develop CI 綠,Wave 2(05-13 起)可開始。§VER-01 勾選框在合併時尚未逐項勾選,保留給 Yuan 後續檢視(不阻擋 Wave 2)。
 
 ---
 
