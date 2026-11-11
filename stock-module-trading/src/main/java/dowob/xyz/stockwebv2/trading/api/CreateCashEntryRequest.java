@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.trading.api;
 
+import dowob.xyz.stockwebv2.infrastructure.web.json.DecimalString;
+
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
@@ -13,8 +15,13 @@ import java.time.OffsetDateTime;
 /**
  * 建立入金 / 出金分錄的請求（CASH-01）。
  *
- * <p><strong>amount 上限 1e12</strong>：JSON number 在瀏覽器端是 double，1e12 對 JPY / TWD 的大額已足夠，
- * 又遠低於 double 能精確表示整數的 2^53（約 9e15），前端不會在顯示時悄悄失真。
+ * <p><strong>amount 以 JSON 字串收送</strong>（例如 {@code "123456789012.12345678"}，Phase 5 D-05 / D-07）：
+ * Jackson 預設把字串精確轉成 {@code BigDecimal}，下列 {@code @DecimalMin} / {@code @Digits} 照常生效；
+ * 依 CONTEXT「Claude's Discretion」仍接受 JSON number，不另設拒收邏輯。{@link DecimalString} 標在這裡只影響序列化，
+ * 用意是全 API 一致並讓 D-09 守門規則一律檢查。</p>
+ *
+ * <p><strong>amount 上限 1e12</strong>：對 JPY / TWD 的大額已足夠；字串化之前這也確保值遠低於 double 能精確表示整數的
+ * 2^53（約 9e15），舊版以 number 傳輸的客戶端不會在顯示時悄悄失真。
  * <strong>小數鎖 8 位</strong>：{@code NUMERIC(24,8)} 會把第 9 位靜默捨入，存進去的值與請求值不同，
  * 同一把冪等鍵的合法重試在 payload 比對時就會吃到假性 409（與 {@link CreateTradeRequest#fee()} 同理）。</p>
  *
@@ -23,7 +30,7 @@ import java.time.OffsetDateTime;
  *
  * @param type       DEPOSIT 或 WITHDRAWAL，大小寫不敏感
  * @param currency   USD / TWD / EUR / JPY，大小寫不敏感
- * @param amount     金額，恆為正
+ * @param amount     金額，恆為正；JSON 字串
  * @param note       備註，選填，最長 500 字元；不納入冪等 payload 比對
  * @param occurredAt 分錄發生時間，選填；省略代表伺服器現在
  * @param reversalOfId 要沖銷的原分錄 UUID 字串，選填；帶值代表這是一筆沖銷（D-25），
@@ -35,7 +42,7 @@ public record CreateCashEntryRequest(
     @NotBlank String type,
     @NotBlank String currency,
     @NotNull @DecimalMin(value = "0.00000001") @DecimalMax(value = "1000000000000")
-    @Digits(integer = 13, fraction = 8) BigDecimal amount,
+    @Digits(integer = 13, fraction = 8) @DecimalString BigDecimal amount,
     @Size(max = 500) String note,
     OffsetDateTime occurredAt,
     @Size(max = 36) String reversalOfId

@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.trading.api;
 
+import dowob.xyz.stockwebv2.infrastructure.web.json.DecimalString;
+
 import java.math.BigDecimal;
 
 /**
@@ -9,9 +11,10 @@ import java.math.BigDecimal;
  * 照實回報、不夾 0（D-08）。</p>
  *
  * @param currency 幣別代碼（{@code CurrencyCode} 名稱）
- * @param amount   該幣別的原幣餘額，scale 8；可為負
+ * @param amount   該幣別的原幣餘額，scale 8；可為負；以 JSON 字串輸出（一般記號，零值為 {@code "0.00000000"}，
+ *                 見 {@link DecimalString}，Phase 5 D-05）
  * @author Yuan
  * @version 1.0
  */
-public record CashBalanceDto(String currency, BigDecimal amount) {
+public record CashBalanceDto(String currency, @DecimalString BigDecimal amount) {
 }
