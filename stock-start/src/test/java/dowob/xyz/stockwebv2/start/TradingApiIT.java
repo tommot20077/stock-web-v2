@@ -29,6 +29,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import static dowob.xyz.stockwebv2.start.support.DecimalStringMatchers.decimalString;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
@@ -167,11 +168,11 @@ class TradingApiIT extends ContainerIT {
                 .header("Authorization", "Bearer " + tokens.accessToken()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[0].symbol", equalTo("AAPL")))
-            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(10.00000000)))
-            .andExpect(jsonPath("$.data[0].avgCost", equalTo(100.50000000)))
-            .andExpect(jsonPath("$.data[0].marketPrice", equalTo(200.00000000)))
+            .andExpect(jsonPath("$.data[0].totalQuantity", decimalString("10.00000000")))
+            .andExpect(jsonPath("$.data[0].avgCost", decimalString("100.50000000")))
+            .andExpect(jsonPath("$.data[0].marketPrice", decimalString("200.00000000")))
             // 10 × (200.00 − 100.50)
-            .andExpect(jsonPath("$.data[0].unrealizedPnl", equalTo(995.00000000)))
+            .andExpect(jsonPath("$.data[0].unrealizedPnl", decimalString("995.00000000")))
             // D-05：既有金額欄位為原幣，另帶幣別、資產屬性與基準幣市值（基準幣 USD，故等於原幣市值）。
             .andExpect(jsonPath("$.data[0].currency", equalTo("USD")))
             .andExpect(jsonPath("$.data[0].assetType", equalTo("STOCK")))
@@ -179,9 +180,9 @@ class TradingApiIT extends ContainerIT {
             // quick-261107-1j4 E1：交易市場與 sector 同取自資產屬性（V2 seed AAPL 的 market = US）。
             .andExpect(jsonPath("$.data[0].market", equalTo("US")))
             .andExpect(jsonPath("$.data[0].baseCurrency", equalTo("USD")))
-            .andExpect(jsonPath("$.data[0].marketValueInBase", equalTo(2000.00000000)))
+            .andExpect(jsonPath("$.data[0].marketValueInBase", decimalString("2000.00000000")))
             // quick-261106-fbs：基準幣未實現損益（基準幣 USD，故等於原幣 unrealizedPnl）。
-            .andExpect(jsonPath("$.data[0].unrealizedPnlInBase", equalTo(995.00000000)));
+            .andExpect(jsonPath("$.data[0].unrealizedPnlInBase", decimalString("995.00000000")));
 
         mockMvc.perform(post("/api/v1/trades")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -198,12 +199,12 @@ class TradingApiIT extends ContainerIT {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.baseCurrency", equalTo("USD")))
             .andExpect(jsonPath("$.data.holdingCount", equalTo(1)))
-            .andExpect(jsonPath("$.data.totalCostBasis", equalTo(603.00000000)))
+            .andExpect(jsonPath("$.data.totalCostBasis", decimalString("603.00000000")))
             // 賣掉 4 股後剩 6 股：6 × 200.00
-            .andExpect(jsonPath("$.data.totalMarketValue", equalTo(1200.00000000)))
-            .andExpect(jsonPath("$.data.realizedPnl", equalTo(77.00000000)))
+            .andExpect(jsonPath("$.data.totalMarketValue", decimalString("1200.00000000")))
+            .andExpect(jsonPath("$.data.realizedPnl", decimalString("77.00000000")))
             // 1200.00 − 603.00
-            .andExpect(jsonPath("$.data.unrealizedPnl", equalTo(597.00000000)));
+            .andExpect(jsonPath("$.data.unrealizedPnl", decimalString("597.00000000")));
     }
 
     /**
@@ -293,8 +294,8 @@ class TradingApiIT extends ContainerIT {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.baseCurrency", equalTo("USD")))
             .andExpect(jsonPath("$.data.holdingCount", equalTo(0)))
-            .andExpect(jsonPath("$.data.realizedPnl", equalTo(194.00000000)))
-            .andExpect(jsonPath("$.data.totalPnl", equalTo(194.00000000)));
+            .andExpect(jsonPath("$.data.realizedPnl", decimalString("194.00000000")))
+            .andExpect(jsonPath("$.data.totalPnl", decimalString("194.00000000")));
     }
 
     @Test
@@ -311,24 +312,24 @@ class TradingApiIT extends ContainerIT {
             .andExpect(jsonPath("$.data.fxExcludedCount", equalTo(0)))
             .andExpect(jsonPath("$.data.unconvertedCurrencies.length()", equalTo(0)))
             // 10 × 200 USD × 32.418 + 2 × 1000 TWD
-            .andExpect(jsonPath("$.data.totalMarketValue", equalTo(66836.00000000)))
+            .andExpect(jsonPath("$.data.totalMarketValue", decimalString("66836.00000000")))
             // 10 × 100.5 USD × 32.418 + 2 × 900 TWD
-            .andExpect(jsonPath("$.data.totalCostBasis", equalTo(34380.09000000)))
-            .andExpect(jsonPath("$.data.unrealizedPnl", equalTo(32455.91000000)));
+            .andExpect(jsonPath("$.data.totalCostBasis", decimalString("34380.09000000")))
+            .andExpect(jsonPath("$.data.unrealizedPnl", decimalString("32455.91000000")));
 
         // holdings 的金額維持原幣；marketValueInBase 是折算成 TWD 的市值，供前端算權重。
         mockMvc.perform(get("/api/v1/portfolio/holdings")
                 .header("Authorization", "Bearer " + tokens.accessToken()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[?(@.symbol=='AAPL')].currency", hasItem("USD")))
-            .andExpect(jsonPath("$.data[?(@.symbol=='AAPL')].marketValue", hasItem(2000.00000000)))
-            .andExpect(jsonPath("$.data[?(@.symbol=='AAPL')].marketValueInBase", hasItem(64836.00000000)))
+            .andExpect(jsonPath("$.data[?(@.symbol=='AAPL')].marketValue", hasItem(decimalString("2000.00000000"))))
+            .andExpect(jsonPath("$.data[?(@.symbol=='AAPL')].marketValueInBase", hasItem(decimalString("64836.00000000"))))
             // 10 × (200 − 100.5) = 995 USD × 32.418 → unrealizedPnlInBase（跨標的損益排行用）
-            .andExpect(jsonPath("$.data[?(@.symbol=='AAPL')].unrealizedPnlInBase", hasItem(32255.91000000)))
+            .andExpect(jsonPath("$.data[?(@.symbol=='AAPL')].unrealizedPnlInBase", hasItem(decimalString("32255.91000000"))))
             // 2 × (1000 − 900) TWD，基準幣即 TWD
-            .andExpect(jsonPath("$.data[?(@.symbol=='2330.TW')].unrealizedPnlInBase", hasItem(200.00000000)))
+            .andExpect(jsonPath("$.data[?(@.symbol=='2330.TW')].unrealizedPnlInBase", hasItem(decimalString("200.00000000"))))
             .andExpect(jsonPath("$.data[?(@.symbol=='2330.TW')].currency", hasItem("TWD")))
-            .andExpect(jsonPath("$.data[?(@.symbol=='2330.TW')].marketValueInBase", hasItem(2000.00000000)))
+            .andExpect(jsonPath("$.data[?(@.symbol=='2330.TW')].marketValueInBase", hasItem(decimalString("2000.00000000"))))
             .andExpect(jsonPath("$.data[?(@.symbol=='2330.TW')].baseCurrency", hasItem("TWD")));
     }
 
@@ -354,8 +355,8 @@ class TradingApiIT extends ContainerIT {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.baseCurrency", equalTo("TWD")))
             .andExpect(jsonPath("$.data.holdingCount", equalTo(0)))
-            .andExpect(jsonPath("$.data.realizedPnl", equalTo(6389.09200000)))
-            .andExpect(jsonPath("$.data.totalPnl", equalTo(6389.09200000)));
+            .andExpect(jsonPath("$.data.realizedPnl", decimalString("6389.09200000")))
+            .andExpect(jsonPath("$.data.totalPnl", decimalString("6389.09200000")));
     }
 
     @Test
@@ -367,7 +368,7 @@ class TradingApiIT extends ContainerIT {
                 .header("Authorization", "Bearer " + tokens.accessToken()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.baseCurrency", equalTo("TWD")))
-            .andExpect(jsonPath("$.data.totalMarketValue", equalTo(66836.00000000)));
+            .andExpect(jsonPath("$.data.totalMarketValue", decimalString("66836.00000000")));
 
         patchBaseCurrency(tokens, "USD");
 
@@ -377,7 +378,7 @@ class TradingApiIT extends ContainerIT {
                 .header("Authorization", "Bearer " + tokens.accessToken()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.baseCurrency", equalTo("USD")))
-            .andExpect(jsonPath("$.data.totalMarketValue", equalTo(2061.69400000)));
+            .andExpect(jsonPath("$.data.totalMarketValue", decimalString("2061.69400000")));
     }
 
     /**
@@ -471,7 +472,7 @@ class TradingApiIT extends ContainerIT {
         mockMvc.perform(get("/api/v1/portfolio/holdings")
                 .header("Authorization", "Bearer " + tokens.accessToken()))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(8.00000000)));
+            .andExpect(jsonPath("$.data[0].totalQuantity", decimalString("8.00000000")));
     }
 
     @Test
@@ -714,9 +715,9 @@ class TradingApiIT extends ContainerIT {
                 .param("direction", "asc")
                 .header("Authorization", "Bearer " + tokens.accessToken()))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.items[0].quantity", equalTo(1.00000000)))
-            .andExpect(jsonPath("$.data.items[1].quantity", equalTo(4.00000000)))
-            .andExpect(jsonPath("$.data.items[2].quantity", equalTo(10.00000000)));
+            .andExpect(jsonPath("$.data.items[0].quantity", decimalString("1.00000000")))
+            .andExpect(jsonPath("$.data.items[1].quantity", decimalString("4.00000000")))
+            .andExpect(jsonPath("$.data.items[2].quantity", decimalString("10.00000000")));
     }
 
     @Test
@@ -847,7 +848,7 @@ class TradingApiIT extends ContainerIT {
         mockMvc.perform(get("/api/v1/portfolio/holdings")
                 .header("Authorization", "Bearer " + tokens.accessToken()))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(10.00000000)));
+            .andExpect(jsonPath("$.data[0].totalQuantity", decimalString("10.00000000")));
     }
 
     @Test
@@ -880,7 +881,7 @@ class TradingApiIT extends ContainerIT {
         mockMvc.perform(get("/api/v1/portfolio/holdings")
                 .header("Authorization", "Bearer " + tokens.accessToken()))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(400.00000000)));
+            .andExpect(jsonPath("$.data[0].totalQuantity", decimalString("400.00000000")));
         assertThat(transactionRows(email)).isEqualTo(1);
 
         postTrade(tokens, UUID.randomUUID().toString(), """
@@ -890,7 +891,7 @@ class TradingApiIT extends ContainerIT {
         mockMvc.perform(get("/api/v1/portfolio/holdings")
                 .header("Authorization", "Bearer " + tokens.accessToken()))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(410.00000000)));
+            .andExpect(jsonPath("$.data[0].totalQuantity", decimalString("410.00000000")));
         assertThat(transactionRows(email)).isEqualTo(2);
     }
 
@@ -992,7 +993,82 @@ class TradingApiIT extends ContainerIT {
         mockMvc.perform(get("/api/v1/portfolio/holdings")
                 .header("Authorization", "Bearer " + tokens.accessToken()))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(10.00000000)));
+            .andExpect(jsonPath("$.data[0].totalQuantity", decimalString("10.00000000")));
+    }
+
+    /**
+     * 字串金額的冪等重送:同一把 key 先送 {@code "10"} / {@code "100"},再送 {@code "10.00000000"} /
+     * {@code "100.00000000"},必須回同一筆交易、帳本一列、持倉只套用一次(Phase 5 D-07、T-05-26)。
+     *
+     * <p>wire 格式改成字串後,請求金額經 Jackson 由字串轉成 {@link BigDecimal},scale 跟著客戶端的寫法走
+     * ({@code "10"} 是 scale 0、{@code "10.00000000"} 是 scale 8);帳本讀回的既有值則一律是
+     * {@code NUMERIC(24,8)} 的 scale 8。{@code TradePayloadMatcher.sameAmount} 以 {@code compareTo} 比對,
+     * 這條鎖住「字串化不改變冪等語意」—— 若有人把比對改成 {@code equals},第二次會變成假性 409。</p>
+     *
+     * <p>回應的金額必須是 JSON 字串且保留 DB scale(第一次送 {@code "10"} 也回 {@code "10.00000000"}),
+     * 省略的 {@code fee} 以 {@code null} 送出,回應為一般記號的 {@code "0.00000000"}(不得出現 {@code 0E-8})。</p>
+     *
+     * @throws Exception MockMvc 執行失敗時
+     */
+    @Test
+    @DisplayName("D-07:同一把 key 先送字串 \"10\"/\"100\"、再送 \"10.00000000\"/\"100.00000000\" → 同一筆交易、持倉只套用一次")
+    void stringAmountReplayReturnsExistingTrade() throws Exception {
+        AuthTokens tokens = register("trading-idem-string@example.com", "tradingidemstring", "Password1");
+        String key = "string-replay-" + UUID.randomUUID();
+
+        String firstId = tradeIdOf(postTrade(tokens, key, stringAmountBuyBody("10", "100"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.quantity", equalTo("10.00000000")))
+            .andExpect(jsonPath("$.data.price", equalTo("100.00000000")))
+            .andExpect(jsonPath("$.data.fee", equalTo("0.00000000"))));
+
+        String secondId = tradeIdOf(postTrade(tokens, key, stringAmountBuyBody("10.00000000", "100.00000000"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.quantity", equalTo("10.00000000")))
+            .andExpect(jsonPath("$.data.price", equalTo("100.00000000"))));
+
+        assertThat(secondId).isEqualTo(firstId);
+
+        mockMvc.perform(get("/api/v1/trades")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(1)))
+            .andExpect(jsonPath("$.data.items[0].id", equalTo(firstId)));
+
+        // 10 而不是 20:持倉副作用只套用一次。
+        mockMvc.perform(get("/api/v1/portfolio/holdings")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo("10.00000000")))
+            .andExpect(jsonPath("$.data[0].avgCost", decimalString("100")));
+    }
+
+    /**
+     * 字串價格的精度回歸:{@code "123456.12345678"}(7 位整數 + 8 位小數,15 位有效數字)經 POST 回應與
+     * GET 列表都必須逐字原樣回來(Phase 5 D-05 / D-09)。
+     *
+     * <p>若回應退回 JSON number,前端以 {@code JSON.parse} 讀成 double 雖然這個值剛好還裝得下,但更長的金額會被
+     * 靜默截斷;本案例在後端鎖住「字串進、字串出、不經 double」。</p>
+     *
+     * @throws Exception MockMvc 執行失敗時
+     */
+    @Test
+    @DisplayName("D-05:字串價格 \"123456.12345678\" 在 POST 回應與 GET /trades 皆逐字相同")
+    void stringPrecisionTradeRoundTrips() throws Exception {
+        AuthTokens tokens = register("trading-string-precision@example.com", "tradingstringprecision", "Password1");
+        String exactPrice = "123456.12345678";
+
+        String tradeId = tradeIdOf(postTrade(tokens, UUID.randomUUID().toString(), stringAmountBuyBody("1", exactPrice))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.quantity", equalTo("1.00000000")))
+            .andExpect(jsonPath("$.data.price", equalTo(exactPrice))));
+
+        mockMvc.perform(get("/api/v1/trades")
+                .header("Authorization", "Bearer " + tokens.accessToken()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(1)))
+            .andExpect(jsonPath("$.data.items[0].id", equalTo(tradeId)))
+            .andExpect(jsonPath("$.data.items[0].price", equalTo(exactPrice)));
     }
 
     @Test
@@ -1191,6 +1267,20 @@ class TradingApiIT extends ContainerIT {
         return """
             {"symbol":"AAPL","type":"BUY","quantity":%d,"price":100,"fee":5,"note":"%s","executedAt":"%s"}
             """.formatted(quantity, note, IDEMPOTENT_EXECUTED_AT);
+    }
+
+    /**
+     * 以字串金額送出的 BUY payload(前端契約的請求格式):{@code quantity} / {@code price} 為 JSON 字串,
+     * 選填的 {@code fee} 送 {@code null}(不送空字串)。{@code executedAt} 固定,理由同 {@link #idempotentBuyBody}。
+     *
+     * @param quantity 數量的十進位字串
+     * @param price    價格的十進位字串
+     * @return JSON payload
+     */
+    private String stringAmountBuyBody(String quantity, String price) {
+        return """
+            {"symbol":"AAPL","type":"BUY","quantity":"%s","price":"%s","fee":null,"executedAt":"%s"}
+            """.formatted(quantity, price, IDEMPOTENT_EXECUTED_AT);
     }
 
     private String tradeIdOf(ResultActions actions) throws Exception {
