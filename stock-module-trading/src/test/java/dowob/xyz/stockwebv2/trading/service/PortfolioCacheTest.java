@@ -84,18 +84,18 @@ class PortfolioCacheTest {
 
         cache.invalidateAfterTrade(7L, 42L);
 
-        verify(redisTemplate, never()).delete("portfolio:valuation:v3:7:42");
+        verify(redisTemplate, never()).delete("portfolio:valuation:v4:7:42");
         for (CurrencyCode base : CurrencyCode.values()) {
-            verify(redisTemplate, never()).delete("portfolio:summary:v3:7:" + base.name());
+            verify(redisTemplate, never()).delete("portfolio:summary:v4:7:" + base.name());
         }
 
         TransactionSynchronizationUtils.triggerAfterCommit();
 
-        verify(redisTemplate).delete("portfolio:valuation:v3:7:42");
-        verify(redisTemplate).delete("portfolio:summary:v3:7:USD");
-        verify(redisTemplate).delete("portfolio:summary:v3:7:TWD");
-        verify(redisTemplate).delete("portfolio:summary:v3:7:EUR");
-        verify(redisTemplate).delete("portfolio:summary:v3:7:JPY");
+        verify(redisTemplate).delete("portfolio:valuation:v4:7:42");
+        verify(redisTemplate).delete("portfolio:summary:v4:7:USD");
+        verify(redisTemplate).delete("portfolio:summary:v4:7:TWD");
+        verify(redisTemplate).delete("portfolio:summary:v4:7:EUR");
+        verify(redisTemplate).delete("portfolio:summary:v4:7:JPY");
     }
 
     @Test
@@ -103,9 +103,9 @@ class PortfolioCacheTest {
     void invalidatesImmediatelyWithoutTransaction() {
         cache.invalidateAfterTrade(7L, 42L);
 
-        verify(redisTemplate).delete("portfolio:valuation:v3:7:42");
+        verify(redisTemplate).delete("portfolio:valuation:v4:7:42");
         for (CurrencyCode base : CurrencyCode.values()) {
-            verify(redisTemplate).delete("portfolio:summary:v3:7:" + base.name());
+            verify(redisTemplate).delete("portfolio:summary:v4:7:" + base.name());
         }
     }
 
@@ -118,10 +118,10 @@ class PortfolioCacheTest {
         when(valueOps.get("portfolio:summary:v2:7:TWD")).thenReturn(
             "{\"totalMarketValue\":1,\"totalCostBasis\":1,\"realizedPnl\":0,\"unrealizedPnl\":0,\"totalPnl\":0,"
                 + "\"roi\":0,\"holdingCount\":0,\"baseCurrency\":\"TWD\",\"fxExcludedCount\":0,\"dayPnlExcludedCount\":0}");
-        when(valueOps.get("portfolio:summary:v3:7:TWD")).thenReturn(null);
+        when(valueOps.get("portfolio:summary:v4:7:TWD")).thenReturn(null);
 
         assertThat(cache.readSummary(7L, CurrencyCode.TWD)).isEmpty();
-        verify(valueOps).get("portfolio:summary:v3:7:TWD");
+        verify(valueOps).get("portfolio:summary:v4:7:TWD");
         verify(valueOps, never()).get("portfolio:summary:v2:7:TWD");
     }
 
@@ -131,7 +131,7 @@ class PortfolioCacheTest {
         cache.invalidateSummaryAfterCommit(7L);
 
         for (CurrencyCode base : CurrencyCode.values()) {
-            verify(redisTemplate).delete("portfolio:summary:v3:7:" + base.name());
+            verify(redisTemplate).delete("portfolio:summary:v4:7:" + base.name());
         }
         verify(redisTemplate, times(CurrencyCode.values().length)).delete(anyString());
         verify(redisTemplate, never()).delete(startsWith("portfolio:valuation:"));
@@ -139,13 +139,13 @@ class PortfolioCacheTest {
     }
 
     @Test
-    @DisplayName("交易失效：刪 portfolio:valuation:v3:{userId}:{assetId} 與全部 v3 summary 鍵，不刪舊 v2 鍵")
+    @DisplayName("交易失效：刪 portfolio:valuation:v4:{userId}:{assetId} 與全部 v3 summary 鍵，不刪舊 v2 鍵")
     void tradeInvalidationDeletesV3ValuationKeyAndAllV3SummaryKeys() {
         cache.invalidateAfterTrade(7L, 42L);
 
-        verify(redisTemplate).delete("portfolio:valuation:v3:7:42");
+        verify(redisTemplate).delete("portfolio:valuation:v4:7:42");
         for (CurrencyCode base : CurrencyCode.values()) {
-            verify(redisTemplate).delete("portfolio:summary:v3:7:" + base.name());
+            verify(redisTemplate).delete("portfolio:summary:v4:7:" + base.name());
         }
         verify(redisTemplate, times(CurrencyCode.values().length + 1)).delete(anyString());
         verify(redisTemplate, never()).delete(startsWith("portfolio:summary:v2:"));
@@ -153,15 +153,15 @@ class PortfolioCacheTest {
     }
 
     @Test
-    @DisplayName("summary 快取鍵含版本與基準幣：portfolio:summary:v3:{userId}:{baseCurrency}")
+    @DisplayName("summary 快取鍵含版本與基準幣：portfolio:summary:v4:{userId}:{baseCurrency}")
     @SuppressWarnings("unchecked")
     void summaryKeyIncludesVersionAndBaseCurrency() {
         ValueOperations<String, String> valueOps = mock(ValueOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.get("portfolio:summary:v3:7:TWD")).thenReturn(null);
+        when(valueOps.get("portfolio:summary:v4:7:TWD")).thenReturn(null);
 
         assertThat(cache.readSummary(7L, CurrencyCode.TWD)).isEmpty();
-        verify(valueOps).get("portfolio:summary:v3:7:TWD");
+        verify(valueOps).get("portfolio:summary:v4:7:TWD");
 
         PortfolioSummaryDto dto = new PortfolioSummaryDto(
             BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
@@ -169,7 +169,7 @@ class PortfolioCacheTest {
             BigDecimal.ZERO, BigDecimal.ZERO);
         cache.writeSummary(7L, CurrencyCode.TWD, dto);
 
-        verify(valueOps).set(eq("portfolio:summary:v3:7:TWD"), anyString(), eq(Duration.ofSeconds(60)));
+        verify(valueOps).set(eq("portfolio:summary:v4:7:TWD"), anyString(), eq(Duration.ofSeconds(60)));
     }
 
     @Test
@@ -178,7 +178,7 @@ class PortfolioCacheTest {
     void readHoldingsUsesSingleMultiGet() {
         ValueOperations<String, String> valueOps = mock(ValueOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.multiGet(List.of("portfolio:valuation:v3:7:41", "portfolio:valuation:v3:7:42"))).thenReturn(Arrays.asList(
+        when(valueOps.multiGet(List.of("portfolio:valuation:v4:7:41", "portfolio:valuation:v4:7:42"))).thenReturn(Arrays.asList(
             null,
             "{\"assetId\":\"u\",\"symbol\":\"MSFT\",\"assetName\":\"MSFT\",\"totalQuantity\":5,\"avgCost\":200,"
                 + "\"costBasis\":1000,\"marketPrice\":210,\"marketValue\":1050,\"realizedPnl\":0,\"unrealizedPnl\":50,"
@@ -188,7 +188,7 @@ class PortfolioCacheTest {
 
         assertThat(cached).containsOnlyKeys(42L);
         assertThat(cached.get(42L).symbol()).isEqualTo("MSFT");
-        verify(valueOps, times(1)).multiGet(List.of("portfolio:valuation:v3:7:41", "portfolio:valuation:v3:7:42"));
+        verify(valueOps, times(1)).multiGet(List.of("portfolio:valuation:v4:7:41", "portfolio:valuation:v4:7:42"));
     }
 
     @Test
@@ -197,12 +197,12 @@ class PortfolioCacheTest {
     void legacyV2ValuationKeyIsNeverRead() {
         ValueOperations<String, String> valueOps = mock(ValueOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
-        when(valueOps.multiGet(List.of("portfolio:valuation:v3:7:43"))).thenReturn(Arrays.asList((String) null));
+        when(valueOps.multiGet(List.of("portfolio:valuation:v4:7:43"))).thenReturn(Arrays.asList((String) null));
         when(valueOps.multiGet(List.of("portfolio:valuation:v2:7:43"))).thenReturn(List.of(
             "{\"assetId\":\"u\",\"symbol\":\"2330.TW\",\"currency\":\"TWD\",\"assetType\":\"STOCK\"}"));
 
         assertThat(cache.readHoldings(7L, List.of(43L))).isEmpty();
-        verify(valueOps).multiGet(List.of("portfolio:valuation:v3:7:43"));
+        verify(valueOps).multiGet(List.of("portfolio:valuation:v4:7:43"));
         verify(valueOps, never()).multiGet(List.of("portfolio:valuation:v2:7:43"));
     }
 
@@ -220,9 +220,9 @@ class PortfolioCacheTest {
         cache.writeHolding(7L, 43L, dto);
 
         org.mockito.ArgumentCaptor<String> json = org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(valueOps).set(eq("portfolio:valuation:v3:7:43"), json.capture(), eq(Duration.ofSeconds(60)));
+        verify(valueOps).set(eq("portfolio:valuation:v4:7:43"), json.capture(), eq(Duration.ofSeconds(60)));
         assertThat(json.getValue()).contains("\"market\":\"TW\"");
-        when(valueOps.multiGet(List.of("portfolio:valuation:v3:7:43"))).thenReturn(List.of(json.getValue()));
+        when(valueOps.multiGet(List.of("portfolio:valuation:v4:7:43"))).thenReturn(List.of(json.getValue()));
         assertThat(cache.readHoldings(7L, List.of(43L)).get(43L).market()).isEqualTo("TW");
     }
 
@@ -245,15 +245,15 @@ class PortfolioCacheTest {
         cache.invalidateSummaryAfterCommit(7L);
 
         for (CurrencyCode base : CurrencyCode.values()) {
-            verify(redisTemplate, never()).delete("portfolio:summary:v3:7:" + base.name());
+            verify(redisTemplate, never()).delete("portfolio:summary:v4:7:" + base.name());
         }
 
         TransactionSynchronizationUtils.triggerAfterCommit();
 
-        verify(redisTemplate).delete("portfolio:summary:v3:7:USD");
-        verify(redisTemplate).delete("portfolio:summary:v3:7:TWD");
-        verify(redisTemplate).delete("portfolio:summary:v3:7:EUR");
-        verify(redisTemplate).delete("portfolio:summary:v3:7:JPY");
+        verify(redisTemplate).delete("portfolio:summary:v4:7:USD");
+        verify(redisTemplate).delete("portfolio:summary:v4:7:TWD");
+        verify(redisTemplate).delete("portfolio:summary:v4:7:EUR");
+        verify(redisTemplate).delete("portfolio:summary:v4:7:JPY");
         // 分錄不影響持倉估值：持倉鍵一把都不能刪
         verify(redisTemplate, times(CurrencyCode.values().length)).delete(anyString());
         verify(redisTemplate, never()).delete(startsWith("portfolio:valuation:"));
@@ -265,7 +265,7 @@ class PortfolioCacheTest {
         cache.invalidateSummaryAfterCommit(7L);
 
         for (CurrencyCode base : CurrencyCode.values()) {
-            verify(redisTemplate).delete("portfolio:summary:v3:7:" + base.name());
+            verify(redisTemplate).delete("portfolio:summary:v4:7:" + base.name());
         }
         verify(redisTemplate, never()).delete(startsWith("portfolio:valuation:"));
     }
