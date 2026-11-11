@@ -460,7 +460,7 @@ class ShareAdjustmentApiIT extends ContainerIT {
         mockMvc.perform(get("/api/v1/portfolio/holdings")
                 .header("Authorization", "Bearer " + accessToken))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(expectedQuantity * 1.0)));
+            .andExpect(jsonPath("$.data[0].totalQuantity", decimalString(String.valueOf(expectedQuantity))));
     }
 
     private static String threeDaysAgo() {
