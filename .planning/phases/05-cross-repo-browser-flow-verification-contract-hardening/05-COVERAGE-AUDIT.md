@@ -41,7 +41,7 @@
 | trading 冪等 | `TradingApiIT#concurrentSameKeyCreatesExactlyOneTrade`、`#rejectedTradeDoesNotBurnTheIdempotencyKey`、`#sameIdempotencyKeyReturnsExistingTradeAndAppliesHoldingOnce`、`#sameKeyWithDifferentPayloadIsRejectedAsReuse`、`#sameKeyWithOnlyNoteChangedReturnsExistingTrade`、`#sameKeyAcrossDifferentUsersCreatesSeparateTrades`、`#missingIdempotencyKeyHeaderReturnsFieldAwareValidationError`、`#blankIdempotencyKeyIsRejected`、`#oversizedIdempotencyKeyIsRejectedWithValidationError`;`TransactionsIdempotencyIT`(8);`TradePayloadMatcherTest`(13) | 已涵蓋(「字串金額重送 `"10"` vs `10.00000000` → 同一筆」列 Wave 2) | 既有 | BE-PR:Integration job 129584199208 `TradingApiIT.xml` 37/0/0、`TransactionsIdempotencyIT.xml` 8/0/0;Unit job 129583473178 `stock-module-trading/.../TEST-dowob.xyz.stockwebv2.trading.domain.TradePayloadMatcherTest.xml` 13/0/0 |
 | (附)未來 `executedAt` 400 帶 `fields.executedAt`(D-02a 後端面) | `TradingApiIT#futureExecutedAtIsRejectedButBackfillIsAllowed`(`$.error.fields.executedAt = "must not be in the future"`);`TradingServiceTest#futureExecutedAtErrorNamesTheField`、`#futureExecutedAtWithinToleranceIsAccepted` | Wave 1 新增(D-02a) | 05-09 / `4255acb` | BE-PR:`TradingApiIT.xml` 37/0/0;Unit job `stock-module-trading/.../TEST-dowob.xyz.stockwebv2.trading.service.TradingServiceTest.xml` 51/0/0 |
 | (附)access TTL 一致性守衛(D-22) | `AccessTokenTtlConsistencyGuardTest`(4) | Wave 1 新增 | 05-05 / `eb0bc29` | BE-PR Unit job 129583473178;`stock-module-user/.../TEST-dowob.xyz.stockwebv2.user.service.AccessTokenTtlConsistencyGuardTest.xml` 4/0/0 |
-| BigDecimal 字串化(Q2:ArchUnit + 行為測試 + 精度 IT) | — | **缺口 G6 — Wave 2(05-13 ~ 05-15)** | 尚未執行(05-13 ~ 05-15 PLAN) | 無 CI 證據(待 Wave 2 PR) |
+| BigDecimal 字串化(Q2:ArchUnit + 行為測試 + 精度 IT) | `ApiDecimalStringRulesTest`(ArchUnit `apiDtoBigDecimalFieldsAreDecimalStrings` 1 + 行為樣本 4);`PlainDecimalStringSerializerTest`(6);`CashLedgerControllerWebMvcTest`(字串斷言);`CashEntryApiIT#amountRoundTripsAsExactString`、`#stringAmountReplayIsSameEntry`;`TradingApiIT#stringAmountReplayReturnsExistingTrade`、`#stringPrecisionTradeRoundTrips`;IT / E2E 共用 `DecimalStringMatchers`(5) | **缺口 G6 已補(Wave 2)** | 05-13 `a50c67b`、`9229357`;05-14 `d5a694f`、`ec879e8`、`71d1139`;05-15 `618a424`、`47b6bfc`;05-25 `e2e7fa0`(`ShareAdjustmentApiIT.assertHolding` 改 `decimalString`) | BE-W2-PR run 42971740727:Unit job 130361682650(`ApiDecimalStringRulesTest` 4 + 1 皆 0 failures);Integration job 130362316276 288 tests 0 failures(`TradingApiIT` 39/0、`CashEntryApiIT` 34/0、`ShareAdjustmentApiIT` 13/0,上列四個新案例皆 ✅);E2E job 130363825214 success |
 
 ---
 
@@ -57,7 +57,7 @@
 | auth store(`authSession.ts`) | `src/services/authSession.test.ts`(7) | 已涵蓋 | 既有 | FE-PR job 129266720313 log:`authSession.test.ts (7 tests)` |
 | runtime mode | `src/services/runtimeDataMode.test.ts`(3)、`src/api-adapter-wiring.test.ts`(17) | 已涵蓋 | 既有 | FE-PR job 129266720313 log:`runtimeDataMode.test.ts (3 tests)`、`api-adapter-wiring.test.ts (17 tests)` |
 | portfolio adapters(現況) | `portfolioApi.test.ts`(31)、`cashApi.test.ts`(21)、`holdingEventApi.test.ts`(28)、`portfolioRevision.test.ts`(26) | 已涵蓋(現況) | 既有 | FE-PR job 129266720313 log:四檔皆 ✓,測試數如左 |
-| portfolio adapters wire → domain mapper 與精度案例 | — | **缺口 F3 — Wave 2(05-13 ~ 05-15)** | 尚未執行 | 無 CI 證據(待 Wave 2 PR) |
+| portfolio adapters wire → domain mapper 與精度案例 | `src/services/decimal.test.ts`;各型別閉包 mapper 精度案例:`cashApi.test.ts`、`portfolioApi.test.ts`(`toPortfolioSummary` / `toHolding` / `toPortfolioActivity`)、`tradingApi.test.ts`(`toTradeRecord`)、`holdingEventApi.test.ts`(`toDividend` / `toShareAdjustment`)、`marketApi.test.ts` / `watchlistApi.test.ts`(`toAsset`)、`quoteStream.test.ts`(`parseTickData`)、`backtestApi.test.ts`;源碼守門 `src/decimalBoundary.test.ts` | **缺口 F3 已補(Wave 2,05-16 ~ 05-24)** | 05-16 `981fc35`、`abf2554` … 05-24 `c3e63ef`、`be46754`、`5dc7511`(各 plan SUMMARY 列全部 SHA) | FE-W2-PR run 42971316716:`frontend` job 130360200351(lint / test / build 皆 success;本機同 head 67 files / 1516 tests,兩種 mode);`Browser E2E (real backend)` job 130360970606 149 passed |
 | trading adapter | `src/services/tradingApi.test.ts`(13) | 已涵蓋(Wave 2 payload 改字串) | 既有 | FE-PR job 129266720313 log:`tradingApi.test.ts (13 tests)` |
 | type-check / build | `npm run build` = `vue-tsc --noEmit && vite build` | 已涵蓋 | 既有 | FE-PR job 129266720313 log:`> vue-tsc --noEmit && vite build` → `✓ built in 1.31s` |
 | proxy 設定(D-21:預設 11180、env 覆寫 dev / preview、`/ws` `ws === true`) | `src/viteConfig.test.ts`(2 → 4) | **缺口 F4 已補** | 05-03 / `6ad00ac` | FE-PR job 129266720313 log:`✓ src/viteConfig.test.ts (4 tests)`;執行面:兩邊 Browser E2E 經 preview proxy 指向 8080 跑完 149 tests(§SC3 / §SC5) |
@@ -152,6 +152,37 @@
 | 前端 | tommot20077/stock-web-v2-front-end#22 | `9e920b8` | [42946379447](https://github.com/tommot20077/stock-web-v2-front-end/actions/runs/42946379447) | frontend / Browser E2E (real backend) 皆 success |
 
 D-25 閘門通過:兩 repo develop CI 綠,Wave 2(05-13 起)可開始。§VER-01 勾選框在合併時尚未逐項勾選,保留給 Yuan 後續檢視(不阻擋 Wave 2)。
+
+---
+
+## Wave 2
+
+05-25 Task 2(2026-11-11 收集)。Wave 2 = 金額字串化硬切(D-05 ~ D-09),後端鏈 05-13 ~ 05-15、前端鏈 05-16 ~ 05-24。
+
+| 項目 | 後端 `tommot20077/stock-web-v2` | 前端 `tommot20077/stock-web-v2-front-end` |
+|------|------|------|
+| PR | https://github.com/tommot20077/stock-web-v2/pull/56 | https://github.com/tommot20077/stock-web-v2-front-end/pull/23 |
+| head SHA | `e2e7fa0` | `5dc7511` |
+| PR run id(BE-W2-PR / FE-W2-PR) | **42971740727** — https://github.com/tommot20077/stock-web-v2/actions/runs/42971740727 | **42971316716** — https://github.com/tommot20077/stock-web-v2-front-end/actions/runs/42971316716 |
+| 結論 | ALL GREEN:Lint 130361682929、Unit Tests 130361682650、Integration Tests 130362316276(288 / 0)、E2E Tests 130363825214、Browser E2E Tests 130364643334 | ALL GREEN:`frontend` 130360200351、`Browser E2E (real backend)` 130360970606 |
+| 同 head 的 push run | 42971733360 success | (feature push 不觸發) |
+| Browser E2E 解析到的對方 ref | 「前端使用對應分支:`claude/epic-curie-lj8alo`」(前端 head `5dc7511`) | 「後端使用對應分支:`claude/epic-curie-lj8alo`」(當時後端 head `281b2b4`) |
+| Browser E2E 結果 | 149 passed(1.8m) | 149 passed(1.5m) |
+
+### D-24:Wave 1 安全網在硬切後仍綠
+
+| 安全網 | BE-W2-PR Browser E2E 130364643334 | FE-W2-PR Browser E2E 130360970606 |
+|--------|------|------|
+| J0 契約全程 journey(SC3 / SC4) | ✓ | ✓ |
+| S5 六頁 × 三種失敗(SC5,18 組) | 18 ✓ | 18 ✓ |
+| cash-journey C1 ~ C3、holding-event-journey J1 ~ J3、backtest D1(字串金額 E2E) | ✓ | ✓ |
+
+### 註記
+
+- **首輪後端 CI 紅(已修)**:PR 開啟時的 head `281b2b4`(push run 42970726018)Integration Tests 288 中 5 個失敗,全在 `ShareAdjustmentApiIT.assertHolding:463`(`equalTo(int * 1.0)` 對上字串 `"400.00000000"`);05-15 的清查未涵蓋 helper 內的 double 比對。`e2e7fa0` 改用 `decimalString` 後全綠。其餘 283 個 IT(含 `TradingApiIT` 三個逐字 scale 斷言)首輪即綠。
+- **FE 的 Browser E2E 對的是後端 `281b2b4`**:`281b2b4 → e2e7fa0` 只改 `ShareAdjustmentApiIT.java`(測試檔),後端伺服器程式碼相同;`e2e7fa0` 的跨 repo 證據另由 BE-W2-PR Browser E2E 130364643334 提供。
+- **合併須知第 1 點偏離**:本次執行中兩 repo 分支在兩條鏈完成前即逐 plan 推送,期間後端分支 push run(例如 42964232157、42967181710、42968289712)為紅,屬「新後端 × 未完成前端」的預期組合;合併前提以上表同 head 的 PR run 為準。
+- **Codex review bot**:後端 PR 審查因故未完成,無 finding。
 
 ---
 
