@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.asset.api;
 
 import dowob.xyz.stockwebv2.common.model.AssetType;
 import dowob.xyz.stockwebv2.common.model.CurrencyCode;
+import dowob.xyz.stockwebv2.infrastructure.web.json.DecimalString;
 
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -15,11 +16,11 @@ public record AssetDto(
     CurrencyCode currency,
     String sector,
     boolean tradeable,
-    BigDecimal latestPrice,
-    BigDecimal change,
-    BigDecimal changePercent,
+    @DecimalString BigDecimal latestPrice,
+    @DecimalString BigDecimal change,
+    @DecimalString BigDecimal changePercent,
     String volumeText,
-    BigDecimal high,
-    BigDecimal low
+    @DecimalString BigDecimal high,
+    @DecimalString BigDecimal low
 ) {
 }

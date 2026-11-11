@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.backtest.api;
 
+import dowob.xyz.stockwebv2.infrastructure.web.json.DecimalString;
+
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -12,7 +14,7 @@ public record CreateBacktestRunRequest(
     String strategyCode,
     @NotBlank @Size(max = 32) String symbol,
     @NotBlank String period,
-    @NotNull @DecimalMin(value = "0.0", inclusive = false) BigDecimal initialCapital,
+    @NotNull @DecimalMin(value = "0.0", inclusive = false) @DecimalString BigDecimal initialCapital,
     @NotBlank String currency,
     @NotBlank String benchmark,
     @NotBlank String dataMode

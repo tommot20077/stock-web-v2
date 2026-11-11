@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.trading.api;
 
+import dowob.xyz.stockwebv2.infrastructure.web.json.DecimalString;
+
 import java.math.BigDecimal;
 
 /**
@@ -18,9 +20,9 @@ import java.math.BigDecimal;
  */
 public record SectorAllocationDto(
     String sector,
-    BigDecimal value,
-    BigDecimal weight,
+    @DecimalString BigDecimal value,
+    @DecimalString BigDecimal weight,
     int holdingCount,
-    BigDecimal unrealizedPnl
+    @DecimalString BigDecimal unrealizedPnl
 ) {
 }

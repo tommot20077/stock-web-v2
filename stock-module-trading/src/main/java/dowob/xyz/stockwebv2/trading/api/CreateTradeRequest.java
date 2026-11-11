@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.trading.api;
 
+import dowob.xyz.stockwebv2.infrastructure.web.json.DecimalString;
+
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
@@ -22,10 +24,10 @@ public record CreateTradeRequest(
     @NotBlank @Size(max = 32) String symbol,
     @NotBlank String type,
     @NotNull @DecimalMin(value = "0.00000001") @DecimalMax(value = "1000000000")
-    @Digits(integer = 10, fraction = 8) BigDecimal quantity,
+    @Digits(integer = 10, fraction = 8) @DecimalString BigDecimal quantity,
     @NotNull @DecimalMin(value = "0.00000001") @DecimalMax(value = "1000000")
-    @Digits(integer = 7, fraction = 8) BigDecimal price,
-    @DecimalMin(value = "0.0") @Digits(integer = 16, fraction = 8) BigDecimal fee,
+    @Digits(integer = 7, fraction = 8) @DecimalString BigDecimal price,
+    @DecimalMin(value = "0.0") @Digits(integer = 16, fraction = 8) @DecimalString BigDecimal fee,
     @Size(max = 500) String note,
     OffsetDateTime executedAt
 ) {
