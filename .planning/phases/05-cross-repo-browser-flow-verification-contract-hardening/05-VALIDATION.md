@@ -2,10 +2,10 @@
 phase: "05"
 slug: "cross-repo-browser-flow-verification-contract-hardening"
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
-# audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
+# audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: true) (#2117)
+status: validated
 nyquist_compliant: false
-wave_0_complete: false
+wave_0_complete: true
 created: "2026-11-07"
 ---
 
@@ -39,39 +39,40 @@ created: "2026-11-07"
 
 ## Per-Task Verification Map
 
+> 2026-11-12 validate-phase:25 份 PLAN 全部執行完畢,各列測試檔皆存在;Status 依 CI 證據標 ✅(Wave 1:BE-PR 42741526488 / FE-PR 42648098145、develop 42946358757 / 42946379447;Wave 2:BE-W2-PR 42971740727 / FE-W2-PR 42971316716、develop 43141473501 / 43141443593,見 05-COVERAGE-AUDIT.md)。
 > 2026-11-07 plan-phase 已依 25 份 PLAN 填入 task / plan / wave / threat(revision:前端 Wave 2 依型別閉包切為 05-16 ~ 05-24,Wave 2 閘門改號 05-25);Status 由 executor 與 05-12 / 05-25 gate 依 CI 證據更新。
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 05-04-T1 | 05-04 | 1 | VER-01 | T-05-07 | auth cookie HttpOnly / SameSite / Path(G1) | unit | `./mvnw -pl stock-module-user -am test -Dtest=BrowserAuthCookieServiceTest -Dsurefire.failIfNoSpecifiedTests=false` | ❌ W0 | ⬜ pending |
-| 05-04-T2 | 05-04 | 1 | VER-01 | T-05-07, T-05-08 | cookie 無 CSRF 的 POST /trades → 403;login 帶有效 cookie 需 CSRF;cookie 登出後 /me 401(G2–G4) | IT (CI) | `./mvnw -B -pl stock-start -am verify -Dit.test='BrowserAuthFlowIT,TradingApiIT' -Dspring-boot.repackage.skip=true` | ✅ 檔 / 方法 ❌ | ⬜ pending |
-| 05-04-T2 | 05-04 | 1 | VER-01 | T-05-09 | method-security 403 失敗信封(G5) | IT (CI) | `-Dit.test=MethodSecurityDenialIT` | ✅ 檔 / 斷言 ❌ | ⬜ pending |
-| 05-05-T1 | 05-05 | 1 | VER-01 | T-05-10 | access token TTL == cookie TTL 守衛 | unit | `./mvnw -pl stock-module-user -am test -Dtest=AccessTokenTtlConsistencyGuardTest -Dsurefire.failIfNoSpecifiedTests=false` | ❌ W0 | ⬜ pending |
-| 05-06-T1 | 05-06 | 2 | VER-01 | T-05-13 | `start/e2e` 無 `*Test` 具體類別 | unit (ArchUnit) | `./mvnw -pl stock-start -am test -Dtest=E2eNamingRulesTest -Dsurefire.failIfNoSpecifiedTests=false` | ❌ W0 | ⬜ pending |
-| 05-06-T2 / 05-12-T2 | 05-06, 05-12 | 2–3 | VER-01 | T-05-13 | 7 個改名 `*E2E` 在 E2E job 綠 | E2E (CI) | `./mvnw -B -pl stock-start -am test -Pe2e` | ✅ 改名 | ⬜ pending |
-| 05-09-T1 | 05-09 | 2 | VER-01 | T-05-17 | executedAt 未來 → `fields.executedAt` | unit + IT | `./mvnw -pl stock-module-trading -am test -Dtest=TradingServiceTest -Dsurefire.failIfNoSpecifiedTests=false` | ✅ 需改 | ⬜ pending |
-| 05-09-T2 | 05-09 | 2 | VER-01 | T-05-18 | 觀察清單名稱 NBSP CHECK(新 migration) | IT (CI) | `-Dit.test=WatchlistApiIT` | ✅ 案例 ❌ | ⬜ pending |
-| 05-07-T1/T2, 05-08-T1~T3 | 05-07, 05-08 | 1–2 | VER-01 | T-05-14, T-05-16 | 共用容器後 market-data IT 全綠(亂序) | IT (CI) | `./mvnw -B -pl stock-module-market-data -am verify -Dfailsafe.runOrder=random` | ✅ 需改 | ⬜ pending |
-| 05-14-T1/T2 | 05-14 | 5 | VER-01 | T-05-24 | API DTO BigDecimal 一律 plain-string 序列化 | unit (ArchUnit + 行為) | `./mvnw -pl stock-start -am test -Dtest=ApiDecimalStringRulesTest -Dsurefire.failIfNoSpecifiedTests=false` | ❌ W2 | ⬜ pending |
-| 05-13-T2 | 05-13 | 4 | VER-01 | T-05-22 | 精度回歸 `123456789012.12345678` 原樣存讀 | IT (CI) | `-Dit.test=CashEntryApiIT` | ✅ 檔 / 案例 ❌ | ⬜ pending |
-| 05-02-T1/T2 | 05-02 | 1 | VER-02 | T-05-04 | fetch reject / 5xx 空 body 不崩潰 | unit | `cd vue-app && npx vitest run src/services/apiClient.test.ts` | ✅ 案例 ❌ | ⬜ pending |
-| 05-03-T1 | 05-03 | 1 | VER-02 | T-05-06 | proxy target 讀 env,預設 11180 | unit | `cd vue-app && npx vitest run src/viteConfig.test.ts` | ✅ 案例 ❌ | ⬜ pending |
-| 05-16-T1 | 05-16 | 4 | VER-02 | T-05-27 | decimal 轉換與精度 | unit | `cd vue-app && npx vitest run src/services/decimal.test.ts` | ❌ W2 | ⬜ pending |
-| 05-17-T1~T3 | 05-17 | 5 | VER-02 | T-05-28 | summary 閉包 wire 字串 → Decimal;權重 div 後 HALF_UP | unit + component | `cd vue-app && npx vitest run src/services/portfolioApi.test.ts src/pages/Overview.test.ts src/pages/Positions.test.ts src/cashBalanceView.test.ts` | ✅ 需改 | ⬜ pending |
-| 05-18-T1/T2 | 05-18 | 6 | VER-02 | T-05-34 | holdings 閉包;可賣數量以 Decimal 比較 | unit + component | `cd vue-app && npx vitest run src/services/portfolioApi.test.ts src/pages/Positions.test.ts src/components/OrderTicket.test.ts` | ✅ 需改 | ⬜ pending |
-| 05-19-T1~T3 | 05-19 | 7 | VER-02 | T-05-29 | 交易 payload 字串;同 key 重試 body 逐位元相同 | unit + component | `cd vue-app && npx vitest run src/services/tradingApi.test.ts src/components/OrderTicket.test.ts src/services/portfolioRevision.test.ts` | ✅ 需改 | ⬜ pending |
-| 05-20-T1/T2 | 05-20 | 8 | VER-02 | T-05-30 | 股利 / 股數調整字串;選填送 null;沖銷值取自原列 | unit + component | `cd vue-app && npx vitest run src/services/holdingEventApi.test.ts src/components/HoldingEventDialog.test.ts` | ✅ 需改 | ⬜ pending |
-| 05-21-T1/T2 | 05-21 | 9 | VER-02 | T-05-35 | 活動列字串;CSV 金額一般記號、不被加公式前綴 | unit + component | `cd vue-app && npx vitest run src/services/portfolioApi.test.ts src/pages/Trades.test.ts src/csvCell.test.ts` | ✅ 需改 | ⬜ pending |
-| 05-22-T1~T3 | 05-22 | 10 | VER-02 | T-05-36 | 標的報價字串;null 價格不當 0;疊加 HALF_UP | unit + component | `cd vue-app && npx vitest run src/services/marketApi.test.ts src/services/watchlistApi.test.ts src/composables/useLiveQuotes.test.ts src/pages/Watchlist.test.ts` | ✅ 需改 | ⬜ pending |
-| 05-23-T1/T2 | 05-23 | 11 | VER-02 | T-05-31 | WS tick 只收字串價格,無效即丟棄 | unit | `cd vue-app && npx vitest run src/services/quoteStream.test.ts src/composables/useLiveQuotes.test.ts src/wsBoundary.test.ts` | ✅ 需改 | ⬜ pending |
-| 05-24-T1~T3 | 05-24 | 12 | VER-02, VER-03 | T-05-32 | 回測字串契約;頁面 / 元件 / composable 不含 numberToWire(交接點歸零的回歸守門);E2E helper 送字串 | unit + source scan | `cd vue-app && npx vitest run src/services/backtestApi.test.ts src/decimalBoundary.test.ts && npx playwright test --list` | ❌ W2 | ⬜ pending |
-| 05-25-T1~T3 | 05-25 | 13 | VER-01, VER-02, VER-03 | T-05-33 | Wave 2 PR CI 全綠且兩邊 Browser E2E 測對方同名分支;依宣告順序(前端先、後端緊接)合併後兩 repo develop 綠 | CI + checkpoint | `gh api "repos/tommot20077/stock-web-v2-front-end/actions/runs?branch=develop&event=push&per_page=1" --jq '.workflow_runs[0].conclusion'` | ✅ | ⬜ pending |
-| 05-11-T1/T2 | 05-11 | 2 | VER-02 | T-05-20 | useNow 未來時間判斷 | component | `cd vue-app && npx vitest run src/components/CashEntryDialog.test.ts src/components/OrderTicket.test.ts` | ✅ 案例 ❌ | ⬜ pending |
-| 05-10-T1~T3 | 05-10 | 1 | VER-02 | T-05-19 | 紅漲綠跌下失敗色不變綠 / 無寫死 rgba | unit + layout | `cd vue-app && npx vitest run src/contrastTokens.test.ts && npx playwright test e2e/tests/layout.spec.ts` | ✅ 案例 ❌ | ⬜ pending |
-| all | all | all | VER-02 | — | type-check / build | build | `cd vue-app && npm run build` | ✅ | ⬜ pending |
-| 05-01-T1/T2 | 05-01 | 1 | VER-03 | T-05-01, T-05-02 | journey login → /me → reads → trade → refetch → logout + SC4 斷言 | browser E2E (CI) | `cd vue-app && bash e2e/run-e2e.sh e2e/tests/contract-journey.spec.ts` | ❌ W1 | ⬜ pending |
-| 05-02-T3 | 05-02 | 1 | VER-03 | T-05-03 | SC5 18 組失敗矩陣不被 mock 掩蓋 | browser E2E (CI) | `cd vue-app && bash e2e/run-e2e.sh e2e/tests/api-failure-states.spec.ts` | ❌ W1 | ⬜ pending |
-| 05-03-T2 | 05-03 | 1 | VER-03 | — | `run-e2e.sh` 無參數跑全部 | browser E2E (CI) | `cd vue-app && bash e2e/run-e2e.sh` | ✅ 改腳本 | ⬜ pending |
+| 05-04-T1 | 05-04 | 1 | VER-01 | T-05-07 | auth cookie HttpOnly / SameSite / Path(G1) | unit | `./mvnw -pl stock-module-user -am test -Dtest=BrowserAuthCookieServiceTest -Dsurefire.failIfNoSpecifiedTests=false` | ✅ | ✅ green |
+| 05-04-T2 | 05-04 | 1 | VER-01 | T-05-07, T-05-08 | cookie 無 CSRF 的 POST /trades → 403;login 帶有效 cookie 需 CSRF;cookie 登出後 /me 401(G2–G4) | IT (CI) | `./mvnw -B -pl stock-start -am verify -Dit.test='BrowserAuthFlowIT,TradingApiIT' -Dspring-boot.repackage.skip=true` | ✅ | ✅ green |
+| 05-04-T2 | 05-04 | 1 | VER-01 | T-05-09 | method-security 403 失敗信封(G5) | IT (CI) | `-Dit.test=MethodSecurityDenialIT` | ✅ | ✅ green |
+| 05-05-T1 | 05-05 | 1 | VER-01 | T-05-10 | access token TTL == cookie TTL 守衛 | unit | `./mvnw -pl stock-module-user -am test -Dtest=AccessTokenTtlConsistencyGuardTest -Dsurefire.failIfNoSpecifiedTests=false` | ✅ | ✅ green |
+| 05-06-T1 | 05-06 | 2 | VER-01 | T-05-13 | `start/e2e` 無 `*Test` 具體類別 | unit (ArchUnit) | `./mvnw -pl stock-start -am test -Dtest=E2eNamingRulesTest -Dsurefire.failIfNoSpecifiedTests=false` | ✅ | ✅ green |
+| 05-06-T2 / 05-12-T2 | 05-06, 05-12 | 2–3 | VER-01 | T-05-13 | 7 個改名 `*E2E` 在 E2E job 綠 | E2E (CI) | `./mvnw -B -pl stock-start -am test -Pe2e` | ✅ | ✅ green |
+| 05-09-T1 | 05-09 | 2 | VER-01 | T-05-17 | executedAt 未來 → `fields.executedAt` | unit + IT | `./mvnw -pl stock-module-trading -am test -Dtest=TradingServiceTest -Dsurefire.failIfNoSpecifiedTests=false` | ✅ | ✅ green |
+| 05-09-T2 | 05-09 | 2 | VER-01 | T-05-18 | 觀察清單名稱 NBSP CHECK(新 migration) | IT (CI) | `-Dit.test=WatchlistApiIT` | ✅ | ✅ green |
+| 05-07-T1/T2, 05-08-T1~T3 | 05-07, 05-08 | 1–2 | VER-01 | T-05-14, T-05-16 | 共用容器後 market-data IT 全綠(亂序) | IT (CI) | `./mvnw -B -pl stock-module-market-data -am verify -Dfailsafe.runOrder=random` | ✅ | ✅ green |
+| 05-14-T1/T2 | 05-14 | 5 | VER-01 | T-05-24 | API DTO BigDecimal 一律 plain-string 序列化 | unit (ArchUnit + 行為) | `./mvnw -pl stock-start -am test -Dtest=ApiDecimalStringRulesTest -Dsurefire.failIfNoSpecifiedTests=false` | ✅ | ✅ green |
+| 05-13-T2 | 05-13 | 4 | VER-01 | T-05-22 | 精度回歸 `123456789012.12345678` 原樣存讀 | IT (CI) | `-Dit.test=CashEntryApiIT` | ✅ | ✅ green |
+| 05-02-T1/T2 | 05-02 | 1 | VER-02 | T-05-04 | fetch reject / 5xx 空 body 不崩潰 | unit | `cd vue-app && npx vitest run src/services/apiClient.test.ts` | ✅ | ✅ green |
+| 05-03-T1 | 05-03 | 1 | VER-02 | T-05-06 | proxy target 讀 env,預設 11180 | unit | `cd vue-app && npx vitest run src/viteConfig.test.ts` | ✅ | ✅ green |
+| 05-16-T1 | 05-16 | 4 | VER-02 | T-05-27 | decimal 轉換與精度 | unit | `cd vue-app && npx vitest run src/services/decimal.test.ts` | ✅ | ✅ green |
+| 05-17-T1~T3 | 05-17 | 5 | VER-02 | T-05-28 | summary 閉包 wire 字串 → Decimal;權重 div 後 HALF_UP | unit + component | `cd vue-app && npx vitest run src/services/portfolioApi.test.ts src/pages/Overview.test.ts src/pages/Positions.test.ts src/cashBalanceView.test.ts` | ✅ | ✅ green |
+| 05-18-T1/T2 | 05-18 | 6 | VER-02 | T-05-34 | holdings 閉包;可賣數量以 Decimal 比較 | unit + component | `cd vue-app && npx vitest run src/services/portfolioApi.test.ts src/pages/Positions.test.ts src/components/OrderTicket.test.ts` | ✅ | ✅ green |
+| 05-19-T1~T3 | 05-19 | 7 | VER-02 | T-05-29 | 交易 payload 字串;同 key 重試 body 逐位元相同 | unit + component | `cd vue-app && npx vitest run src/services/tradingApi.test.ts src/components/OrderTicket.test.ts src/services/portfolioRevision.test.ts` | ✅ | ✅ green |
+| 05-20-T1/T2 | 05-20 | 8 | VER-02 | T-05-30 | 股利 / 股數調整字串;選填送 null;沖銷值取自原列 | unit + component | `cd vue-app && npx vitest run src/services/holdingEventApi.test.ts src/components/HoldingEventDialog.test.ts` | ✅ | ✅ green |
+| 05-21-T1/T2 | 05-21 | 9 | VER-02 | T-05-35 | 活動列字串;CSV 金額一般記號、不被加公式前綴 | unit + component | `cd vue-app && npx vitest run src/services/portfolioApi.test.ts src/pages/Trades.test.ts src/csvCell.test.ts` | ✅ | ✅ green |
+| 05-22-T1~T3 | 05-22 | 10 | VER-02 | T-05-36 | 標的報價字串;null 價格不當 0;疊加 HALF_UP | unit + component | `cd vue-app && npx vitest run src/services/marketApi.test.ts src/services/watchlistApi.test.ts src/composables/useLiveQuotes.test.ts src/pages/Watchlist.test.ts` | ✅ | ✅ green |
+| 05-23-T1/T2 | 05-23 | 11 | VER-02 | T-05-31 | WS tick 只收字串價格,無效即丟棄 | unit | `cd vue-app && npx vitest run src/services/quoteStream.test.ts src/composables/useLiveQuotes.test.ts src/wsBoundary.test.ts` | ✅ | ✅ green |
+| 05-24-T1~T3 | 05-24 | 12 | VER-02, VER-03 | T-05-32 | 回測字串契約;頁面 / 元件 / composable 不含 numberToWire(交接點歸零的回歸守門);E2E helper 送字串 | unit + source scan | `cd vue-app && npx vitest run src/services/backtestApi.test.ts src/decimalBoundary.test.ts && npx playwright test --list` | ✅ | ✅ green |
+| 05-25-T1~T3 | 05-25 | 13 | VER-01, VER-02, VER-03 | T-05-33 | Wave 2 PR CI 全綠且兩邊 Browser E2E 測對方同名分支;依宣告順序(前端先、後端緊接)合併後兩 repo develop 綠 | CI + checkpoint | `gh api "repos/tommot20077/stock-web-v2-front-end/actions/runs?branch=develop&event=push&per_page=1" --jq '.workflow_runs[0].conclusion'` | ✅ | ✅ green |
+| 05-11-T1/T2 | 05-11 | 2 | VER-02 | T-05-20 | useNow 未來時間判斷 | component | `cd vue-app && npx vitest run src/components/CashEntryDialog.test.ts src/components/OrderTicket.test.ts` | ✅ | ✅ green |
+| 05-10-T1~T3 | 05-10 | 1 | VER-02 | T-05-19 | 紅漲綠跌下失敗色不變綠 / 無寫死 rgba | unit + layout | `cd vue-app && npx vitest run src/contrastTokens.test.ts && npx playwright test e2e/tests/layout.spec.ts` | ✅ | ✅ green |
+| all | all | all | VER-02 | — | type-check / build | build | `cd vue-app && npm run build` | ✅ | ✅ green |
+| 05-01-T1/T2 | 05-01 | 1 | VER-03 | T-05-01, T-05-02 | journey login → /me → reads → trade → refetch → logout + SC4 斷言 | browser E2E (CI) | `cd vue-app && bash e2e/run-e2e.sh e2e/tests/contract-journey.spec.ts` | ✅ | ✅ green |
+| 05-02-T3 | 05-02 | 1 | VER-03 | T-05-03 | SC5 18 組失敗矩陣不被 mock 掩蓋 | browser E2E (CI) | `cd vue-app && bash e2e/run-e2e.sh e2e/tests/api-failure-states.spec.ts` | ✅ | ✅ green |
+| 05-03-T2 | 05-03 | 1 | VER-03 | — | `run-e2e.sh` 無參數跑全部 | browser E2E (CI) | `cd vue-app && bash e2e/run-e2e.sh` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -79,16 +80,16 @@ created: "2026-11-07"
 
 ## Wave 0 Requirements
 
-- [ ] `stock-module-user/src/test/java/dowob/xyz/stockwebv2/user/service/BrowserAuthCookieServiceTest.java` — G1
-- [ ] `stock-module-user/src/test/java/dowob/xyz/stockwebv2/user/service/AccessTokenTtlConsistencyGuardTest.java` — D-22
-- [ ] `stock-start/src/test/java/dowob/xyz/stockwebv2/start/E2eNamingRulesTest.java` — D-23
-- [ ] `stock-start/src/test/java/dowob/xyz/stockwebv2/start/ApiDecimalStringRulesTest.java` — D-09(Wave 2 起頭先寫紅燈)
-- [ ] `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/support/MarketDataContainers.java` — D-04
-- [ ] `vue-app/e2e/tests/contract-journey.spec.ts`、`vue-app/e2e/tests/api-failure-states.spec.ts`、`vue-app/e2e/support/mockSentinels.ts` — VER-03
-- [ ] `vue-app/src/services/decimal.ts` + `decimal.test.ts` — D-08(Wave 2)
-- [ ] `vue-app/src/decimalBoundary.test.ts` — D-08 交接點歸零的源碼守門(05-24)
-- [ ] Framework install:`npm install big.js@7.0.1 && npm install -D @types/big.js@7.0.0`(Wave 2)
-- [ ] `.planning/phases/05-cross-repo-browser-flow-verification-contract-hardening/05-COVERAGE-AUDIT.md` — D-01 驗收證據
+- [x] `stock-module-user/src/test/java/dowob/xyz/stockwebv2/user/service/BrowserAuthCookieServiceTest.java` — G1
+- [x] `stock-module-user/src/test/java/dowob/xyz/stockwebv2/user/service/AccessTokenTtlConsistencyGuardTest.java` — D-22
+- [x] `stock-start/src/test/java/dowob/xyz/stockwebv2/start/E2eNamingRulesTest.java` — D-23
+- [x] `stock-start/src/test/java/dowob/xyz/stockwebv2/start/ApiDecimalStringRulesTest.java` — D-09(Wave 2 起頭先寫紅燈)
+- [x] `stock-module-market-data/src/test/java/dowob/xyz/stockwebv2/marketdata/support/MarketDataContainers.java` — D-04
+- [x] `vue-app/e2e/tests/contract-journey.spec.ts`、`vue-app/e2e/tests/api-failure-states.spec.ts`、`vue-app/e2e/support/mockSentinels.ts` — VER-03
+- [x] `vue-app/src/services/decimal.ts` + `decimal.test.ts` — D-08(Wave 2)
+- [x] `vue-app/src/decimalBoundary.test.ts` — D-08 交接點歸零的源碼守門(05-24)
+- [x] Framework install:`npm install big.js@7.0.1 && npm install -D @types/big.js@7.0.0`(Wave 2)
+- [x] `.planning/phases/05-cross-repo-browser-flow-verification-contract-hardening/05-COVERAGE-AUDIT.md` — D-01 驗收證據
 
 ---
 
@@ -104,11 +105,19 @@ created: "2026-11-07"
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 300s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 300s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** validated 2026-11-12(validate-phase:0 gaps;IT / E2E / browser E2E 以 CI 為證,見 Manual-Only)
+
+## Validation Audit 2026-11-12
+
+| Metric | Count |
+|---|---|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
