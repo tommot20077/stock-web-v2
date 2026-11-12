@@ -182,7 +182,18 @@ D-25 閘門通過:兩 repo develop CI 綠,Wave 2(05-13 起)可開始。§VER-01 
 - **首輪後端 CI 紅(已修)**:PR 開啟時的 head `281b2b4`(push run 42970726018)Integration Tests 288 中 5 個失敗,全在 `ShareAdjustmentApiIT.assertHolding:463`(`equalTo(int * 1.0)` 對上字串 `"400.00000000"`);05-15 的清查未涵蓋 helper 內的 double 比對。`e2e7fa0` 改用 `decimalString` 後全綠。其餘 283 個 IT(含 `TradingApiIT` 三個逐字 scale 斷言)首輪即綠。
 - **FE 的 Browser E2E 對的是後端 `281b2b4`**:`281b2b4 → e2e7fa0` 只改 `ShareAdjustmentApiIT.java`(測試檔),後端伺服器程式碼相同;`e2e7fa0` 的跨 repo 證據另由 BE-W2-PR Browser E2E 130364643334 提供。
 - **合併須知第 1 點偏離**:本次執行中兩 repo 分支在兩條鏈完成前即逐 plan 推送,期間後端分支 push run(例如 42964232157、42967181710、42968289712)為紅,屬「新後端 × 未完成前端」的預期組合;合併前提以上表同 head 的 PR run 為準。
-- **Codex review bot**:後端 PR 審查因故未完成,無 finding。
+- **Codex review bot**:兩個 PR 皆因 Codex 用量上限未完成審查,無 finding。
+
+### Wave 2 合併後 develop(D-07)
+
+2026-11-12 Yuan 指示合併(對話中回覆「合併」),依 `<merge_order>` 以 merge commit 先前端、緊接後端,中間無其他合併或推送。
+
+| repo | PR | merged_at(UTC) | develop merge commit | develop push CI run | job 結論 |
+|------|----|----------------|----------------------|---------------------|----------|
+| 前端 | tommot20077/stock-web-v2-front-end#23 | 2026-11-12T02:26:35Z(先) | `06ab920` | [43141443593](https://github.com/tommot20077/stock-web-v2-front-end/actions/runs/43141443593) | frontend 130929125940 / Browser E2E (real backend) 130930105547 皆 success |
+| 後端 | tommot20077/stock-web-v2#56 | 約 02:26:55Z(緊接;develop push run 建立於 02:26:55) | `87d5bdf` | [43141473501](https://github.com/tommot20077/stock-web-v2/actions/runs/43141473501) | success |
+
+**預期過渡紅燈未出現**:前端 develop run 的 browser-e2e 於 02:29:18 才 checkout 後端 develop,此時後端 PR 已合併(`87d5bdf`),測到的是新後端,因此直接綠,無需重跑。兩 repo develop 最新 push run 皆 success —— Wave 2 硬切同步完成。
 
 ---
 

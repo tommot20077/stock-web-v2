@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 05
 current_phase_name: Cross-Repo Browser Flow Verification & Contract Hardening
-status: Phase 05 executing — Wave 1(05-01 ~ 05-12)已合併進兩 repo develop 且 CI 綠;下一步 Wave 2(05-13 起)
-stopped_at: 05-12 完成(D-25 閘門通過);待執行 05-13 / 05-16
-last_updated: "2026-11-11T03:10:35.045Z"
-last_activity: 2026-11-11
-last_activity_desc: Phase 05 execution started
+status: Phase 05 executing — Wave 1 與 Wave 2(05-01 ~ 05-25)皆已合併進兩 repo develop 且 CI 綠;進入 phase 驗證
+stopped_at: 05-25 完成(Wave 2 PR stock-web-v2#56 / stock-web-v2-front-end#23 合併,develop 綠);待 phase 驗證(code review → regression → verifier)
+last_updated: "2026-11-12T02:50:00.000Z"
+last_activity: 2026-11-12
+last_activity_desc: 05-25 完成,Wave 2 合併且 develop 綠(25/25)
 state_head: 07598e9746bc35527fadcc8cfaea98c8a2ba58c1
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 104
-  completed_plans: 91
+  completed_plans: 104
 milestone_name: milestone
 ---
 
@@ -29,9 +29,11 @@ See: .planning/PROJECT.md (updated 2026-11-04)
 ## Current Position
 
 Phase: 05 (Cross-Repo Browser Flow Verification & Contract Hardening) — EXECUTING
-Plan: 13 of 25
-Next: `/gsd-execute-phase 5` 續行 Wave 2(金額字串化硬切):05-13(後端 tracer)與 05-16(前端 tracer)起,05-25 為 Wave 2 合併閘門。
-Last activity: 2026-11-11 — Phase 05 execution started
+Plan: 25 of 25(全部執行完畢)
+Next: Phase 05 驗證(execute-phase verify_phase_goal:code review gate → regression gate → gsd-verifier)。
+Last activity: 2026-11-12 — 05-25 完成:Wave 2 PR(stock-web-v2#56、stock-web-v2-front-end#23)依序合併(前端 06ab920 → 後端 87d5bdf),develop CI 綠(前端 43141443593 / 後端 43141473501)
+
+> 待 Yuan 決定(不阻擋):05-19 OrderTicket 預估總額是否含手續費(現為數量 × 價格);05-20 股利對話框是否需稅前總額提示。
 
 > ✅ **Phase 4 已完成（2026-09-04）。** 13 個 plan 全數執行完畢，`04-13` 的 blocking human-verify
 > checkpoint 由 Yuan 親自走完甲／乙／丙三段共 17 步後通過（未提出任何不符項）。
