@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.trading.api;
 
+import dowob.xyz.stockwebv2.infrastructure.web.json.DecimalString;
+
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
@@ -37,7 +39,7 @@ public record CreateShareAdjustmentRequest(
     @NotBlank @Size(max = 32) String symbol,
     @NotBlank @Size(max = 20) String type,
     @DecimalMin(value = "0.00000001") @DecimalMax(value = "1000000000")
-    @Digits(integer = 10, fraction = 8) BigDecimal quantity,
+    @Digits(integer = 10, fraction = 8) @DecimalString BigDecimal quantity,
     @Min(1) @Max(1000) Integer ratioNew,
     @Min(1) @Max(1000) Integer ratioOld,
     @NotNull LocalDate effectiveDate,

@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.trading.api;
 
+import dowob.xyz.stockwebv2.infrastructure.web.json.DecimalString;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -30,7 +32,7 @@ public record ShareAdjustmentDto(
     String symbol,
     String currency,
     String type,
-    BigDecimal quantityDelta,
+    @DecimalString BigDecimal quantityDelta,
     Integer ratioNew,
     Integer ratioOld,
     LocalDate effectiveDate,

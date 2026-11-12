@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.trading.api;
 
+import dowob.xyz.stockwebv2.infrastructure.web.json.DecimalString;
+
 import java.math.BigDecimal;
 
 /**
@@ -14,5 +16,5 @@ import java.math.BigDecimal;
  * @author Yuan
  * @version 1.0
  */
-public record AllocationSliceDto(String category, BigDecimal value, BigDecimal weight) {
+public record AllocationSliceDto(String category, @DecimalString BigDecimal value, @DecimalString BigDecimal weight) {
 }

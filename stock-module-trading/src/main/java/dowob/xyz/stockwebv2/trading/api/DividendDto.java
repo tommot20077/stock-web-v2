@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.trading.api;
 
+import dowob.xyz.stockwebv2.infrastructure.web.json.DecimalString;
+
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
@@ -7,7 +9,7 @@ import java.time.OffsetDateTime;
  * 現金股利紀錄的對外表示（DIV-01）。
  *
  * <p><strong>不含冪等鍵</strong>：冪等鍵是請求層的實作細節，輸出它只會多一個洩漏面。
- * {@code id} 是紀錄的 UUID，而非資料庫自增主鍵。金額以 JSON number 輸出，與既有 DTO 一致。</p>
+ * {@code id} 是紀錄的 UUID，而非資料庫自增主鍵。金額以 JSON 字串（一般記號、保留 scale）輸出，見 {@link DecimalString}（Phase 5 D-05）。</p>
  *
  * @param id             紀錄 UUID 字串
  * @param symbol         標的代號
@@ -26,8 +28,8 @@ public record DividendDto(
     String id,
     String symbol,
     String currency,
-    BigDecimal amount,
-    BigDecimal withholdingTax,
+    @DecimalString BigDecimal amount,
+    @DecimalString BigDecimal withholdingTax,
     OffsetDateTime paidAt,
     OffsetDateTime createdAt,
     String note,

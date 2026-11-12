@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.trading.api;
 
+import dowob.xyz.stockwebv2.infrastructure.web.json.DecimalString;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -42,11 +44,11 @@ public record PortfolioActivityDto(
     OffsetDateTime occurredAt,
     LocalDate effectiveDate,
     OffsetDateTime createdAt,
-    BigDecimal quantity,
-    BigDecimal price,
-    BigDecimal fee,
-    BigDecimal amount,
-    BigDecimal withholdingTax,
+    @DecimalString BigDecimal quantity,
+    @DecimalString BigDecimal price,
+    @DecimalString BigDecimal fee,
+    @DecimalString BigDecimal amount,
+    @DecimalString BigDecimal withholdingTax,
     Integer ratioNew,
     Integer ratioOld,
     String note,

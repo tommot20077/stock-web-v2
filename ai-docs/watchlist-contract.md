@@ -91,10 +91,10 @@
 | `currency` | string | |
 | `sector` | string \| null | |
 | `tradeable` | boolean | 觀察清單可含不可交易的資產（FX / 債券），前端據此決定是否顯示下單入口 |
-| `latestPrice` | number \| null | 報價欄位規則見 trading-portfolio-contract〈GET /api/v1/assets — 標的報價欄位〉 |
-| `change` / `changePercent` | number \| null | |
+| `latestPrice` | string \| null | 報價欄位規則見 trading-portfolio-contract〈GET /api/v1/assets — 標的報價欄位〉 |
+| `change` / `changePercent` | string \| null | |
 | `volumeText` | string \| null | |
-| `high` / `low` | number \| null | |
+| `high` / `low` | string \| null | |
 
 - 報價每次回應以一次 `findDailyQuotes`（distinct assetId 批次）取得；**沒有任何行情的資產六個報價欄位皆為 `null`**（不塞預設價），前端顯示「—」。
 - 即時價更新走 WebSocket `tick.{symbol}`（前端 WS client，見 `ai-docs/security.md` WS 章節），不在本 REST 契約內。
@@ -120,6 +120,7 @@
 
 ## 變更紀錄
 
+- 2026-11-11（Phase 5 D-05 ~ D-09，05-14 / 05-15）：項目的報價欄位 `latestPrice` / `change` / `changePercent` / `high` / `low` 改為 JSON 字串（一般記號、保留 scale；`null` 不變），與 `AssetDto` 同一序列化規則，詳見 trading-portfolio-contract〈序列化格式〉。
 - 2026-11-09（Phase 5 D-02b，05-09）：新 migration `V20__watchlists_name_blank_like_check.sql` 重建 `ck_watchlists_name_not_blank` 為 `btrim(name, <字元集>) <> ''`，字元集 = Java `Character.isWhitespace` ∪ `isSpaceChar` 的 28 個字元（含 U+00A0 / U+2007 / U+202F / U+3000），與服務層 `normalizeName` 一致：只含這類字元的名稱在 DB 層也被拒（擋繞過應用層的寫入），名稱中間的不換行空白照常允許。API 行為不變（服務層已先回 400 `fields.name`）；補上 2026-11-07 條目所述「DB 的 `btrim` CHECK 未擴充」的缺口。
 - 2026-11-07（quick-261107-1j4，04.2 IN-04）：清單名稱只含空白類字元（`Character.isWhitespace` 或 `isSpaceChar`，涵蓋 U+00A0 / U+2007 / U+202F）時視為空白，回 400 `fields.name`（先前 `strip()` 不去除不換行空白，可建出看似空白的名稱）。DB 的 `btrim` CHECK 未擴充（需新 migration；服務是唯一寫入者）。
 - 2026-11-07（quick-261107-1j4，04.2 WR-03）：100 檔上限改為只計可見（active 資產）項目（`countItems` → `countVisibleItems`；先前連下架資產一起計，使用者看到 97 檔卻被擋在 100）；重排後下架資產的項目依原相對順序重編到可見項目之後，重新上架時確定出現在尾端（先前保留過時 position 與 1..n 撞號，位置不確定）。

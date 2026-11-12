@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.trading.api;
 
+import dowob.xyz.stockwebv2.infrastructure.web.json.DecimalString;
+
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
@@ -46,14 +48,14 @@ public record HoldingDto(
     String assetId,
     String symbol,
     String assetName,
-    BigDecimal totalQuantity,
-    BigDecimal avgCost,
-    BigDecimal costBasis,
-    BigDecimal marketPrice,
-    BigDecimal marketValue,
-    BigDecimal realizedPnl,
-    BigDecimal unrealizedPnl,
-    BigDecimal roi,
+    @DecimalString BigDecimal totalQuantity,
+    @DecimalString BigDecimal avgCost,
+    @DecimalString BigDecimal costBasis,
+    @DecimalString BigDecimal marketPrice,
+    @DecimalString BigDecimal marketValue,
+    @DecimalString BigDecimal realizedPnl,
+    @DecimalString BigDecimal unrealizedPnl,
+    @DecimalString BigDecimal roi,
     OffsetDateTime priceTime,
     OffsetDateTime lastUpdated,
     String currency,
@@ -61,12 +63,12 @@ public record HoldingDto(
     String sector,
     String market,
     String baseCurrency,
-    BigDecimal marketValueInBase,
-    BigDecimal unrealizedPnlInBase,
-    BigDecimal previousClose,
-    BigDecimal dayPricePnl,
-    BigDecimal dayPricePnlRatio,
-    BigDecimal dayPnlBasis
+    @DecimalString BigDecimal marketValueInBase,
+    @DecimalString BigDecimal unrealizedPnlInBase,
+    @DecimalString BigDecimal previousClose,
+    @DecimalString BigDecimal dayPricePnl,
+    @DecimalString BigDecimal dayPricePnlRatio,
+    @DecimalString BigDecimal dayPnlBasis
 ) {
 
     /**

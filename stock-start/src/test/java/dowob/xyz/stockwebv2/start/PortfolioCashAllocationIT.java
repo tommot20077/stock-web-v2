@@ -62,12 +62,12 @@ class PortfolioCashAllocationIT extends ContainerIT {
 
         JsonNode usd = balanceOf(summary, "USD");
         assertThat(usd).as("USD 原幣餘額").isNotNull();
-        assertThat(usd.get("amount").decimalValue()).isEqualByComparingTo("-1000.00000000");
+        assertThat(usd.get("amount").asDecimal()).isEqualByComparingTo("-1000.00000000");
         // -1000 USD × 32.418（V2 seed）
-        assertThat(summary.get("cash").decimalValue()).isEqualByComparingTo("-32418.00000000");
+        assertThat(summary.get("cash").asDecimal()).isEqualByComparingTo("-32418.00000000");
         // 10 股 × 市價 100 = 1000 USD = 32418 TWD，與負現金恰好抵銷
-        assertThat(summary.get("totalMarketValue").decimalValue()).isEqualByComparingTo("32418.00000000");
-        assertThat(summary.get("totalEquity").decimalValue()).isEqualByComparingTo("0");
+        assertThat(summary.get("totalMarketValue").asDecimal()).isEqualByComparingTo("32418.00000000");
+        assertThat(summary.get("totalEquity").asDecimal()).isEqualByComparingTo("0");
     }
 
     @Test
@@ -77,16 +77,16 @@ class PortfolioCashAllocationIT extends ContainerIT {
         seedLatestPrice("TSLA", new BigDecimal("100"));
         trade(token, "TSLA", "BUY", "10", "100", "0");
         // 先讀一次，讓 summary 進快取（TTL 60 秒）；若入金沒有使快取失效，下一次讀會拿到這份舊值。
-        assertThat(summary(token).get("cash").decimalValue()).isEqualByComparingTo("-32418.00000000");
+        assertThat(summary(token).get("cash").asDecimal()).isEqualByComparingTo("-32418.00000000");
 
         postCashEntry(token, "DEPOSIT", "TWD", "50000", null);
 
         JsonNode summary = summary(token);
         // −1000 USD × 32.418 + 50000 TWD
-        assertThat(summary.get("cash").decimalValue()).isEqualByComparingTo("17582.00000000");
-        assertThat(summary.get("totalEquity").decimalValue()).isEqualByComparingTo("50000.00000000");
-        assertThat(balanceOf(summary, "TWD").get("amount").decimalValue()).isEqualByComparingTo("50000.00000000");
-        assertThat(balanceOf(summary, "USD").get("amount").decimalValue()).isEqualByComparingTo("-1000.00000000");
+        assertThat(summary.get("cash").asDecimal()).isEqualByComparingTo("17582.00000000");
+        assertThat(summary.get("totalEquity").asDecimal()).isEqualByComparingTo("50000.00000000");
+        assertThat(balanceOf(summary, "TWD").get("amount").asDecimal()).isEqualByComparingTo("50000.00000000");
+        assertThat(balanceOf(summary, "USD").get("amount").asDecimal()).isEqualByComparingTo("-1000.00000000");
     }
 
     @Test
@@ -95,13 +95,13 @@ class PortfolioCashAllocationIT extends ContainerIT {
         String token = register("cashalloc-sell-" + UUID.randomUUID() + "@example.com");
         seedLatestPrice("TSLA", new BigDecimal("100"));
         trade(token, "TSLA", "BUY", "10", "100", "0");
-        assertThat(balanceOf(summary(token), "USD").get("amount").decimalValue())
+        assertThat(balanceOf(summary(token), "USD").get("amount").asDecimal())
             .isEqualByComparingTo("-1000.00000000");
 
         trade(token, "TSLA", "SELL", "4", "110", "1");
 
         // −1000 + (4 × 110 − 1)
-        assertThat(balanceOf(summary(token), "USD").get("amount").decimalValue())
+        assertThat(balanceOf(summary(token), "USD").get("amount").asDecimal())
             .isEqualByComparingTo("-561.00000000");
     }
 
@@ -110,18 +110,18 @@ class PortfolioCashAllocationIT extends ContainerIT {
     void withdrawalAndReversalAreReflected() throws Exception {
         String token = register("cashalloc-wd-" + UUID.randomUUID() + "@example.com");
         postCashEntry(token, "DEPOSIT", "TWD", "50000", null);
-        assertThat(balanceOf(summary(token), "TWD").get("amount").decimalValue())
+        assertThat(balanceOf(summary(token), "TWD").get("amount").asDecimal())
             .isEqualByComparingTo("50000.00000000");
 
         JsonNode withdrawal = postCashEntry(token, "WITHDRAWAL", "TWD", "10000", null);
-        assertThat(balanceOf(summary(token), "TWD").get("amount").decimalValue())
+        assertThat(balanceOf(summary(token), "TWD").get("amount").asDecimal())
             .isEqualByComparingTo("40000.00000000");
 
         postCashEntry(token, "DEPOSIT", "TWD", "10000", withdrawal.get("id").asText());
 
         JsonNode summary = summary(token);
-        assertThat(balanceOf(summary, "TWD").get("amount").decimalValue()).isEqualByComparingTo("50000.00000000");
-        assertThat(summary.get("cash").decimalValue()).isEqualByComparingTo("50000.00000000");
+        assertThat(balanceOf(summary, "TWD").get("amount").asDecimal()).isEqualByComparingTo("50000.00000000");
+        assertThat(summary.get("cash").asDecimal()).isEqualByComparingTo("50000.00000000");
     }
 
     @Test
@@ -138,14 +138,14 @@ class PortfolioCashAllocationIT extends ContainerIT {
 
         // 現金 = 100000 − 2 × 1000 USD × 32.418 = 35164；兩檔持倉各 32418，分母 100000
         JsonNode cash = sliceOf(summary, "CASH");
-        assertThat(cash.get("value").decimalValue()).isEqualByComparingTo("35164.00000000");
-        assertThat(cash.get("weight").decimalValue()).isEqualByComparingTo("0.35164000");
+        assertThat(cash.get("value").asDecimal()).isEqualByComparingTo("35164.00000000");
+        assertThat(cash.get("weight").asDecimal()).isEqualByComparingTo("0.35164000");
         JsonNode crypto = sliceOf(summary, "CRYPTO");
-        assertThat(crypto.get("value").decimalValue()).isEqualByComparingTo("32418.00000000");
-        assertThat(crypto.get("weight").decimalValue()).isEqualByComparingTo("0.32418000");
+        assertThat(crypto.get("value").asDecimal()).isEqualByComparingTo("32418.00000000");
+        assertThat(crypto.get("weight").asDecimal()).isEqualByComparingTo("0.32418000");
         JsonNode stock = sliceOf(summary, "STOCK");
-        assertThat(stock.get("value").decimalValue()).isEqualByComparingTo("32418.00000000");
-        assertThat(stock.get("weight").decimalValue()).isEqualByComparingTo("0.32418000");
+        assertThat(stock.get("value").asDecimal()).isEqualByComparingTo("32418.00000000");
+        assertThat(stock.get("weight").asDecimal()).isEqualByComparingTo("0.32418000");
         // 依金額降冪，同值依類別字母升冪
         assertThat(summary.get("allocation").get(0).get("category").asText()).isEqualTo("CASH");
         assertThat(summary.get("allocation").get(1).get("category").asText()).isEqualTo("CRYPTO");
@@ -154,11 +154,11 @@ class PortfolioCashAllocationIT extends ContainerIT {
         // 產業分母 = 持倉總值 64836（不含現金）
         assertThat(summary.get("sectorAllocation")).hasSize(2);
         JsonNode auto = sectorOf(summary, "Auto");
-        assertThat(auto.get("weight").decimalValue()).isEqualByComparingTo("0.50000000");
+        assertThat(auto.get("weight").asDecimal()).isEqualByComparingTo("0.50000000");
         assertThat(auto.get("holdingCount").asInt()).isEqualTo(1);
-        assertThat(auto.get("unrealizedPnl").decimalValue()).isEqualByComparingTo("0");
+        assertThat(auto.get("unrealizedPnl").asDecimal()).isEqualByComparingTo("0");
         JsonNode cryptoSector = sectorOf(summary, "Crypto");
-        assertThat(cryptoSector.get("weight").decimalValue()).isEqualByComparingTo("0.50000000");
+        assertThat(cryptoSector.get("weight").asDecimal()).isEqualByComparingTo("0.50000000");
         assertThat(cryptoSector.get("holdingCount").asInt()).isEqualTo(1);
     }
 
@@ -171,10 +171,10 @@ class PortfolioCashAllocationIT extends ContainerIT {
 
         JsonNode summary = summary(token);
 
-        assertThat(summary.get("cash").decimalValue()).isNegative();
+        assertThat(summary.get("cash").asDecimal()).isNegative();
         assertThat(sliceOf(summary, "CASH")).isNull();
         assertThat(summary.get("allocation")).hasSize(1);
-        assertThat(sliceOf(summary, "STOCK").get("weight").decimalValue()).isEqualByComparingTo("1.00000000");
+        assertThat(sliceOf(summary, "STOCK").get("weight").asDecimal()).isEqualByComparingTo("1.00000000");
     }
 
     /**

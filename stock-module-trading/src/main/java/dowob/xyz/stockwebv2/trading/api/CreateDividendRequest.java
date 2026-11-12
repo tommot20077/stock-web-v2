@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.trading.api;
 
+import dowob.xyz.stockwebv2.infrastructure.web.json.DecimalString;
+
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
@@ -32,9 +34,9 @@ import java.time.OffsetDateTime;
 public record CreateDividendRequest(
     @NotBlank @Size(max = 32) String symbol,
     @NotNull @DecimalMin(value = "0.00000001") @DecimalMax(value = "1000000000000")
-    @Digits(integer = 13, fraction = 8) BigDecimal amount,
+    @Digits(integer = 13, fraction = 8) @DecimalString BigDecimal amount,
     @DecimalMin(value = "0") @DecimalMax(value = "1000000000000")
-    @Digits(integer = 13, fraction = 8) BigDecimal withholdingTax,
+    @Digits(integer = 13, fraction = 8) @DecimalString BigDecimal withholdingTax,
     OffsetDateTime paidAt,
     @Size(max = 500) String note,
     @Size(max = 36) String reversalOfId

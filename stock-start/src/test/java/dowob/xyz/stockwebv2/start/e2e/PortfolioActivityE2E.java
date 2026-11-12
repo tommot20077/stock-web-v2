@@ -80,7 +80,7 @@ class PortfolioActivityE2E extends AbstractPortfolioE2E {
         JsonNode adjustment = adjustments.get("items").get(0);
         assertThat(adjustment.get("id").asText()).isEqualTo(seeded.adjustment());
         assertThat(adjustment.get("symbol").asText()).isEqualTo("TSLA");
-        assertThat(adjustment.get("quantity").decimalValue()).isEqualByComparingTo("5");
+        assertThat(adjustment.get("quantity").asDecimal()).isEqualByComparingTo("5");
         assertThat(adjustment.get("effectiveDate").asText()).isEqualTo(usTradingDate(Instant.now()).toString());
         assertThat(adjustment.get("amount").isNull()).isTrue();
         assertThat(adjustment.get("reversible").asBoolean()).isTrue();

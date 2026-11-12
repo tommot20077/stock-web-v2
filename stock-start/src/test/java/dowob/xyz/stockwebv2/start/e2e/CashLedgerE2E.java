@@ -12,6 +12,7 @@ import java.util.UUID;
 import static dowob.xyz.stockwebv2.start.e2e.support.AuthE2EHelper.bearerToken;
 import static dowob.xyz.stockwebv2.start.e2e.support.StockE2EAssertions.apiError;
 import static dowob.xyz.stockwebv2.start.e2e.support.StockE2EAssertions.apiSuccess;
+import static dowob.xyz.stockwebv2.start.support.DecimalStringMatchers.decimalString;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasLength;
@@ -60,7 +61,7 @@ class CashLedgerE2E extends AbstractPortfolioE2E {
                 .andExpect(jsonPath("$.data.id", hasLength(36)))
                 .andExpect(jsonPath("$.data.type", equalTo("DEPOSIT")))
                 .andExpect(jsonPath("$.data.currency", equalTo("TWD")))
-                .andExpect(jsonPath("$.data.amount", equalTo(50000.00000000)))
+                .andExpect(jsonPath("$.data.amount", decimalString("50000.00000000")))
                 .andExpect(jsonPath("$.data.reversed", equalTo(false)))
                 .andExpect(jsonPath("$.data.reversalOfId").value(nullValue()))
                 .andExpect(jsonPath("$.data.idempotencyKey").doesNotExist())).get("id").asText();
@@ -81,7 +82,7 @@ class CashLedgerE2E extends AbstractPortfolioE2E {
                 entryBody("WITHDRAWAL", "USD", "1000"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.type", equalTo("WITHDRAWAL")))
-                .andExpect(jsonPath("$.data.amount", equalTo(1000.00000000)));
+                .andExpect(jsonPath("$.data.amount", decimalString("1000.00000000")));
         }
 
         @Test
@@ -277,7 +278,7 @@ class CashLedgerE2E extends AbstractPortfolioE2E {
                 .andExpect(apiSuccess())
                 .andExpect(jsonPath("$.data.type", equalTo("WITHDRAWAL")))
                 .andExpect(jsonPath("$.data.currency", equalTo("USD")))
-                .andExpect(jsonPath("$.data.amount", equalTo(1000.00000000)))
+                .andExpect(jsonPath("$.data.amount", decimalString("1000.00000000")))
                 .andExpect(jsonPath("$.data.reversalOfId", equalTo(originalId)))
                 .andExpect(jsonPath("$.data.reversalOfOccurredAt").exists())
                 .andExpect(jsonPath("$.data.reversed", equalTo(false))));

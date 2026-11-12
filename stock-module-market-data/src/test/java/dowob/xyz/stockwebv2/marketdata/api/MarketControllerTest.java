@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.when;
@@ -81,6 +82,24 @@ class MarketControllerTest {
             .andExpect(jsonPath("$.data.volume").value("1000.00"))
             .andExpect(jsonPath("$.data.time").exists())
             .andExpect(jsonPath("$.meta.traceId").exists());
+    }
+
+    @Test
+    @DisplayName("GET /{symbol}/latest: scale 8 的零 / 最小單位 → 一般記號字串（不是 0E-8 / 1E-8）")
+    void latest_smallDecimalsUsePlainNotation() throws Exception {
+        when(latestService.findLatest("AAPL")).thenReturn(Optional.of(
+            new LatestPriceDto("AAPL", new BigDecimal("0.00000001"), BigDecimal.ZERO.setScale(8), FIXED_TIME)));
+
+        String body = mvc.perform(get("/api/v1/market/AAPL/latest").accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        /* 舊的 toString() 式 serializer 會輸出 1E-8 / 0E-8；@DecimalString 用 toPlainString()（Phase 5 D-05）。 */
+        assertThat(body)
+            .contains("\"price\":\"0.00000001\"", "\"volume\":\"0.00000000\"")
+            .doesNotContain("E-8");
     }
 
     @Test

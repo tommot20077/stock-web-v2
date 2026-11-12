@@ -46,6 +46,10 @@ import tools.jackson.databind.ObjectMapper;
  * 省略 occurredAt 的重送仍命中、跨使用者隔離；最後是輸入邊界：欄位級錯誤（{@code error.fields}）、
  * 錯誤不回射使用者輸入、cookie 登入未帶 CSRF 被擋、格式錯誤的 JSON body 回 400。</p>
  *
+ * <p><strong>金額字串契約</strong>（Phase 5 D-05 / D-07）：回應的 {@code amount} 一律是一般記號、保留 scale 的 JSON 字串；
+ * 請求送字串，超過 double 有效位數的金額必須原樣存讀（{@code amountRoundTripsAsExactString}）。
+ * 既有以 JSON number 送 amount 的案例保留不改，順帶證明請求端仍接受 number（CONTEXT「Claude's Discretion」）。</p>
+ *
  * @author Yuan
  * @version 1.0
  */
@@ -63,7 +67,7 @@ class CashEntryApiIT extends ContainerIT {
     JdbcClient jdbcClient;
 
     @Test
-    @DisplayName("入金一筆：回 200 與 DTO（id 為 UUID、金額為 JSON number、不含冪等鍵），資料庫恰一列")
+    @DisplayName("入金一筆：回 200 與 DTO（id 為 UUID、金額為 JSON 字串、不含冪等鍵），資料庫恰一列")
     void depositIsRecordedAndReturnedWithoutIdempotencyKey() throws Exception {
         String email = "cash-api-" + UUID.randomUUID() + "@example.com";
         String accessToken = register(email, "cashapi" + UUID.randomUUID().toString().substring(0, 8));
@@ -76,7 +80,7 @@ class CashEntryApiIT extends ContainerIT {
             .andExpect(jsonPath("$.data.id", hasLength(36)))
             .andExpect(jsonPath("$.data.type", equalTo("DEPOSIT")))
             .andExpect(jsonPath("$.data.currency", equalTo("TWD")))
-            .andExpect(jsonPath("$.data.amount", equalTo(50000.00000000)))
+            .andExpect(jsonPath("$.data.amount", equalTo("50000.00000000")))
             .andExpect(jsonPath("$.data.reversed", equalTo(false)))
             .andExpect(jsonPath("$.data.reversalOfId").value(nullValue()))
             .andExpect(jsonPath("$.data.idempotencyKey").doesNotExist());
@@ -104,7 +108,48 @@ class CashEntryApiIT extends ContainerIT {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.type", equalTo("WITHDRAWAL")))
             .andExpect(jsonPath("$.data.currency", equalTo("USD")))
-            .andExpect(jsonPath("$.data.amount", equalTo(1000.00000000)));
+            .andExpect(jsonPath("$.data.amount", equalTo("1000.00000000")));
+    }
+
+    @Test
+    @DisplayName("精度回歸：POST 字串 amount \"123456789012.12345678\" → 回應與 GET 列表的 amount 皆逐字相同的字串")
+    void amountRoundTripsAsExactString() throws Exception {
+        String exact = "123456789012.12345678";
+        String accessToken = register(
+            "cash-precision-" + UUID.randomUUID() + "@example.com",
+            "cashprec" + UUID.randomUUID().toString().substring(0, 8));
+
+        String id = entryIdOf(postEntry(accessToken, UUID.randomUUID().toString(), """
+            {"type":"DEPOSIT","currency":"USD","amount":"%s"}
+            """.formatted(exact))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.amount", equalTo(exact))));
+
+        getEntries(accessToken, null, null)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalElements", equalTo(1)))
+            .andExpect(jsonPath("$.data.items[0].id", equalTo(id)))
+            .andExpect(jsonPath("$.data.items[0].amount", equalTo("123456789012.12345678")));
+    }
+
+    @Test
+    @DisplayName("同 key 先送 \"10\" 再送 \"10.00000000\"：視為同一筆（payload 以 compareTo 比較），帳本只有 1 列")
+    void stringAmountReplayIsSameEntry() throws Exception {
+        String email = "cash-idem-str-" + UUID.randomUUID() + "@example.com";
+        String accessToken = register(email, "cashstr" + UUID.randomUUID().toString().substring(0, 8));
+        String key = "str-" + UUID.randomUUID();
+
+        String firstId = entryIdOf(postEntry(accessToken, key, """
+            {"type":"DEPOSIT","currency":"TWD","amount":"10","occurredAt":"2026-10-01T09:00:00+08:00"}
+            """).andExpect(status().isOk()));
+        String secondId = entryIdOf(postEntry(accessToken, key, """
+            {"type":"DEPOSIT","currency":"TWD","amount":"10.00000000","occurredAt":"2026-10-01T09:00:00+08:00"}
+            """)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.amount", equalTo("10.00000000"))));
+
+        assertThat(secondId).isEqualTo(firstId);
+        assertThat(rowCount(email)).isEqualTo(1);
     }
 
     @Test

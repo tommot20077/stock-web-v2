@@ -25,6 +25,8 @@ import java.time.OffsetDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.isA;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -33,6 +35,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -42,6 +45,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 不在本切片範圍內。因此這裡能證明的只有「缺 header 時 Spring 的參數綁定會失敗並產生 400」、
  * 「header 值原樣交給 service」與「稽核事件有輸出」，<strong>不能</strong>證明回應信封長什麼樣子
  * （{@code error.code}、{@code error.fields}）；信封的權威驗收在 {@code CashEntryApiIT}。</p>
+ *
+ * <p>例外是<strong>成功回應的 DTO 序列化</strong>：{@code @DecimalString} 跟著 DTO 走、不依賴
+ * {@code stock-start} 的全域設定，所以本切片看到的 {@code data.amount} 格式就是正式環境的格式（Phase 5 D-05）。</p>
  *
  * <p>安全設定以 {@link OpenSecurityConfig} 替換：本切片的目的不是驗證授權，
  * 若沿用預設鏈，所有請求都會先被 401 擋掉，反而看不到參數綁定的結果。</p>
@@ -170,12 +176,47 @@ class CashLedgerControllerWebMvcTest {
             eq("failure:CASH_ENTRY_ALREADY_REVERSED"), any());
     }
 
+    @Test
+    @DisplayName("成功回應的 data.amount 是 JSON 字串（一般記號、逐字等於 toPlainString），不是 number")
+    void responseAmountIsPlainJsonString() throws Exception {
+        BigDecimal amount = new BigDecimal("123456789012.12345678");
+        when(cashLedgerService.createEntry(eq(42L), any(), eq("key-s"))).thenReturn(entryDto(amount));
+
+        mvc.perform(post("/api/v1/portfolio/cash-entries")
+                .with(user("42"))
+                .header("Idempotency-Key", "key-s")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(VALID_BODY))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.amount", isA(String.class)))
+            .andExpect(jsonPath("$.data.amount", equalTo(amount.toPlainString())));
+    }
+
+    @Test
+    @DisplayName("scale 8 的極小金額輸出 \"0.00000001\"，不是科學記號 1E-8")
+    void responseAmountNeverUsesScientificNotation() throws Exception {
+        BigDecimal amount = new BigDecimal("0.00000001");
+        when(cashLedgerService.createEntry(eq(42L), any(), eq("key-e"))).thenReturn(entryDto(amount));
+
+        mvc.perform(post("/api/v1/portfolio/cash-entries")
+                .with(user("42"))
+                .header("Idempotency-Key", "key-e")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(VALID_BODY))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.amount", equalTo("0.00000001")));
+    }
+
     private static CashEntryDto entryDto() {
+        return entryDto(new BigDecimal("50000"));
+    }
+
+    private static CashEntryDto entryDto(BigDecimal amount) {
         return new CashEntryDto(
             "11111111-1111-1111-1111-111111111111",
             "DEPOSIT",
             "TWD",
-            new BigDecimal("50000"),
+            amount,
             null,
             OffsetDateTime.parse("2026-10-01T09:00:00+08:00"),
             OffsetDateTime.parse("2026-10-01T09:00:01+08:00"),

@@ -10,6 +10,7 @@ import java.util.UUID;
 
 import static dowob.xyz.stockwebv2.start.e2e.support.StockE2EAssertions.apiError;
 import static dowob.xyz.stockwebv2.start.e2e.support.StockE2EAssertions.apiSuccess;
+import static dowob.xyz.stockwebv2.start.support.DecimalStringMatchers.decimalString;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasLength;
@@ -64,8 +65,8 @@ class DividendE2E extends AbstractPortfolioE2E {
 
         /* 先讀一次讓 summary 進快取：後續讀值改變證明股利寫入有在 commit 後失效快取，而不是等 TTL。 */
         JsonNode before = summaryOf(token);
-        assertThat(before.get("dividendIncome").decimalValue()).isEqualByComparingTo("0");
-        assertThat(before.get("dividendTaxWithheld").decimalValue()).isEqualByComparingTo("0");
+        assertThat(before.get("dividendIncome").asDecimal()).isEqualByComparingTo("0");
+        assertThat(before.get("dividendTaxWithheld").asDecimal()).isEqualByComparingTo("0");
 
         String dividendId = dataOf(postDividend(token, UUID.randomUUID().toString(), AAPL_120_TAX_30)
             .andExpect(status().isOk())
@@ -78,11 +79,11 @@ class DividendE2E extends AbstractPortfolioE2E {
             .andExpect(jsonPath("$.data.idempotencyKey").doesNotExist())).get("id").asText();
 
         JsonNode afterDividend = summaryOf(token);
-        assertThat(balanceOf(afterDividend, "USD").get("amount").decimalValue()).isEqualByComparingTo("120");
-        assertThat(afterDividend.get("cash").decimalValue()).isEqualByComparingTo("120");
-        assertThat(afterDividend.get("dividendIncome").decimalValue()).isEqualByComparingTo("120");
-        assertThat(afterDividend.get("dividendTaxWithheld").decimalValue()).isEqualByComparingTo("30");
-        assertThat(afterDividend.get("totalPnl").decimalValue()).isEqualByComparingTo("120");
+        assertThat(balanceOf(afterDividend, "USD").get("amount").asDecimal()).isEqualByComparingTo("120");
+        assertThat(afterDividend.get("cash").asDecimal()).isEqualByComparingTo("120");
+        assertThat(afterDividend.get("dividendIncome").asDecimal()).isEqualByComparingTo("120");
+        assertThat(afterDividend.get("dividendTaxWithheld").asDecimal()).isEqualByComparingTo("30");
+        assertThat(afterDividend.get("totalPnl").asDecimal()).isEqualByComparingTo("120");
         /* 股利不動股數：沒有任何交易時仍無持倉（D-03：無持倉也可記股利）。 */
         assertThat(afterDividend.get("holdingCount").asInt()).isZero();
         assertThat(holdingsOf(token)).isEmpty();
@@ -93,8 +94,8 @@ class DividendE2E extends AbstractPortfolioE2E {
         assertThat(row.get("id").asText()).isEqualTo(dividendId);
         assertThat(row.get("kind").asText()).isEqualTo("CASH_DIVIDEND");
         assertThat(row.get("symbol").asText()).isEqualTo("AAPL");
-        assertThat(row.get("amount").decimalValue()).isEqualByComparingTo("120");
-        assertThat(row.get("withholdingTax").decimalValue()).isEqualByComparingTo("30");
+        assertThat(row.get("amount").asDecimal()).isEqualByComparingTo("120");
+        assertThat(row.get("withholdingTax").asDecimal()).isEqualByComparingTo("30");
         assertThat(row.get("quantity").isNull()).isTrue();
         assertThat(row.get("reversed").asBoolean()).isFalse();
         assertThat(row.get("reversible").asBoolean()).isTrue();
@@ -103,15 +104,15 @@ class DividendE2E extends AbstractPortfolioE2E {
             .andExpect(status().isOk())
             .andExpect(apiSuccess())
             .andExpect(jsonPath("$.data.reversalOfId", equalTo(dividendId)))
-            .andExpect(jsonPath("$.data.amount", equalTo(120.0)))).get("id").asText();
+            .andExpect(jsonPath("$.data.amount", decimalString("120.0")))).get("id").asText();
 
         JsonNode afterReversal = summaryOf(token);
-        assertThat(afterReversal.get("dividendIncome").decimalValue()).isEqualByComparingTo("0");
-        assertThat(afterReversal.get("dividendTaxWithheld").decimalValue()).isEqualByComparingTo("0");
-        assertThat(afterReversal.get("totalPnl").decimalValue()).isEqualByComparingTo("0");
-        assertThat(afterReversal.get("cash").decimalValue()).isEqualByComparingTo("0");
+        assertThat(afterReversal.get("dividendIncome").asDecimal()).isEqualByComparingTo("0");
+        assertThat(afterReversal.get("dividendTaxWithheld").asDecimal()).isEqualByComparingTo("0");
+        assertThat(afterReversal.get("totalPnl").asDecimal()).isEqualByComparingTo("0");
+        assertThat(afterReversal.get("cash").asDecimal()).isEqualByComparingTo("0");
         /* 04.2-05：有過股利活動的幣別在沖銷後以 0 元列出現。 */
-        assertThat(balanceOf(afterReversal, "USD").get("amount").decimalValue()).isEqualByComparingTo("0");
+        assertThat(balanceOf(afterReversal, "USD").get("amount").asDecimal()).isEqualByComparingTo("0");
 
         JsonNode relisted = activitiesOf(token, "type", "DIVIDEND");
         assertThat(relisted.get("totalElements").asLong()).isEqualTo(2);
@@ -126,7 +127,7 @@ class DividendE2E extends AbstractPortfolioE2E {
         assertThat(reversal.get("reversalOfId").asText()).isEqualTo(dividendId);
         assertThat(reversal.get("reversalOfOccurredAt").isNull()).isFalse();
         /* 沖銷列輸出原值（不反號），且本身不可再沖銷。 */
-        assertThat(reversal.get("amount").decimalValue()).isEqualByComparingTo("120");
+        assertThat(reversal.get("amount").asDecimal()).isEqualByComparingTo("120");
         assertThat(reversal.get("reversible").asBoolean()).isFalse();
     }
 
@@ -155,7 +156,7 @@ class DividendE2E extends AbstractPortfolioE2E {
             .andExpect(jsonPath("$.error.fields['Idempotency-Key']", notNullValue()));
 
         assertThat(activitiesOf(token, "type", "DIVIDEND").get("totalElements").asLong()).isEqualTo(1);
-        assertThat(summaryOf(token).get("dividendIncome").decimalValue()).isPositive();
+        assertThat(summaryOf(token).get("dividendIncome").asDecimal()).isPositive();
     }
 
     @Test
@@ -168,26 +169,26 @@ class DividendE2E extends AbstractPortfolioE2E {
         seedPrices("AAPL", "100", "100");
 
         JsonNode before = summaryOf(token);
-        assertThat(before.get("totalPnl").decimalValue()).isEqualByComparingTo("0");
-        assertThat(before.get("roi").decimalValue()).isEqualByComparingTo("0");
+        assertThat(before.get("totalPnl").asDecimal()).isEqualByComparingTo("0");
+        assertThat(before.get("roi").asDecimal()).isEqualByComparingTo("0");
 
         postDividend(token, UUID.randomUUID().toString(), AAPL_120_TAX_30)
             .andExpect(status().isOk());
 
         JsonNode summary = summaryOf(token);
-        assertThat(summary.get("totalCostBasis").decimalValue()).isEqualByComparingTo("1000");
-        assertThat(summary.get("unrealizedPnl").decimalValue()).isEqualByComparingTo("0");
-        assertThat(summary.get("realizedPnl").decimalValue()).isEqualByComparingTo("0");
-        assertThat(summary.get("dividendIncome").decimalValue()).isEqualByComparingTo("120");
-        assertThat(summary.get("totalPnl").decimalValue()).isEqualByComparingTo("120");
-        assertThat(summary.get("roi").decimalValue()).isEqualByComparingTo("0.12");
-        assertThat(summary.get("dayPricePnl").decimalValue()).isEqualByComparingTo("0");
+        assertThat(summary.get("totalCostBasis").asDecimal()).isEqualByComparingTo("1000");
+        assertThat(summary.get("unrealizedPnl").asDecimal()).isEqualByComparingTo("0");
+        assertThat(summary.get("realizedPnl").asDecimal()).isEqualByComparingTo("0");
+        assertThat(summary.get("dividendIncome").asDecimal()).isEqualByComparingTo("120");
+        assertThat(summary.get("totalPnl").asDecimal()).isEqualByComparingTo("120");
+        assertThat(summary.get("roi").asDecimal()).isEqualByComparingTo("0.12");
+        assertThat(summary.get("dayPricePnl").asDecimal()).isEqualByComparingTo("0");
         /* 買入 −1000 + 股利 120：股利是可用現金的來源之一。 */
-        assertThat(balanceOf(summary, "USD").get("amount").decimalValue()).isEqualByComparingTo("-880");
+        assertThat(balanceOf(summary, "USD").get("amount").asDecimal()).isEqualByComparingTo("-880");
         /* 股利不動股數與均價。 */
         JsonNode aapl = holdingOf(holdingsOf(token), "AAPL");
-        assertThat(aapl.get("totalQuantity").decimalValue()).isEqualByComparingTo("10");
-        assertThat(aapl.get("avgCost").decimalValue()).isEqualByComparingTo("100");
+        assertThat(aapl.get("totalQuantity").asDecimal()).isEqualByComparingTo("10");
+        assertThat(aapl.get("avgCost").asDecimal()).isEqualByComparingTo("100");
     }
 
     @Test
@@ -199,7 +200,7 @@ class DividendE2E extends AbstractPortfolioE2E {
             .andExpect(status().isOk())).get("id").asText();
 
         assertThat(activitiesOf(bob.accessToken()).get("totalElements").asLong()).isZero();
-        assertThat(summaryOf(bob.accessToken()).get("dividendIncome").decimalValue()).isEqualByComparingTo("0");
+        assertThat(summaryOf(bob.accessToken()).get("dividendIncome").asDecimal()).isEqualByComparingTo("0");
 
         String body = postDividend(bob.accessToken(), UUID.randomUUID().toString(), reversalOfAapl120(aliceDividendId))
             .andExpect(status().isNotFound())

@@ -2,6 +2,7 @@ package dowob.xyz.stockwebv2.backtest.api;
 
 import dowob.xyz.stockwebv2.backtest.domain.BacktestResult;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestRunStatus;
+import dowob.xyz.stockwebv2.infrastructure.web.json.DecimalString;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -40,16 +41,16 @@ public record BacktestResultDto(
     }
 
     public record BacktestKpisDto(
-        BigDecimal totalReturnPct,
-        BigDecimal buyHoldReturnPct,
-        BigDecimal sharpe,
-        BigDecimal cagrPct,
-        BigDecimal maxDrawdownPct,
+        @DecimalString BigDecimal totalReturnPct,
+        @DecimalString BigDecimal buyHoldReturnPct,
+        @DecimalString BigDecimal sharpe,
+        @DecimalString BigDecimal cagrPct,
+        @DecimalString BigDecimal maxDrawdownPct,
         int drawdownDays,
-        BigDecimal winRatePct,
+        @DecimalString BigDecimal winRatePct,
         int tradeCount,
-        BigDecimal profitFactor,
-        BigDecimal avgTradePct
+        @DecimalString BigDecimal profitFactor,
+        @DecimalString BigDecimal avgTradePct
     ) {
         private static BacktestKpisDto fromDomain(BacktestResult.BacktestKpis kpis) {
             return new BacktestKpisDto(
@@ -67,19 +68,19 @@ public record BacktestResultDto(
         }
     }
 
-    public record EquityPointDto(LocalDate t, BigDecimal strategy, BigDecimal benchmark) {
+    public record EquityPointDto(LocalDate t, @DecimalString BigDecimal strategy, @DecimalString BigDecimal benchmark) {
         private static EquityPointDto fromDomain(BacktestResult.EquityPoint point) {
             return new EquityPointDto(point.date(), point.strategy(), point.benchmark());
         }
     }
 
-    public record MonthlyReturnDto(int year, int month, BigDecimal returnPct) {
+    public record MonthlyReturnDto(int year, int month, @DecimalString BigDecimal returnPct) {
         private static MonthlyReturnDto fromDomain(BacktestResult.MonthlyReturn monthlyReturn) {
             return new MonthlyReturnDto(monthlyReturn.year(), monthlyReturn.month(), monthlyReturn.returnPct());
         }
     }
 
-    public record DrawdownPointDto(LocalDate t, BigDecimal drawdownPct) {
+    public record DrawdownPointDto(LocalDate t, @DecimalString BigDecimal drawdownPct) {
         private static DrawdownPointDto fromDomain(BacktestResult.DrawdownPoint point) {
             return new DrawdownPointDto(point.date(), point.drawdownPct());
         }
@@ -88,11 +89,11 @@ public record BacktestResultDto(
     public record BacktestTradeDto(
         LocalDate date,
         String side,
-        BigDecimal entry,
-        BigDecimal exit,
+        @DecimalString BigDecimal entry,
+        @DecimalString BigDecimal exit,
         int bars,
-        BigDecimal pnl,
-        BigDecimal pnlPct
+        @DecimalString BigDecimal pnl,
+        @DecimalString BigDecimal pnlPct
     ) {
         private static BacktestTradeDto fromDomain(BacktestResult.BacktestTrade trade) {
             return new BacktestTradeDto(

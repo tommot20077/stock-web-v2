@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 
+import static dowob.xyz.stockwebv2.start.support.DecimalStringMatchers.decimalString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -55,11 +56,11 @@ class AssetApiIT extends ContainerIT {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.success", equalTo(true)))
             .andExpect(jsonPath("$.data.items[0].symbol", equalTo("NVDA")))
-            .andExpect(jsonPath("$.data.items[0].latestPrice").value(105.0))
-            .andExpect(jsonPath("$.data.items[0].change").value(5.0))
-            .andExpect(jsonPath("$.data.items[0].changePercent").value(5.0))
-            .andExpect(jsonPath("$.data.items[0].high").value(105.0))
-            .andExpect(jsonPath("$.data.items[0].low").value(99.0))
+            .andExpect(jsonPath("$.data.items[0].latestPrice", decimalString("105.0")))
+            .andExpect(jsonPath("$.data.items[0].change", decimalString("5.0")))
+            .andExpect(jsonPath("$.data.items[0].changePercent", decimalString("5.0")))
+            .andExpect(jsonPath("$.data.items[0].high", decimalString("105.0")))
+            .andExpect(jsonPath("$.data.items[0].low", decimalString("99.0")))
             .andExpect(jsonPath("$.data.items[0].volumeText", equalTo("3.0K")));
     }
 

@@ -81,14 +81,14 @@ class PortfolioDayPnlIT extends ContainerIT {
 
         // MSFT：15×200 − 10×190 − 5×195
         JsonNode msft = bySymbol(holdings, "MSFT");
-        assertThat(msft.get("dayPricePnl").decimalValue()).isEqualByComparingTo("125.00000000");
-        assertThat(msft.get("dayPricePnlRatio").decimalValue()).isEqualByComparingTo("0.04347826");
-        assertThat(msft.get("previousClose").decimalValue()).isEqualByComparingTo("190.00000000");
+        assertThat(msft.get("dayPricePnl").asDecimal()).isEqualByComparingTo("125.00000000");
+        assertThat(msft.get("dayPricePnlRatio").asDecimal()).isEqualByComparingTo("0.04347826");
+        assertThat(msft.get("previousClose").asDecimal()).isEqualByComparingTo("190.00000000");
 
         // META：今天首次買入、沒有前收列，照 D-12 今日買入項計算（D-26）
         JsonNode meta = bySymbol(holdings, "META");
-        assertThat(meta.get("dayPricePnl").decimalValue()).isEqualByComparingTo("20.00000000");
-        assertThat(meta.get("dayPricePnlRatio").decimalValue()).isEqualByComparingTo("0.02000000");
+        assertThat(meta.get("dayPricePnl").asDecimal()).isEqualByComparingTo("20.00000000");
+        assertThat(meta.get("dayPricePnlRatio").asDecimal()).isEqualByComparingTo("0.02000000");
         assertThat(meta.hasNonNull("previousClose")).isFalse();
 
         // AMZN：昨日即持有卻沒有前收 → 只有計算需要的價格缺失時才回 null
@@ -110,9 +110,9 @@ class PortfolioDayPnlIT extends ContainerIT {
                 .header("Authorization", "Bearer " + tokens.accessToken()))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString()).get("data");
-        assertThat(summary.get("dayPricePnl").decimalValue()).isEqualByComparingTo("185.00000000");
+        assertThat(summary.get("dayPricePnl").asDecimal()).isEqualByComparingTo("185.00000000");
         // 185 / (MSFT 2875 + GOOGL 440 + META 1000)
-        assertThat(summary.get("dayPricePnlRatio").decimalValue()).isEqualByComparingTo("0.04287370");
+        assertThat(summary.get("dayPricePnlRatio").asDecimal()).isEqualByComparingTo("0.04287370");
         assertThat(summary.get("dayPnlExcludedCount").asInt()).isEqualTo(1);
 
         AuthTokens empty = register("daypnl-empty@example.com", "daypnlempty", "Password1");
@@ -122,7 +122,7 @@ class PortfolioDayPnlIT extends ContainerIT {
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString()).get("data");
         // 沒有任何候選：真實的零，不是缺資料
-        assertThat(emptySummary.get("dayPricePnl").decimalValue()).isEqualByComparingTo("0");
+        assertThat(emptySummary.get("dayPricePnl").asDecimal()).isEqualByComparingTo("0");
         assertThat(emptySummary.hasNonNull("dayPricePnlRatio")).isFalse();
         assertThat(emptySummary.get("dayPnlExcludedCount").asInt()).isZero();
     }
@@ -141,15 +141,15 @@ class PortfolioDayPnlIT extends ContainerIT {
         split(tokens, "MSFT", 4, 1, tradingDate(todayStart));
 
         JsonNode msft = bySymbol(getData(tokens, "/api/v1/portfolio/holdings"), "MSFT");
-        assertThat(msft.get("totalQuantity").decimalValue()).isEqualByComparingTo("400");
+        assertThat(msft.get("totalQuantity").asDecimal()).isEqualByComparingTo("400");
         // Q0 = 400 − 300 = 100：400×101 − 100×400 = 400（未扣調整會是 −119600 的假性暴跌）
-        assertThat(msft.get("dayPricePnl").decimalValue()).isCloseTo(new BigDecimal("400"), within(TOLERANCE));
-        assertThat(msft.get("dayPricePnlRatio").decimalValue()).isCloseTo(new BigDecimal("0.01"), within(TOLERANCE));
+        assertThat(msft.get("dayPricePnl").asDecimal()).isCloseTo(new BigDecimal("400"), within(TOLERANCE));
+        assertThat(msft.get("dayPricePnlRatio").asDecimal()).isCloseTo(new BigDecimal("0.01"), within(TOLERANCE));
         // previousClose 維持行情原值（拆前前收），不另算調整後前收
-        assertThat(msft.get("previousClose").decimalValue()).isEqualByComparingTo("400");
+        assertThat(msft.get("previousClose").asDecimal()).isEqualByComparingTo("400");
 
         JsonNode summary = getData(tokens, "/api/v1/portfolio/summary");
-        assertThat(summary.get("dayPricePnl").decimalValue()).isCloseTo(new BigDecimal("400"), within(TOLERANCE));
+        assertThat(summary.get("dayPricePnl").asDecimal()).isCloseTo(new BigDecimal("400"), within(TOLERANCE));
         assertThat(summary.get("dayPnlExcludedCount").asInt()).isZero();
     }
 
@@ -167,7 +167,7 @@ class PortfolioDayPnlIT extends ContainerIT {
         split(tokens, "AMZN", 4, 1, tradingDate(todayStart));
 
         JsonNode amzn = bySymbol(getData(tokens, "/api/v1/portfolio/holdings"), "AMZN");
-        assertThat(amzn.get("totalQuantity").decimalValue()).isEqualByComparingTo("400");
+        assertThat(amzn.get("totalQuantity").asDecimal()).isEqualByComparingTo("400");
         assertThat(amzn.hasNonNull("dayPricePnl")).isFalse();
         assertThat(amzn.hasNonNull("dayPricePnlRatio")).isFalse();
 

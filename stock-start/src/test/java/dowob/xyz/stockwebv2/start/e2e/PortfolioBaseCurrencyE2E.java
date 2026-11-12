@@ -60,7 +60,7 @@ class PortfolioBaseCurrencyE2E extends AbstractPortfolioE2E {
     private static BigDecimal weightSum(JsonNode rows) {
         BigDecimal sum = BigDecimal.ZERO;
         for (JsonNode row : rows) {
-            sum = sum.add(row.get("weight").decimalValue());
+            sum = sum.add(row.get("weight").asDecimal());
         }
         return sum;
     }
@@ -97,22 +97,22 @@ class PortfolioBaseCurrencyE2E extends AbstractPortfolioE2E {
         assertThat(summary.get("fxExcludedCount").asInt()).isZero();
         assertThat(summary.get("unconvertedCurrencies")).isEmpty();
         // 原幣現金餘額 = 帳本入金 − 買入成本（兩幣別各自獨立）
-        assertThat(balanceOf(summary, "USD").get("amount").decimalValue()).isEqualByComparingTo("4000");
-        assertThat(balanceOf(summary, "TWD").get("amount").decimalValue()).isEqualByComparingTo("98200");
+        assertThat(balanceOf(summary, "USD").get("amount").asDecimal()).isEqualByComparingTo("4000");
+        assertThat(balanceOf(summary, "TWD").get("amount").asDecimal()).isEqualByComparingTo("98200");
         // 4000 USD × 32.418 + 98200 TWD
-        assertThat(summary.get("cash").decimalValue()).isEqualByComparingTo("227872");
+        assertThat(summary.get("cash").asDecimal()).isEqualByComparingTo("227872");
         // 10 × 120 USD × 32.418 + 2 × 1000 TWD
-        assertThat(summary.get("totalMarketValue").decimalValue()).isEqualByComparingTo("40901.6");
+        assertThat(summary.get("totalMarketValue").asDecimal()).isEqualByComparingTo("40901.6");
         // 10 × 100 USD × 32.418 + 2 × 900 TWD
-        assertThat(summary.get("totalCostBasis").decimalValue()).isEqualByComparingTo("34218");
-        assertThat(summary.get("unrealizedPnl").decimalValue()).isEqualByComparingTo("6683.6");
-        assertThat(summary.get("totalEquity").decimalValue()).isEqualByComparingTo("268773.6");
-        assertThat(summary.get("totalEquity").decimalValue()).isEqualByComparingTo(
-            summary.get("totalMarketValue").decimalValue().add(summary.get("cash").decimalValue()));
+        assertThat(summary.get("totalCostBasis").asDecimal()).isEqualByComparingTo("34218");
+        assertThat(summary.get("unrealizedPnl").asDecimal()).isEqualByComparingTo("6683.6");
+        assertThat(summary.get("totalEquity").asDecimal()).isEqualByComparingTo("268773.6");
+        assertThat(summary.get("totalEquity").asDecimal()).isEqualByComparingTo(
+            summary.get("totalMarketValue").asDecimal().add(summary.get("cash").asDecimal()));
 
         // 資產配置：持倉類別 + 正現金，產業不含現金；兩者權重各自加總為 1（8 位小數四捨五入的誤差內）。
-        assertThat(sliceOf(summary, "STOCK").get("value").decimalValue()).isEqualByComparingTo("40901.6");
-        assertThat(sliceOf(summary, "CASH").get("value").decimalValue()).isEqualByComparingTo("227872");
+        assertThat(sliceOf(summary, "STOCK").get("value").asDecimal()).isEqualByComparingTo("40901.6");
+        assertThat(sliceOf(summary, "CASH").get("value").asDecimal()).isEqualByComparingTo("227872");
         assertThat(weightSum(summary.get("allocation")).doubleValue()).isCloseTo(1.0, within(1e-6));
         assertThat(summary.get("sectorAllocation")).hasSize(2);
         assertThat(sectorOf(summary, "Auto").get("holdingCount").asInt()).isEqualTo(1);
@@ -126,14 +126,14 @@ class PortfolioBaseCurrencyE2E extends AbstractPortfolioE2E {
         assertThat(tesla.get("currency").asText()).isEqualTo("USD");
         assertThat(tesla.get("assetType").asText()).isEqualTo("STOCK");
         assertThat(tesla.get("sector").asText()).isEqualTo("Auto");
-        assertThat(tesla.get("marketValue").decimalValue()).isEqualByComparingTo("1200");
+        assertThat(tesla.get("marketValue").asDecimal()).isEqualByComparingTo("1200");
         assertThat(tesla.get("baseCurrency").asText()).isEqualTo("TWD");
-        assertThat(tesla.get("marketValueInBase").decimalValue()).isEqualByComparingTo("38901.6");
+        assertThat(tesla.get("marketValueInBase").asDecimal()).isEqualByComparingTo("38901.6");
         JsonNode tsmc = holdingOf(holdings, "2330.TW");
         assertThat(tsmc.get("currency").asText()).isEqualTo("TWD");
         assertThat(tsmc.get("assetType").asText()).isEqualTo("STOCK");
-        assertThat(tsmc.get("marketValue").decimalValue()).isEqualByComparingTo("2000");
-        assertThat(tsmc.get("marketValueInBase").decimalValue()).isEqualByComparingTo("2000");
+        assertThat(tsmc.get("marketValue").asDecimal()).isEqualByComparingTo("2000");
+        assertThat(tsmc.get("marketValueInBase").asDecimal()).isEqualByComparingTo("2000");
 
         // GET /trades 的每一列也帶各自標的的幣別。
         mockMvc.perform(get("/api/v1/trades").with(bearerToken(token)))
@@ -151,35 +151,35 @@ class PortfolioBaseCurrencyE2E extends AbstractPortfolioE2E {
         givenMixedCurrencyPortfolio(token);
 
         // 先讀一次讓 TWD 版 summary 進快取；若快取鍵不含基準幣，切換後會拿到這份舊值。
-        assertThat(summaryOf(token).get("totalEquity").decimalValue()).isEqualByComparingTo("268773.6");
+        assertThat(summaryOf(token).get("totalEquity").asDecimal()).isEqualByComparingTo("268773.6");
 
         switchBaseCurrency(token, "USD");
 
         JsonNode usd = summaryOf(token);
         assertThat(usd.get("baseCurrency").asText()).isEqualTo("USD");
         // 10 × 120 USD + 2 × 1000 TWD × 0.030847
-        assertThat(usd.get("totalMarketValue").decimalValue()).isEqualByComparingTo("1261.694");
+        assertThat(usd.get("totalMarketValue").asDecimal()).isEqualByComparingTo("1261.694");
         // 4000 USD + 98200 TWD × 0.030847
-        assertThat(usd.get("cash").decimalValue()).isEqualByComparingTo("7029.1754");
-        assertThat(usd.get("totalEquity").decimalValue()).isEqualByComparingTo("8290.8694");
+        assertThat(usd.get("cash").asDecimal()).isEqualByComparingTo("7029.1754");
+        assertThat(usd.get("totalEquity").asDecimal()).isEqualByComparingTo("8290.8694");
         // 各幣別原幣餘額與基準幣無關。
-        assertThat(balanceOf(usd, "USD").get("amount").decimalValue()).isEqualByComparingTo("4000");
-        assertThat(balanceOf(usd, "TWD").get("amount").decimalValue()).isEqualByComparingTo("98200");
+        assertThat(balanceOf(usd, "USD").get("amount").asDecimal()).isEqualByComparingTo("4000");
+        assertThat(balanceOf(usd, "TWD").get("amount").asDecimal()).isEqualByComparingTo("98200");
         assertThat(weightSum(usd.get("allocation")).doubleValue()).isCloseTo(1.0, within(1e-6));
 
         JsonNode holdings = holdingsOf(token);
         assertThat(holdingOf(holdings, "TSLA").get("baseCurrency").asText()).isEqualTo("USD");
-        assertThat(holdingOf(holdings, "TSLA").get("marketValueInBase").decimalValue()).isEqualByComparingTo("1200");
-        assertThat(holdingOf(holdings, "2330.TW").get("marketValueInBase").decimalValue())
+        assertThat(holdingOf(holdings, "TSLA").get("marketValueInBase").asDecimal()).isEqualByComparingTo("1200");
+        assertThat(holdingOf(holdings, "2330.TW").get("marketValueInBase").asDecimal())
             .isEqualByComparingTo("61.694");
         // 原幣欄位不隨基準幣改變。
-        assertThat(holdingOf(holdings, "2330.TW").get("marketValue").decimalValue()).isEqualByComparingTo("2000");
+        assertThat(holdingOf(holdings, "2330.TW").get("marketValue").asDecimal()).isEqualByComparingTo("2000");
 
         switchBaseCurrency(token, "TWD");
 
         JsonNode twd = summaryOf(token);
         assertThat(twd.get("baseCurrency").asText()).isEqualTo("TWD");
-        assertThat(twd.get("totalEquity").decimalValue()).isEqualByComparingTo("268773.6");
+        assertThat(twd.get("totalEquity").asDecimal()).isEqualByComparingTo("268773.6");
     }
 
     @Test
@@ -194,14 +194,14 @@ class PortfolioBaseCurrencyE2E extends AbstractPortfolioE2E {
 
         JsonNode summary = summaryOf(token);
 
-        assertThat(balanceOf(summary, "USD").get("amount").decimalValue()).isEqualByComparingTo("-1000");
+        assertThat(balanceOf(summary, "USD").get("amount").asDecimal()).isEqualByComparingTo("-1000");
         // -1000 USD × 32.418
-        assertThat(summary.get("cash").decimalValue()).isEqualByComparingTo("-32418");
-        assertThat(summary.get("totalMarketValue").decimalValue()).isEqualByComparingTo("32418");
-        assertThat(summary.get("totalEquity").decimalValue()).isEqualByComparingTo("0");
+        assertThat(summary.get("cash").asDecimal()).isEqualByComparingTo("-32418");
+        assertThat(summary.get("totalMarketValue").asDecimal()).isEqualByComparingTo("32418");
+        assertThat(summary.get("totalEquity").asDecimal()).isEqualByComparingTo("0");
         assertThat(sliceOf(summary, "CASH")).isNull();
         assertThat(summary.get("allocation")).hasSize(1);
-        assertThat(sliceOf(summary, "STOCK").get("weight").decimalValue()).isEqualByComparingTo("1");
+        assertThat(sliceOf(summary, "STOCK").get("weight").asDecimal()).isEqualByComparingTo("1");
 
         getCashEntries(token, null, null)
             .andExpect(status().isOk())
@@ -210,9 +210,9 @@ class PortfolioBaseCurrencyE2E extends AbstractPortfolioE2E {
         // 原幣餘額不隨基準幣改變；折算後的現金與總資產隨之換算。
         switchBaseCurrency(token, "USD");
         JsonNode usd = summaryOf(token);
-        assertThat(balanceOf(usd, "USD").get("amount").decimalValue()).isEqualByComparingTo("-1000");
-        assertThat(usd.get("cash").decimalValue()).isEqualByComparingTo("-1000");
-        assertThat(usd.get("totalEquity").decimalValue()).isEqualByComparingTo("0");
+        assertThat(balanceOf(usd, "USD").get("amount").asDecimal()).isEqualByComparingTo("-1000");
+        assertThat(usd.get("cash").asDecimal()).isEqualByComparingTo("-1000");
+        assertThat(usd.get("totalEquity").asDecimal()).isEqualByComparingTo("0");
     }
 
     @Test
@@ -225,45 +225,45 @@ class PortfolioBaseCurrencyE2E extends AbstractPortfolioE2E {
         JsonNode empty = summaryOf(token);
         assertThat(empty.get("baseCurrency").asText()).isEqualTo("TWD");
         assertThat(empty.get("holdingCount").asInt()).isZero();
-        assertThat(empty.get("cash").decimalValue()).isEqualByComparingTo("0");
-        assertThat(empty.get("totalEquity").decimalValue()).isEqualByComparingTo("0");
+        assertThat(empty.get("cash").asDecimal()).isEqualByComparingTo("0");
+        assertThat(empty.get("totalEquity").asDecimal()).isEqualByComparingTo("0");
         assertThat(empty.get("cashBalances")).isEmpty();
         assertThat(empty.get("allocation")).isEmpty();
         assertThat(empty.get("sectorAllocation")).isEmpty();
 
         recordCashEntry(token, "DEPOSIT", "TWD", "50000");
         JsonNode afterDeposit = summaryOf(token);
-        assertThat(afterDeposit.get("cash").decimalValue()).isEqualByComparingTo("50000");
-        assertThat(balanceOf(afterDeposit, "TWD").get("amount").decimalValue()).isEqualByComparingTo("50000");
-        assertThat(sliceOf(afterDeposit, "CASH").get("weight").decimalValue()).isEqualByComparingTo("1");
+        assertThat(afterDeposit.get("cash").asDecimal()).isEqualByComparingTo("50000");
+        assertThat(balanceOf(afterDeposit, "TWD").get("amount").asDecimal()).isEqualByComparingTo("50000");
+        assertThat(sliceOf(afterDeposit, "CASH").get("weight").asDecimal()).isEqualByComparingTo("1");
 
         JsonNode withdrawal = recordCashEntry(token, "WITHDRAWAL", "TWD", "10000");
-        assertThat(summaryOf(token).get("cash").decimalValue()).isEqualByComparingTo("40000");
+        assertThat(summaryOf(token).get("cash").asDecimal()).isEqualByComparingTo("40000");
 
         // 沖銷該筆出金：反向分錄自然抵銷，餘額立即回到 50000。
         dataOf(postCashEntry(token, UUID.randomUUID().toString(),
             reversalBody("DEPOSIT", "TWD", "10000", withdrawal.get("id").asText()))
             .andExpect(status().isOk()));
         JsonNode afterReversal = summaryOf(token);
-        assertThat(afterReversal.get("cash").decimalValue()).isEqualByComparingTo("50000");
-        assertThat(balanceOf(afterReversal, "TWD").get("amount").decimalValue()).isEqualByComparingTo("50000");
+        assertThat(afterReversal.get("cash").asDecimal()).isEqualByComparingTo("50000");
+        assertThat(balanceOf(afterReversal, "TWD").get("amount").asDecimal()).isEqualByComparingTo("50000");
 
         // 另一幣別的入金：USD 100 × 32.418 = 3241.8 併入基準幣現金；沖銷後立即移除。
         JsonNode usdDeposit = recordCashEntry(token, "DEPOSIT", "USD", "100");
-        assertThat(summaryOf(token).get("cash").decimalValue()).isEqualByComparingTo("53241.8");
+        assertThat(summaryOf(token).get("cash").asDecimal()).isEqualByComparingTo("53241.8");
         dataOf(postCashEntry(token, UUID.randomUUID().toString(),
             reversalBody("WITHDRAWAL", "USD", "100", usdDeposit.get("id").asText()))
             .andExpect(status().isOk()));
-        assertThat(summaryOf(token).get("cash").decimalValue()).isEqualByComparingTo("50000");
+        assertThat(summaryOf(token).get("cash").asDecimal()).isEqualByComparingTo("50000");
 
         // 交易寫入同樣使 summary 快取失效：持倉數與現金立即改變（1 股 × 900 TWD）。
         seedLatestPrice("2330.TW", "1000");
         recordTrade(token, "2330.TW", "BUY", "1", "900");
         JsonNode afterTrade = summaryOf(token);
         assertThat(afterTrade.get("holdingCount").asInt()).isEqualTo(1);
-        assertThat(balanceOf(afterTrade, "TWD").get("amount").decimalValue()).isEqualByComparingTo("49100");
-        assertThat(afterTrade.get("totalMarketValue").decimalValue()).isEqualByComparingTo("1000");
-        assertThat(afterTrade.get("totalEquity").decimalValue()).isEqualByComparingTo("50100");
+        assertThat(balanceOf(afterTrade, "TWD").get("amount").asDecimal()).isEqualByComparingTo("49100");
+        assertThat(afterTrade.get("totalMarketValue").asDecimal()).isEqualByComparingTo("1000");
+        assertThat(afterTrade.get("totalEquity").asDecimal()).isEqualByComparingTo("50100");
     }
 
     @Test

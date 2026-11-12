@@ -114,8 +114,8 @@ As implemented (2026-09-27), derived portfolio data is **computed on read and ca
 
 | Data | Redis Key Pattern | TTL | Invalidation |
 |------|------------------|-----|--------------|
-| Holding valuation | `portfolio:valuation:v3:{userId}:{assetId}` | 60 s | after trade commit; after share-adjustment commit (including reversals) |
-| Portfolio summary | `portfolio:summary:v3:{userId}:{baseCurrency}` | 60 s | after trade commit; after cash-entry commit (all four `baseCurrency` keys, holding keys untouched); cash dividend (including reversals): summary keys only; share adjustment (including reversals): holding key + summary keys. `v3` since 2026-11-01 (Phase 04.2, frozen in 04.2-02: `dividendIncome` / `dividendTaxWithheld` added and `totalPnl` includes dividends) |
+| Holding valuation | `portfolio:valuation:v4:{userId}:{assetId}` | 60 s | after trade commit; after share-adjustment commit (including reversals). `v4` since 2026-11-11 (Phase 5 D-05: cached `HoldingDto` amounts became JSON strings) |
+| Portfolio summary | `portfolio:summary:v4:{userId}:{baseCurrency}` | 60 s | after trade commit; after cash-entry commit (all four `baseCurrency` keys, holding keys untouched); cash dividend (including reversals): summary keys only; share adjustment (including reversals): holding key + summary keys. `v3` since 2026-11-01 (Phase 04.2, frozen in 04.2-02: `dividendIncome` / `dividendTaxWithheld` added and `totalPnl` includes dividends); `v4` since 2026-11-11 (Phase 5 D-05: cached `PortfolioSummaryDto` amounts became JSON strings) |
 | Latest price (market-data) | `market:latest:{assetId}` | 5 min | overwritten per tick |
 
 Risk indicators and a `portfolio_valuations` table are not implemented. If price-driven revaluation is ever needed, revisit this section rather than adding a parallel mechanism.

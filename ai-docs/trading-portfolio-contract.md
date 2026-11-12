@@ -23,13 +23,16 @@
 
 | 型別 | JSON 形式 | 備註 |
 |---|---|---|
-| 金額與數量（Java `BigDecimal`） | **JSON number**，例如 `100.50000000` | 資料庫為 `NUMERIC(24,8)`，最多 8 位小數。前端以 `number` 接收；值域上限（quantity ≤ 10⁹、price ≤ 10⁶）確保在 double 精度內可表示，但**不要在前端做累加後再比較相等**。 |
+| 金額、數量與比率（Java `BigDecimal`） | **一律 JSON 字串**，例如 `"100.50000000"` | 一般記號（`toPlainString`，**不會**出現 `0E-8` / `1E-8` 這類科學記號）、**保留 scale**（`NUMERIC(24,8)` 讀回的值是 `"100.00000000"`，零是 `"0.00000000"`）；`null` 維持 JSON `null`。比率（`roi`、`weight`、`dayPricePnlRatio`、回測指標等）只要 Java 型別是 `BigDecimal` 也一律字串，沒有例外清單。前端以字串接收，需要計算時用 decimal 函式庫或在顯示前才轉換，**不要以 `Number()` 累加後再比較相等**。 |
+| 計數與整數比例（Java `int` / `Integer` / `long`） | JSON number | `holdingCount`、`fxExcludedCount`、`dayPnlExcludedCount`、`ratioNew` / `ratioOld`、分頁欄位等維持數字。 |
 | 時間（`OffsetDateTime`） | ISO-8601 字串，帶偏移量 | 伺服器時區為 `Asia/Taipei`，輸出多為 `+08:00`；前端一律以「帶偏移量的 instant」處理，不要假設偏移。 |
 | id | 字串 UUID | 對外一律 UUID，內部 Long id 不外露（例外：`/me` 的 `id`，見 browser-auth-contract）。 |
 
-> 金額欄位若值為 0 且 scale 為 8（例如無任何現金紀錄的 `cash`），`BigDecimal` 的 JSON 形式可能是 `0E-8`。這是合法的 JSON number，請以數值解析，**不要用字串比對**。
+**請求端**：金額欄位（`quantity`、`price`、`fee`、`amount`、`withholdingTax` 等）**必須送 JSON 字串**，例如 `"quantity":"10"`、`"price":"100.5"`。後端 Jackson 目前仍接受 JSON number，那是相容行為，不是契約。選填金額（`fee`、`withholdingTax`）不提供時**送 `null` 或省略**，不要送 `""`（`""` 目前會被當成未提供，同樣只是相容行為）。冪等比對以 `compareTo` 比數值，所以 `"10"` 與 `"10.00000000"` 視為同一筆。
 
-> ⚠️ K 線與即時報價（`KlineDto`、`LatestPriceDto`、WS tick）的價格是**字串**，交易與持倉的金額是**數字**。兩者格式不同是既有現況（架構審查 M-7），前端各自的轉換點見 `marketApi.closeSeries` 與 `tradingApi`。
+**行情**：K 線與即時報價（`KlineDto`、`LatestPriceDto`）以及 WS tick / kline 推播（`WsBroadcastConsumer` 以 `toPlainString` 組 payload）的價格與交易、持倉一樣是一般記號的字串，兩邊格式一致。
+
+**機制與守門**：API DTO / Request 的 `BigDecimal` 欄位逐欄標 `@DecimalString`（`stock-infrastructure` 的 `PlainDecimalStringSerializer`），不用全域 Jackson 設定，所以 WebMvc、Redis 快取與正式 HTTP 輸出相同。ArchUnit `ApiDecimalStringRulesTest` 擋下 `..api..` 套件內 `*Dto` / `*Request` 漏標的 `BigDecimal` 欄位。
 
 ## POST /api/v1/trades — 記錄一筆已成交的交易
 
@@ -55,9 +58,9 @@
 |---|---|---|---|
 | `symbol` | string | 是 | 不得空白；須為存在且可交易的標的 |
 | `type` | string | 是 | `BUY` 或 `SELL` |
-| `quantity` | number | 是 | 0.00000001 ≤ x ≤ 1,000,000,000；最多 10 位整數、8 位小數 |
-| `price` | number | 是 | 0.00000001 ≤ x ≤ 1,000,000；最多 7 位整數、8 位小數 |
-| `fee` | number | 否 | ≥ 0；最多 16 位整數、8 位小數；省略視為 0 |
+| `quantity` | string | 是 | 0.00000001 ≤ x ≤ 1,000,000,000；最多 10 位整數、8 位小數 |
+| `price` | string | 是 | 0.00000001 ≤ x ≤ 1,000,000；最多 7 位整數、8 位小數 |
+| `fee` | string | 否 | ≥ 0；最多 16 位整數、8 位小數；省略或送 `null` 視為 0（不要送 `""`） |
 | `note` | string | 否 | 最多 500 字 |
 | `executedAt` | string（ISO-8601） | 否 | 省略視為現在；不得晚於伺服器時間 5 分鐘以上（時鐘偏移容忍）；〔quick-261107-1j4〕不得早於 `1900-01-01T00:00:00Z`（含邊界、比較 instant；含帶號擴充年份如 `-10000-01-01T00:00:00Z`）→ 400 `fields.executedAt`（`must not be before 1900-01-01`）；〔04.2〕不得早於該標的最晚一筆未沖銷股數調整的生效起點（見〈錯誤〉） |
 
@@ -70,9 +73,9 @@
 | `id` | string | 交易 UUID（36 字元，前端不得截斷） |
 | `symbol` | string | |
 | `type` | string | `BUY` / `SELL` |
-| `quantity` | number | 後端實際記錄的值（顯示時以此為準，不用表單值） |
-| `price` | number | 同上 |
-| `fee` | number | 同上 |
+| `quantity` | string | 後端實際記錄的值（顯示時以此為準，不用表單值） |
+| `price` | string | 同上 |
+| `fee` | string | 同上 |
 | `note` | string \| null | |
 | `executedAt` | string | |
 | `createdAt` | string | |
@@ -138,14 +141,14 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | `assetId` | string | 標的 UUID |
 | `symbol` | string | |
 | `assetName` | string | |
-| `totalQuantity` | number | |
-| `avgCost` | number | 平均成本（原幣） |
-| `costBasis` | number | totalQuantity × avgCost（原幣） |
-| `marketPrice` | number | 估值用的最新價（見下；原幣） |
-| `marketValue` | number | totalQuantity × marketPrice（原幣） |
-| `realizedPnl` | number | 此標的的已實現損益（原幣） |
-| `unrealizedPnl` | number | marketValue − costBasis（原幣） |
-| `roi` | number | unrealizedPnl / costBasis |
+| `totalQuantity` | string | |
+| `avgCost` | string | 平均成本（原幣） |
+| `costBasis` | string | totalQuantity × avgCost（原幣） |
+| `marketPrice` | string | 估值用的最新價（見下；原幣） |
+| `marketValue` | string | totalQuantity × marketPrice（原幣） |
+| `realizedPnl` | string | 此標的的已實現損益（原幣） |
+| `unrealizedPnl` | string | marketValue − costBasis（原幣） |
+| `roi` | string | unrealizedPnl / costBasis |
 | `priceTime` | string | `marketPrice` 的時間戳 |
 | `lastUpdated` | string | 持倉最後更新時間 |
 | `currency` | string \| null | 標的計價幣別（`USD` / `TWD` / `EUR` / `JPY`），即上列原幣金額的幣別；資產屬性缺失（理論上不會發生）時為 `null`，該持倉不計入基準幣總額並計入 `fxExcludedCount` |
@@ -153,12 +156,12 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | `sector` | string \| null | 產業分類；`null` 代表未分類，由前端顯示「未分類」（後端不回在地化字串） |
 | `market` | string \| null | 〔quick-261107-1j4〕交易市場代號，即資產的 `assets.market`（如 `US` / `TW` / `JP` / `DE` / `CRYPTO` / `FX`，與 `GET /assets` 的 `market` 同值域），與 `sector` 取自同一份資產屬性；前端可配合 `assetType` 決定「該市場的今天」（交易日規則見〈GET /api/v1/assets — 標的報價欄位〉），不必再以代號查一次資產。資產屬性缺失（理論上不會發生，此時與 `currency` / `assetType` / `sector` 同為 `null`）或資產未設定市場（`assets.market` 欄位可為 NULL；種子資料皆有值）時為 `null`，前端應退回預設日期規則 |
 | `baseCurrency` | string | 使用者基準幣；`marketValueInBase` 的幣別 |
-| `marketValueInBase` | number \| null | `marketValue` 折算為 `baseCurrency` 的值；**換不到匯率時為 `null`** |
-| `unrealizedPnlInBase` | number \| null | 〔quick-261106-fbs〕`unrealizedPnl` 以**目前匯率**折算為 `baseCurrency` 的值（scale 8、HALF_UP，與 `marketValueInBase` 同一條折算路徑）；與 `marketValueInBase` **同條件為 `null`**（`currency` 為 `null` 或換不到匯率，語意同 summary 的 `fxExcludedCount`：不計入任何基準幣總額 / 排行）。跨標的比較 / 排行請用此欄 |
-| `previousClose` | number \| null | 前收（原幣）：該標的所屬市場交易日起點之前的最後一筆成交；沒有前收或查無行情時為 `null` |
-| `dayPricePnl` | number \| null | 單檔今日價格損益（原幣），規則見〈今日價格損益〉；計算所需價格缺失時為 `null` |
-| `dayPricePnlRatio` | number \| null | `dayPricePnl / dayPnlBasis`，**比值而非百分比**；分母為 0 或損益為 `null` 時為 `null` |
-| `dayPnlBasis` | number \| null | 今日損益比率的分母（原幣）= 前收時市值 + 今日買入成本；供 summary 折算後計算總額比率，bearer client 可忽略 |
+| `marketValueInBase` | string \| null | `marketValue` 折算為 `baseCurrency` 的值；**換不到匯率時為 `null`** |
+| `unrealizedPnlInBase` | string \| null | 〔quick-261106-fbs〕`unrealizedPnl` 以**目前匯率**折算為 `baseCurrency` 的值（scale 8、HALF_UP，與 `marketValueInBase` 同一條折算路徑）；與 `marketValueInBase` **同條件為 `null`**（`currency` 為 `null` 或換不到匯率，語意同 summary 的 `fxExcludedCount`：不計入任何基準幣總額 / 排行）。跨標的比較 / 排行請用此欄 |
+| `previousClose` | string \| null | 前收（原幣）：該標的所屬市場交易日起點之前的最後一筆成交；沒有前收或查無行情時為 `null` |
+| `dayPricePnl` | string \| null | 單檔今日價格損益（原幣），規則見〈今日價格損益〉；計算所需價格缺失時為 `null` |
+| `dayPricePnlRatio` | string \| null | `dayPricePnl / dayPnlBasis`，**比值而非百分比**；分母為 0 或損益為 `null` 時為 `null` |
+| `dayPnlBasis` | string \| null | 今日損益比率的分母（原幣）= 前收時市值 + 今日買入成本；供 summary 折算後計算總額比率，bearer client 可忽略 |
 
 **估值用的最新價**：取自 market-data（Redis 即時快取 → `market_prices` 最新一列）。查無任何行情時退回平均成本估值——此時 `marketPrice` 等於 `avgCost`、`unrealizedPnl` 為 0、`priceTime` 等於 `lastUpdated`。前端若要區分「沒有行情」可比對這兩個時間。
 
@@ -172,23 +175,23 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|
-| `totalMarketValue` | number | 所有持倉 marketValue 逐筆折算為基準幣後加總（換不到匯率的持倉不計入） |
-| `totalCostBasis` | number | 所有持倉 costBasis 逐筆折算為基準幣後加總（同上） |
-| `realizedPnl` | number | **含已平倉部位**；逐資產依各自幣別折算為基準幣後加總（不是 SQL 跨幣別 sum） |
-| `unrealizedPnl` | number | totalMarketValue − totalCostBasis（基準幣） |
-| `totalPnl` | number | realizedPnl + unrealizedPnl + dividendIncome（基準幣）。〔04.2〕2026-11-01 起含現金股利；此前為 realizedPnl + unrealizedPnl |
-| `roi` | number | totalPnl / totalCostBasis（兩者同為基準幣；totalCostBasis 為 0 時為 0）。公式不變，但因 `totalPnl` 含股利，〔04.2〕2026-11-01 起 **`roi` 含股利**（語意變更，Overview「總報酬率」即綁此欄）。**不含現金** |
-| `dividendIncome` | number | 〔04.2〕現金股利收入（基準幣）：Σ 各標的**實領淨額**（`amount`，沖銷列反號）× **目前匯率**；換不到匯率的標的不計入並列入 `unconvertedCurrencies`（與 realizedPnl 同規則）；沒有股利時為 0 |
-| `dividendTaxWithheld` | number | 〔04.2〕預扣稅合計（基準幣）：Σ 各標的 `withholdingTax`（沖銷列反號）× 目前匯率；僅供顯示，**不**計入 `totalPnl`（`amount` 已是扣稅後實領） |
+| `totalMarketValue` | string | 所有持倉 marketValue 逐筆折算為基準幣後加總（換不到匯率的持倉不計入） |
+| `totalCostBasis` | string | 所有持倉 costBasis 逐筆折算為基準幣後加總（同上） |
+| `realizedPnl` | string | **含已平倉部位**；逐資產依各自幣別折算為基準幣後加總（不是 SQL 跨幣別 sum） |
+| `unrealizedPnl` | string | totalMarketValue − totalCostBasis（基準幣） |
+| `totalPnl` | string | realizedPnl + unrealizedPnl + dividendIncome（基準幣）。〔04.2〕2026-11-01 起含現金股利；此前為 realizedPnl + unrealizedPnl |
+| `roi` | string | totalPnl / totalCostBasis（兩者同為基準幣；totalCostBasis 為 0 時為 0）。公式不變，但因 `totalPnl` 含股利，〔04.2〕2026-11-01 起 **`roi` 含股利**（語意變更，Overview「總報酬率」即綁此欄）。**不含現金** |
+| `dividendIncome` | string | 〔04.2〕現金股利收入（基準幣）：Σ 各標的**實領淨額**（`amount`，沖銷列反號）× **目前匯率**；換不到匯率的標的不計入並列入 `unconvertedCurrencies`（與 realizedPnl 同規則）；沒有股利時為 0 |
+| `dividendTaxWithheld` | string | 〔04.2〕預扣稅合計（基準幣）：Σ 各標的 `withholdingTax`（沖銷列反號）× 目前匯率；僅供顯示，**不**計入 `totalPnl`（`amount` 已是扣稅後實領） |
 | `holdingCount` | number | 持有數量大於 0 的標的數（含換不到匯率而未計入總額者） |
 | `baseCurrency` | string | 上列金額欄位所使用的基準幣（`USD` / `TWD` / `EUR` / `JPY`） |
 | `fxExcludedCount` | number | 持有數量大於 0、但換不到匯率而**未計入**總額的持倉檔數 |
 | `unconvertedCurrencies` | string[] | 換不到匯率的幣別代碼（持倉、已實現損益、今日損益、現金或〔04.2〕股利），字母排序、去重；全部可換算時為空陣列 |
-| `dayPricePnl` | number \| null | 今日價格損益總額（基準幣、以目前匯率折算）；`null` = 缺資料，`0` = 真實的零，規則見〈今日價格損益〉 |
-| `dayPricePnlRatio` | number \| null | 今日價格損益比率 = Σ損益 / Σ前收時市值與買入成本（皆基準幣），**比值而非百分比**；總額為 `null` 或分母為 0 時為 `null` |
+| `dayPricePnl` | string \| null | 今日價格損益總額（基準幣、以目前匯率折算）；`null` = 缺資料，`0` = 真實的零，規則見〈今日價格損益〉 |
+| `dayPricePnlRatio` | string \| null | 今日價格損益比率 = Σ損益 / Σ前收時市值與買入成本（皆基準幣），**比值而非百分比**；總額為 `null` 或分母為 0 時為 `null` |
 | `dayPnlExcludedCount` | number | 因計算所需價格缺失而未計入今日損益的檔數；換不到匯率者改計入 `fxExcludedCount` / `unconvertedCurrencies`，不在此數內（持有中但查無資產屬性的持倉同理，只計入 `fxExcludedCount`）。〔quick-261106-fbs〕今天賣光但查無資產屬性的平倉候選也計入此數 |
-| `cash` | number | 可用現金合計（基準幣）：各幣別現金餘額以目前匯率折算後加總；**可為負**；不含在 `roi` 內，規則見〈可用現金〉 |
-| `totalEquity` | number | 總資產 = `totalMarketValue + cash`（基準幣） |
+| `cash` | string | 可用現金合計（基準幣）：各幣別現金餘額以目前匯率折算後加總；**可為負**；不含在 `roi` 內，規則見〈可用現金〉 |
+| `totalEquity` | string | 總資產 = `totalMarketValue + cash`（基準幣） |
 | `cashBalances` | `CashBalanceDto[]` | 各幣別的原幣現金餘額，依 `CurrencyCode` 宣告順序（`USD`、`TWD`、`EUR`、`JPY`），只含有過入出金或交易的幣別；沒有任何紀錄時為空陣列（不是 `null`） |
 | `allocation` | `AllocationSliceDto[]` | 類別配置（donut）：資產類型分塊加上正現金，規則見〈資產配置與產業分組〉 |
 | `sectorAllocation` | `SectorAllocationDto[]` | 產業配置：依 `sector` 原值分組（不含現金），規則見〈資產配置與產業分組〉 |
@@ -215,7 +218,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | 欄位 | 型別 | 說明 |
 |---|---|---|
 | `currency` | string | `USD` / `TWD` / `EUR` / `JPY` |
-| `amount` | number | 該幣別的原幣現金餘額，scale 8；可為負 |
+| `amount` | string | 該幣別的原幣現金餘額，scale 8；可為負 |
 
 ### 資產配置與產業分組
 
@@ -235,8 +238,8 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | 欄位 | 型別 | 說明 |
 |---|---|---|
 | `category` | string | `STOCK` / `CRYPTO` / `BOND` / `FX`（`assetType` 常數名）或 `CASH`；沒有持倉的類別不出現 |
-| `value` | number | 該類別的基準幣價值 |
-| `weight` | number | `value / 分母` |
+| `value` | string | 該類別的基準幣價值 |
+| `weight` | string | `value / 分母` |
 
 排序：`value` 降冪，同值依 `category` 字母升冪。
 
@@ -245,10 +248,10 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | 欄位 | 型別 | 說明 |
 |---|---|---|
 | `sector` | string \| null | 直接取 `assets.sector` 原值；**`null` 代表未分類**，由前端顯示「未分類」（後端不回在地化字串） |
-| `value` | number | 該產業的基準幣市值 |
-| `weight` | number | `value / 可折算持倉市值` |
+| `value` | string | 該產業的基準幣市值 |
+| `weight` | string | `value / 可折算持倉市值` |
 | `holdingCount` | number | 該產業內的持倉檔數 |
-| `unrealizedPnl` | number | 該產業的基準幣未實現損益（折算後市值 − 折算後成本） |
+| `unrealizedPnl` | string | 該產業的基準幣未實現損益（折算後市值 − 折算後成本） |
 
 排序：`value` 降冪，同值依 `sector` 字母升冪，**`sector = null` 一律排最後**（即使金額最大）。
 
@@ -280,7 +283,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 |---|---|---|---|
 | `type` | string | 是 | `DEPOSIT` 或 `WITHDRAWAL`，大小寫不敏感 |
 | `currency` | string | 是 | `USD` / `TWD` / `EUR` / `JPY`，大小寫不敏感 |
-| `amount` | number | 是 | 0.00000001 ≤ x ≤ 1,000,000,000,000（1e12，含上限）；整數最多 13 位、小數最多 8 位 |
+| `amount` | string | 是 | 0.00000001 ≤ x ≤ 1,000,000,000,000（1e12，含上限）；整數最多 13 位、小數最多 8 位 |
 | `note` | string | 否 | 最多 500 字；不納入冪等比對 |
 | `occurredAt` | string（ISO-8601） | 否 | 省略視為伺服器現在；不得晚於伺服器時間 5 分鐘以上；〔quick-261107-1j4〕不得早於 `1900-01-01T00:00:00Z`（含邊界、比較 instant；含帶號擴充年份）→ 400 `fields.occurredAt`（`must not be before 1900-01-01`），在任何 repository 呼叫之前擋下 |
 | `reversalOfId` | string（UUID） | 否 | 帶值代表這是一筆**沖銷**，見下 |
@@ -300,7 +303,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | `id` | string | 分錄 UUID |
 | `type` | string | `DEPOSIT` / `WITHDRAWAL` |
 | `currency` | string | `USD` / `TWD` / `EUR` / `JPY` |
-| `amount` | number | 恆為正 |
+| `amount` | string | 恆為正 |
 | `note` | string \| null | |
 | `occurredAt` | string | 分錄發生時間 |
 | `createdAt` | string | 寫入時間 |
@@ -361,8 +364,8 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | 欄位 | 型別 | 必填 | 規則 |
 |---|---|---|---|
 | `symbol` | string | 是 | 不得空白、最多 32 字；須為存在的標的，否則 404 `ASSET_NOT_FOUND`（`fields.symbol = not found`）。〔quick-261107-1j4，04.2 WR-01〕**新紀錄**須 active 且 tradeable（否則 404 `fields.symbol = not tradeable`）；帶 `reversalOfId` 的沖銷與同 key 冪等重送**不檢查標的狀態**（下架後仍可更正、重送仍拿回同一列） |
-| `amount` | number | 是 | **實領總額**（扣稅後、標的幣別）：0.00000001 ≤ x ≤ 1,000,000,000,000；整數最多 13 位、小數最多 8 位 |
-| `withholdingTax` | number | 否 | 預扣稅（標的幣別）：0 ≤ x ≤ 1,000,000,000,000；整數最多 13 位、小數最多 8 位；省略視為 0 |
+| `amount` | string | 是 | **實領總額**（扣稅後、標的幣別）：0.00000001 ≤ x ≤ 1,000,000,000,000；整數最多 13 位、小數最多 8 位 |
+| `withholdingTax` | string | 否 | 預扣稅（標的幣別）：0 ≤ x ≤ 1,000,000,000,000；整數最多 13 位、小數最多 8 位；省略或送 `null` 視為 0（不要送 `""`） |
 | `paidAt` | string（ISO-8601） | 否 | 入帳時間；省略視為伺服器現在；晚於伺服器時間 5 分鐘以上 → 400 `fields.paidAt`；〔quick-261106-fbs〕早於 `1900-01-01T00:00:00Z`（含帶號擴充年份如 `-10000-01-01T00:00:00Z`）→ 400 `fields.paidAt`（`must not be before 1900-01-01`，下限含邊界） |
 | `note` | string | 否 | 最多 500 字；不納入冪等比對 |
 | `reversalOfId` | string（UUID） | 否 | 最多 36 字；帶值代表這是一筆**沖銷**，見下 |
@@ -384,8 +387,8 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | `id` | string | 股利紀錄 UUID |
 | `symbol` | string | |
 | `currency` | string | 標的交易幣別（`amount` / `withholdingTax` 的幣別） |
-| `amount` | number | 實領總額，恆為正（沖銷列亦同，以 `reversalOfId` 判斷） |
-| `withholdingTax` | number | 預扣稅，≥ 0 |
+| `amount` | string | 實領總額，恆為正（沖銷列亦同，以 `reversalOfId` 判斷） |
+| `withholdingTax` | string | 預扣稅，≥ 0 |
 | `paidAt` | string | 入帳時間 |
 | `createdAt` | string | 寫入時間 |
 | `note` | string \| null | |
@@ -428,7 +431,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 |---|---|---|---|
 | `symbol` | string | 是 | 不得空白、最多 32 字；須為存在的標的，否則 404 `ASSET_NOT_FOUND`（`fields.symbol = not found`）。〔quick-261107-1j4，04.2 WR-01〕**新紀錄**須 active + tradeable（否則 404 `fields.symbol = not tradeable`，在鎖持倉之前）；帶 `reversalOfId` 的沖銷與同 key 冪等重送**不檢查標的狀態** |
 | `type` | string | 是 | `STOCK_DIVIDEND`（配股）或 `SPLIT`（拆股 / 合股）；白名單外 → 400 `fields.type` |
-| `quantity` | number | `STOCK_DIVIDEND` 必填 | 實領股數：0.00000001 ≤ x ≤ 1,000,000,000；整數最多 10 位、小數最多 8 位 |
+| `quantity` | string | `STOCK_DIVIDEND` 必填 | 實領股數：0.00000001 ≤ x ≤ 1,000,000,000；整數最多 10 位、小數最多 8 位 |
 | `ratioNew` / `ratioOld` | integer | `SPLIT` 必填 | 比例 new:old，各 1–1000；兩者相等 → 400 `fields.ratio`（例：1 拆 4 = `4:1`；10 合 1 = `1:10`） |
 | `effectiveDate` | string（`yyyy-MM-dd`） | 是 | 除權日（該標的市場的日曆日） |
 | `note` | string | 否 | 最多 500 字；不納入冪等比對 |
@@ -473,7 +476,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | `symbol` | string | |
 | `currency` | string | 標的交易幣別 |
 | `type` | string | `STOCK_DIVIDEND` / `SPLIT` |
-| `quantityDelta` | number | 後端算出的股數變動，**帶號**（合股為負）；沖銷列輸出原值 |
+| `quantityDelta` | string | 後端算出的股數變動，**帶號**（合股為負）；沖銷列輸出原值 |
 | `ratioNew` / `ratioOld` | integer \| null | 僅 `SPLIT` |
 | `effectiveDate` | string | `yyyy-MM-dd` |
 | `createdAt` | string | |
@@ -528,11 +531,11 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 | `occurredAt` | string | 交易成交時間 / 股利入帳時間 / 股數調整生效 instant（`effective_at`） |
 | `effectiveDate` | string \| null | 僅股數調整：除權日 `yyyy-MM-dd` |
 | `createdAt` | string | 寫入時間 |
-| `quantity` | number \| null | 交易數量 / 配股股數 / 拆股 ΔQ（帶號）；股利為 `null` |
-| `price` | number \| null | 僅交易 |
-| `fee` | number \| null | 僅交易 |
-| `amount` | number \| null | 交易為 `quantity × price`（捨入至 scale 8）；股利為實領總額；股數調整為 `null` |
-| `withholdingTax` | number \| null | 僅股利 |
+| `quantity` | string \| null | 交易數量 / 配股股數 / 拆股 ΔQ（帶號）；股利為 `null` |
+| `price` | string \| null | 僅交易 |
+| `fee` | string \| null | 僅交易 |
+| `amount` | string \| null | 交易為 `quantity × price`（捨入至 scale 8）；股利為實領總額；股數調整為 `null` |
+| `withholdingTax` | string \| null | 僅股利 |
 | `ratioNew` / `ratioOld` | integer \| null | 僅拆股 |
 | `note` | string \| null | |
 | `reversalOfId` | string \| null | 沖銷列指向的原列 UUID |
@@ -558,14 +561,14 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 ## 快取與一致性
 
-- 持倉與摘要有 60 秒 Redis 快取，鍵為 `portfolio:valuation:v3:{userId}:{assetId}`（存**原幣**估值，`baseCurrency` / `marketValueInBase` / `unrealizedPnlInBase` 於回應時才補上，所以這三欄的新增不需換鍵；2026-11-07 quick-261107-1j4 由 `v2` 升 `v3`：`market` 隨原幣估值寫入快取，舊 `v2` JSON 缺此欄會被讀成 `null`，換前綴使部署前後兩種形狀互不讀取）與 `portfolio:summary:v3:{userId}:{baseCurrency}`（〔04.2〕2026-11-01 由 `v2` 升 `v3`：summary 新增 `dividendIncome` / `dividendTaxWithheld` 且 `totalPnl` 含股利，換前綴使部署前後兩種形狀互不讀取）。
+- 持倉與摘要有 60 秒 Redis 快取，鍵為 `portfolio:valuation:v4:{userId}:{assetId}`（存**原幣**估值，`baseCurrency` / `marketValueInBase` / `unrealizedPnlInBase` 於回應時才補上，所以這三欄的新增不需換鍵；2026-11-07 quick-261107-1j4 由 `v2` 升 `v3`：`market` 隨原幣估值寫入快取；2026-11-11 Phase 5 05-14 由 `v3` 升 `v4`：金額欄位改以字串寫入快取 JSON，換前綴使部署前後兩種形狀互不讀取）與 `portfolio:summary:v4:{userId}:{baseCurrency}`（〔04.2〕2026-11-01 由 `v2` 升 `v3`：summary 新增 `dividendIncome` / `dividendTaxWithheld` 且 `totalPnl` 含股利；2026-11-11 Phase 5 05-14 由 `v3` 升 `v4`：金額改字串）。
 - summary 依基準幣分鍵：使用者切換基準幣（`PATCH /api/v1/me/preferences`）後，下一次讀取直接 miss、立即拿到新幣別的值，不必等 60 秒。
 - 成交後在交易 **commit 之後**失效持倉鍵與 `USD` / `TWD` / `EUR` / `JPY` 四把 summary 鍵，所以成交後立即重讀一定看得到新交易。
 - 入出金分錄（含沖銷）在寫入 **commit 之後**只失效上述四把 summary 鍵，**不影響持倉鍵**（分錄不改變持倉估值）；現金項因此留在 summary 快取之內，入金後立即重讀就看得到新的 `cash`。冪等命中與被拒絕的請求（資料未變）不失效。
 - 〔04.2〕現金股利（含沖銷）在 commit 之後**只失效 summary 鍵**（股利不動股數與均價）；股數調整（含沖銷）在 commit 之後失效**該標的持倉鍵 + summary 鍵**（與成交相同）。冪等命中與被拒絕的請求不失效。
 - 讀取的快照一致性：`GET /trades`、`GET /portfolio/cash-entries` 與 summary 的計算在 `REPEATABLE_READ` 唯讀交易內執行（quick-261106-fbs，04.1 REVIEW WR-03），同一回應內的多道查詢（例如分頁的 count 與 items、summary 的各項加總）看到同一份快照。
 - 殘餘競態（與成交路徑相同、已接受）：讀者若在 commit 前讀了資料庫、於失效之後才寫回快取，舊值最長停留 60 秒。
-- 鍵中的版本（持倉 `v3`、summary `v3`）讓部署瞬間新舊程式不會讀到對方形狀的 JSON；舊鍵 60 秒內自然過期。
+- 鍵中的版本（持倉 `v4`、summary `v4`）讓部署瞬間新舊程式不會讀到對方形狀的 JSON；舊鍵 60 秒內自然過期。
 - （歷史，Phase 04.1）**摘要 JSON 在 Phase 04.1 內陸續追加欄位（今日損益、現金、配置）但鍵維持 `v2`**：Phase 04.1 作為一次部署上線，`v2` 鍵在此之前不存在，所以不會有舊形狀的 `v2` JSON。只有「部署過 04.1 中途版本的共用環境」才會有最多 60 秒的視窗，期間命中的舊 `v2` summary 缺新欄位（Jackson 以 `null` 讀入，`allocation` / `sectorAllocation` / `cashBalances` 可能是 `null` 而非空陣列），60 秒 TTL 到期後自動恢復。bearer client 對這些欄位仍應容錯 `null`。
 - 前端成交後應重讀 summary、holdings 與 trades（Phase 4 post-trade refetch）；〔04.2〕記股利或股數調整（含沖銷）後同樣重讀 summary、holdings 與活動列表。
 
@@ -590,6 +593,7 @@ query string 中未編碼的 `+` 會被解成空白，後端會還原，但前�
 
 ## 變更紀錄
 
+- 2026-11-11（Phase 5 D-05 ~ D-09，05-13 / 05-14 / 05-15）：**所有 API 的 `BigDecimal` 欄位改為 JSON 字串**（交易、持倉、summary、現金、股利、股數調整、活動列表、配置，以及 asset / market-data / backtest 的 DTO），一般記號、保留 scale（例 `"100.00000000"`、零為 `"0.00000000"`，不再出現 `0E-8`）；比率欄位只要是 `BigDecimal` 也一律字串，計數與整數比例（`holdingCount`、`ratioNew` 等）維持 number。請求端契約為字串，Jackson 仍接受 number（相容、不拒收）；選填金額送 `null` 不送 `""`。機制為逐欄位 `@DecimalString`（`PlainDecimalStringSerializer`），由 ArchUnit `ApiDecimalStringRulesTest` 守門；冪等比對維持 `compareTo`（`"10"` 與 `"10.00000000"` 為同一筆，`TradingApiIT.stringAmountReplayReturnsExistingTrade`）。持倉 / summary 快取鍵由 `v3` 升 `v4`。〈序列化格式〉一節改寫：刪除「金額為 JSON number」「`0E-8` 以數值解析」與行情 / 交易格式不一致的舊說明。**破壞性變更**：前端 `apiTypes` 須同步改字串（D-07 硬切，前後端同分支合併）。
 - 2026-11-09（Phase 5 D-02a，05-09）：`POST /trades` 的 `executedAt` 晚於伺服器時間 5 分鐘以上時，400 `VALIDATION_FAILED` 改帶 `fields.executedAt = "must not be in the future"`（先前無 `fields`、訊息 `executedAt must not be in the future`），與 1900 下限同形，前端下單表單可把錯誤綁到成交時間欄位。HTTP status、`error.code`、5 分鐘容忍度不變；只看 `error.code` 的 client 不受影響。
 - 2026-11-07（quick-261107-1j4，Yuan 裁決）：holdings 新增 `market`（string | null，JSON 位置緊接 `sector` 之後）：交易市場代號，與 `sector` 取自同一份資產屬性，資產屬性缺失或資產未設定市場時為 `null`。前端從持倉開啟股利 / 股數調整對話框時直接以 `market` + `assetType` 決定該市場的今天，不再額外依代號查資產。`market` 隨原幣估值寫入持倉快取，所以持倉鍵由 `portfolio:valuation:v2` 升 `portfolio:valuation:v3`（舊鍵 60 秒內自然過期）；summary 形狀與 `portfolio:summary:v3` 不變。純新增欄位，既有 client 不受影響。
 - 2026-11-07（quick-261107-1j4，04.2 WR-01）：`POST /portfolio/dividends` 與 `POST /portfolio/share-adjustments` 的標的狀態檢查只套用在**新紀錄**：帶 `reversalOfId` 的沖銷與同 key 冪等重送不再要求標的 active + tradeable（先前標的下架後無法更正既有紀錄，逾時重送也會被 404 擋下）。新紀錄的 404 `ASSET_NOT_FOUND` 訊息與 `fields.symbol` 不變；活動列表的 `reversible` 仍只看帳本。

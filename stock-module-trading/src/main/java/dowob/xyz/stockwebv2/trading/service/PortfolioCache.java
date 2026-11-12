@@ -34,6 +34,9 @@ import tools.jackson.databind.ObjectMapper;
  * 持倉鍵 {@code v2}（04.1）→ {@code v3}（2026-11-07，quick-261107-1j4：{@link HoldingDto} 新增隨持倉快取的
  * {@code market}，舊 v2 JSON 缺此欄會被讀成 {@code market = null}，前端便退回紐約日期；換前綴後新程式不讀舊鍵，
  * 舊 {@code v2} 鍵 60 秒後自然過期）。
+ * 兩把鍵 {@code v3} → {@code v4}（2026-11-11，Phase 5 D-05）：快取的 {@link HoldingDto} / {@link PortfolioSummaryDto}
+ * JSON 金額由 number 改為字串；新舊程式雖可互讀（Jackson 字串 ↔ {@code BigDecimal}），仍換版本段以免部署瞬間混讀，
+ * 舊 {@code v3} 鍵 60 秒後自然過期。
  *
  * <p>持倉鍵存<strong>原幣</strong>估值，與使用者基準幣無關；summary 鍵則含基準幣
  * （鍵由版本段、userId 與基準幣代碼組成），使用者切換基準幣後直接 miss、立即重算。
@@ -48,14 +51,14 @@ import tools.jackson.databind.ObjectMapper;
  * 殘餘競態（讀者在 commit 前讀到舊資料、於失效之後才寫回）最長 60 秒，與交易路徑相同，屬已接受。
  *
  * @author Yuan
- * @version 4.1
+ * @version 4.2
  */
 @Component
 public class PortfolioCache {
     private static final Logger log = LoggerFactory.getLogger(PortfolioCache.class);
     private static final Duration TTL = Duration.ofSeconds(60);
-    private static final String VALUATION_PREFIX = "portfolio:valuation:v3:";
-    private static final String SUMMARY_PREFIX = "portfolio:summary:v3:";
+    private static final String VALUATION_PREFIX = "portfolio:valuation:v4:";
+    private static final String SUMMARY_PREFIX = "portfolio:summary:v4:";
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;

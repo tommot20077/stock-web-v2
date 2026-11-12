@@ -1,5 +1,7 @@
 package dowob.xyz.stockwebv2.trading.api;
 
+import dowob.xyz.stockwebv2.infrastructure.web.json.DecimalString;
+
 import java.math.BigDecimal;
 import java.util.List;
 
@@ -55,25 +57,25 @@ import java.util.List;
  * @version 5.0
  */
 public record PortfolioSummaryDto(
-    BigDecimal totalMarketValue,
-    BigDecimal totalCostBasis,
-    BigDecimal realizedPnl,
-    BigDecimal unrealizedPnl,
-    BigDecimal totalPnl,
-    BigDecimal roi,
+    @DecimalString BigDecimal totalMarketValue,
+    @DecimalString BigDecimal totalCostBasis,
+    @DecimalString BigDecimal realizedPnl,
+    @DecimalString BigDecimal unrealizedPnl,
+    @DecimalString BigDecimal totalPnl,
+    @DecimalString BigDecimal roi,
     int holdingCount,
     String baseCurrency,
     int fxExcludedCount,
     List<String> unconvertedCurrencies,
-    BigDecimal dayPricePnl,
-    BigDecimal dayPricePnlRatio,
+    @DecimalString BigDecimal dayPricePnl,
+    @DecimalString BigDecimal dayPricePnlRatio,
     int dayPnlExcludedCount,
-    BigDecimal cash,
-    BigDecimal totalEquity,
+    @DecimalString BigDecimal cash,
+    @DecimalString BigDecimal totalEquity,
     List<CashBalanceDto> cashBalances,
     List<AllocationSliceDto> allocation,
     List<SectorAllocationDto> sectorAllocation,
-    BigDecimal dividendIncome,
-    BigDecimal dividendTaxWithheld
+    @DecimalString BigDecimal dividendIncome,
+    @DecimalString BigDecimal dividendTaxWithheld
 ) {
 }

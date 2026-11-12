@@ -103,7 +103,7 @@
 
 - `symbol` 大小寫敏感,必須與資產主檔代號完全一致。查無資產或尚無 tick → 404 `ASSET_NOT_FOUND`;批次超過 50 檔 → 400 `LATEST_BATCH_TOO_LARGE`。
 - K 線:`from` 必填(含)、`to` 選填(不含,預設現在);`limit` 預設 500、上限 5000。`from` / `to` 接受與 `GET /api/v1/trades` 相同的三種時間格式(帶偏移量、不帶偏移量、純日期),由 `ApiTimeParser` 解析。query string 中的 `+` 請編碼成 `%2B`。interval 不合法 → 400 `KLINE_INTERVAL_INVALID`。
-- **K 線與最新報價的價格是字串**,交易 / 持倉的金額是數字(見 trading-portfolio-contract〈序列化格式〉)。
+- K 線與最新報價的價格是一般記號的**字串**,與交易 / 持倉的金額同一格式(見 trading-portfolio-contract〈序列化格式〉)。
 - Backfill:body 為 `{symbol, from, to, interval}`(`from` / `to` 為 ISO-8601 instant),範圍上限 90 天(超過 → 400 `BACKFILL_RANGE_TOO_LARGE`)。`/api/v1/market/backfill` **不在** `/api/admin/**` 之下,ADMIN 檢查在 controller 方法內,非 ADMIN 回 403 `AUTH_FORBIDDEN`。
 
 ### 交易與投資組合(`stock-module-trading`)
@@ -186,8 +186,9 @@
 
 摘要如下,完整規則見 trading-portfolio-contract〈序列化格式〉:
 
-- 交易 / 持倉 / 現金的金額與數量(`BigDecimal`)是 **JSON number**(最多 8 位小數,`0E-8` 也是合法值,請以數值解析)。
-- K 線、最新報價、WebSocket tick 的價格與量是**字串**。
+- 所有 API 的 `BigDecimal` 欄位(交易 / 持倉 / 現金 / 股利 / 股數調整 / 配置 / 資產 / 行情 / 回測的金額、數量與比率)**一律是 JSON 字串**:一般記號(不會出現 `0E-8`)、保留 scale(例 `"100.00000000"`),`null` 維持 `null`。計數與整數比例(`holdingCount`、`ratioNew` 等)維持 number。
+- 請求端的金額也**必須送字串**(例 `"quantity":"10"`);後端仍接受 JSON number,屬相容行為不是契約。選填金額(`fee`、`withholdingTax`)不提供時送 `null` 或省略,不要送 `""`。
+- WebSocket tick / kline 推播的價格與量同樣是一般記號字串。
 - 時間是帶偏移量的 ISO-8601 字串(伺服器時區 `Asia/Taipei`);前端不要假設偏移量。
 - 對外 id 一律是字串 UUID(例外:`GET /api/v1/me` 的 `id`)。
 

@@ -27,6 +27,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import static dowob.xyz.stockwebv2.start.support.DecimalStringMatchers.decimalString;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasLength;
@@ -87,7 +88,7 @@ class ShareAdjustmentApiIT extends ContainerIT {
             .andExpect(jsonPath("$.data.symbol", equalTo("AAPL")))
             .andExpect(jsonPath("$.data.currency", equalTo("USD")))
             .andExpect(jsonPath("$.data.type", equalTo("STOCK_DIVIDEND")))
-            .andExpect(jsonPath("$.data.quantityDelta", equalTo(50.00000000)))
+            .andExpect(jsonPath("$.data.quantityDelta", decimalString("50.00000000")))
             .andExpect(jsonPath("$.data.ratioNew").value(nullValue()))
             .andExpect(jsonPath("$.data.ratioOld").value(nullValue()))
             .andExpect(jsonPath("$.data.effectiveDate", equalTo(today)))
@@ -99,8 +100,8 @@ class ShareAdjustmentApiIT extends ContainerIT {
                 .header("Authorization", "Bearer " + accessToken))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data[0].symbol", equalTo("AAPL")))
-            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(1050.00000000)))
-            .andExpect(jsonPath("$.data[0].avgCost", equalTo(95.23809524)));
+            .andExpect(jsonPath("$.data[0].totalQuantity", decimalString("1050.00000000")))
+            .andExpect(jsonPath("$.data[0].avgCost", decimalString("95.23809524")));
 
         assertThat(adjustmentRows(email)).isEqualTo(1);
         assertThat(storedQuantityDelta(email)).isEqualByComparingTo("50");
@@ -122,12 +123,12 @@ class ShareAdjustmentApiIT extends ContainerIT {
             .andExpect(jsonPath("$.data.type", equalTo("SPLIT")))
             .andExpect(jsonPath("$.data.ratioNew", equalTo(4)))
             .andExpect(jsonPath("$.data.ratioOld", equalTo(1)))
-            .andExpect(jsonPath("$.data.quantityDelta", equalTo(300.00000000)));
+            .andExpect(jsonPath("$.data.quantityDelta", decimalString("300.00000000")));
 
         mockMvc.perform(get("/api/v1/portfolio/holdings")
                 .header("Authorization", "Bearer " + accessToken))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(450.00000000)));
+            .andExpect(jsonPath("$.data[0].totalQuantity", decimalString("450.00000000")));
     }
 
     @Test
@@ -188,15 +189,15 @@ class ShareAdjustmentApiIT extends ContainerIT {
         postAdjustment(accessToken, UUID.randomUUID().toString(), splitBody(4, 1, yesterday, splitId))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.type", equalTo("SPLIT")))
-            .andExpect(jsonPath("$.data.quantityDelta", equalTo(300.00000000)))
+            .andExpect(jsonPath("$.data.quantityDelta", decimalString("300.00000000")))
             .andExpect(jsonPath("$.data.reversalOfId", equalTo(splitId)))
             .andExpect(jsonPath("$.data.reversed", equalTo(false)));
 
         mockMvc.perform(get("/api/v1/portfolio/holdings")
                 .header("Authorization", "Bearer " + accessToken))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(100.00000000)))
-            .andExpect(jsonPath("$.data[0].avgCost", equalTo(400.00000000)));
+            .andExpect(jsonPath("$.data[0].totalQuantity", decimalString("100.00000000")))
+            .andExpect(jsonPath("$.data[0].avgCost", decimalString("400.00000000")));
 
         postAdjustment(accessToken, UUID.randomUUID().toString(), splitBody(4, 1, yesterday, splitId))
             .andExpect(status().isConflict())
@@ -229,7 +230,7 @@ class ShareAdjustmentApiIT extends ContainerIT {
         mockMvc.perform(get("/api/v1/portfolio/holdings")
                 .header("Authorization", "Bearer " + accessToken))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(110.00000000)));
+            .andExpect(jsonPath("$.data[0].totalQuantity", decimalString("110.00000000")));
     }
 
     @Test
@@ -257,7 +258,7 @@ class ShareAdjustmentApiIT extends ContainerIT {
         mockMvc.perform(get("/api/v1/portfolio/holdings")
                 .header("Authorization", "Bearer " + ownerToken))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(200.00000000)));
+            .andExpect(jsonPath("$.data[0].totalQuantity", decimalString("200.00000000")));
         assertThat(adjustmentRows(ownerEmail)).isEqualTo(1);
     }
 
@@ -272,11 +273,11 @@ class ShareAdjustmentApiIT extends ContainerIT {
         String first = createdId(postAdjustment(accessToken, UUID.randomUUID().toString(),
                 splitBody(2, 1, today, null))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.quantityDelta", equalTo(100.00000000))));
+            .andExpect(jsonPath("$.data.quantityDelta", decimalString("100.00000000"))));
         String second = createdId(postAdjustment(accessToken, UUID.randomUUID().toString(),
                 splitBody(2, 1, today, null))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.quantityDelta", equalTo(200.00000000))));
+            .andExpect(jsonPath("$.data.quantityDelta", decimalString("200.00000000"))));
         assertHolding(accessToken, 400);
 
         postAdjustment(accessToken, UUID.randomUUID().toString(), splitBody(2, 1, today, first))
@@ -293,7 +294,7 @@ class ShareAdjustmentApiIT extends ContainerIT {
         /* 兩筆都已沖銷後再記一次同日 2:1：Q_asOf = 100 + (100 − 100) + (200 − 200) = 100 → ΔQ +100。 */
         postAdjustment(accessToken, UUID.randomUUID().toString(), splitBody(2, 1, today, null))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.quantityDelta", equalTo(100.00000000)));
+            .andExpect(jsonPath("$.data.quantityDelta", decimalString("100.00000000")));
         assertHolding(accessToken, 200);
     }
 
@@ -459,7 +460,7 @@ class ShareAdjustmentApiIT extends ContainerIT {
         mockMvc.perform(get("/api/v1/portfolio/holdings")
                 .header("Authorization", "Bearer " + accessToken))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[0].totalQuantity", equalTo(expectedQuantity * 1.0)));
+            .andExpect(jsonPath("$.data[0].totalQuantity", decimalString(String.valueOf(expectedQuantity))));
     }
 
     private static String threeDaysAgo() {
