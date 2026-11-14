@@ -3,16 +3,16 @@ status: testing
 phase: 05-cross-repo-browser-flow-verification-contract-hardening
 source: [05-VERIFICATION.md]
 started: 2026-11-12T03:21:32Z
-updated: 2026-11-14T13:25:35Z
+updated: 2026-11-14T13:30:04Z
 ---
 
 ## Current Test
 <!-- OVERWRITE each test - shows where we are -->
 
-number: 6
-name: API mode 未登入進站 → UI 登入,不切頁,看 Overview
+number: 8
+name: 確認 judgment-tier prohibitions:05-01『journey 不把手動交易說成委託單』、05-04『不得放寬正式安全設定讓測試變綠』、05-16 ~ 05-23『API 路徑金額不經 JS number 運算』
 expected: |
-  Yuan 決定此既有缺陷是否可以帶著 milestone 結案:目前 Overview 會停在 AUTH_REFRESH_TOKEN_INVALID 錯誤區塊,要切頁才會重讀(App.vue:297 的 watch 只重連報價串流);J0 以切頁繞過
+  Yuan 認可下方的非權威判斷(皆 PASS)
 awaiting: user response
 
 ## Tests
@@ -39,11 +39,14 @@ result: pass
 
 ### 6. API mode 未登入進站 → UI 登入,不切頁,看 Overview
 expected: Yuan 決定此既有缺陷是否可以帶著 milestone 結案:目前 Overview 會停在 AUTH_REFRESH_TOKEN_INVALID 錯誤區塊,要切頁才會重讀(App.vue:297 的 watch 只重連報價串流);J0 以切頁繞過
-result: [pending]
+result: pass
+note: "Yuan 接受帶著此既有缺陷結案;仍記錄於 deferred-items.md"
 
 ### 7. 分派 05-REVIEW-DISPOSITION.md 21 個 open finding,至少先處理 BE-CR-01(critical)
 expected: BE-CR-01 給 initialCapital 加 @DecimalMax / @Digits 並補 400 測試,或明確 deferred 並寫明理由;FE-WR-01 / FE-WR-02 / FE-WR-04 決定修或延後
-result: [pending]
+result: issue
+reported: "Yuan 裁定:BE-CR-01、FE-WR-03、FE-WR-04 本 phase 修正;FE-WR-01、FE-WR-02、BE-WR-01、BE-WR-02 不需要處理(skipped);BE-WR-03 與 13 個 info 延後(deferred)。原話:「FE-WR-01 FE-WR-02 BE-WR-01 BE-WR-02 不需要」,其餘照建議"
+severity: blocker
 
 ### 8. 確認 judgment-tier prohibitions:05-01『journey 不把手動交易說成委託單』、05-04『不得放寬正式安全設定讓測試變綠』、05-16 ~ 05-23『API 路徑金額不經 JS number 運算』
 expected: Yuan 認可下方的非權威判斷(皆 PASS)
@@ -60,15 +63,22 @@ result: [pending]
 ## Summary
 
 total: 10
-passed: 5
-issues: 0
-pending: 5
+passed: 6
+issues: 1
+pending: 3
 skipped: 0
 blocked: 0
 
 ## Gaps
 
-[none yet]
+- gap_id: G-05-7
+  truth: "回測 initialCapital 在前後端都有上限與位數限制(極端值回 400、不進引擎);Backtest / Analytics 的漲跌色全部走 token,紅漲模式正確對調"
+  status: failed
+  reason: "User reported: Test 7 分派 code review finding — BE-CR-01(critical,initialCapital 無 @DecimalMax / @Digits,1e999999999 可讓引擎 setScale 卡死,已登入即可 DoS)、FE-WR-03(前端回測初始資金接受指數記號 / 無上限 / 超過 8 位小數)、FE-WR-04(Backtest.vue:141,372-373、Analytics.vue:835-839 寫死 rgba 漲跌色,紅漲模式不對調)需本 phase 修正"
+  severity: blocker
+  test: 7
+  artifacts: []
+  missing: []
 
 ## Deferred Follow-Ups
 
