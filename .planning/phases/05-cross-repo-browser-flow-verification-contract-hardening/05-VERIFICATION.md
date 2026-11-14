@@ -7,6 +7,19 @@ covered_files: [".github/workflows/ci.yml",".gitignore",".planning/phases/05-cro
 covered_digest: "v3:sha256:423cd5fe6523c05bd73ece847a46e813aa9823e3e15607bbdc1b3cc691de2522"
 behavior_unverified: 0
 overrides_applied: 0
+overrides:
+  - must_have: "OrderTicket 估算金額(數量 × 價格 + 手續費)以 Decimal 計算"
+    reason: "既有 04.1-14 / 04.1-27 測試鎖定預估總額 = 數量 × 價格,後端 total 同定義;mock cashAfter 另計手續費,含手續費會重複計入。Decimal 化已完成"
+    accepted_by: "Yuan"
+    accepted_at: "2026-11-14T13:34:45Z"
+  - must_have: "HoldingEventDialog 比較與淨額(金額 − 稅)以 Decimal"
+    reason: "後端 CreateDividendRequest.amount 是實領(扣稅後),金額 − 稅會把稅扣兩次;既有比較已全部改用 Decimal"
+    accepted_by: "Yuan"
+    accepted_at: "2026-11-14T13:34:45Z"
+  - must_have: "後端鏈 05-13 ~ 05-15 與前端鏈 05-16 ~ 05-24 都完成前,兩 repo 不推送 Wave 2 分支、不開 PR"
+    reason: "實際逐 plan 推送(feature 分支 push run 紅屬預期組合),但 PR 在兩條鏈完成後才開,合併順序(前端 02:26:35Z → 後端 02:26:51Z)與兩 repo develop 綠燈都已核實;流程偏離沒有留下程式碼影響"
+    accepted_by: "Yuan"
+    accepted_at: "2026-11-14T13:34:45Z"
 human_verification:
   - test: "決定 05-19 must-have『估算金額(數量 × 價格 + 手續費)』的字面偏離:目前 OrderTicket.vue:976 估算 = quantity.times(price),不含手續費"
     expected: "Yuan 接受現況(加入下方建議的 override)或要求改為含手續費(要同時改既有 04.1-14 / 04.1-27 測試與 mock cashAfter 公式)"
