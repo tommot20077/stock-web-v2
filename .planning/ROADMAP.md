@@ -284,3 +284,21 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 4.1 -> 4.2 -> 5
 | 04.1 Backend Data Gap Backfill (INSERTED) | 32/32 | Completed | 2026-10-31 |
 | 04.2 Dividends, Share Adjustments & Watchlist (INSERTED) | 26/26 | Complete    | 2026-11-04 |
 | 5. Cross-Repo Browser Flow Verification & Contract Hardening | 25/25 | In Progress | - |
+
+## Backlog
+
+### Phase 999.1: Follow-up — Phase 05 deferred UAT follow-up: Test 4 (BACKLOG)
+
+**Goal:** Resolve the UAT checkpoint deferred during Phase 05 verification
+**Source phase:** 05
+**Deferred at:** 2026-11-14 during /gsd-verify-work 05 session completion
+**Follow-ups:**
+- [ ] Test 4: COVERAGE-AUDIT VER-01 #5:把 stock-module-market-data/target/failsafe-reports/ 加入 CI artifact 上傳路徑 (deferred 2026-11-14)
+
+### Phase 999.2: Follow-up — Phase 05 deferred UAT follow-up: Test 4 (BACKLOG)
+
+**Goal:** Resolve the UAT checkpoint deferred during Phase 05 verification
+**Source phase:** 05
+**Deferred at:** 2026-11-14 during /gsd-verify-work 05 session completion
+**Follow-ups:**
+- [ ] Test 4: COVERAGE-AUDIT VER-01 #8:補 stock-start IT,把 Jacoco 下限從 0.87 / 0.64 拉回 0.88 / 0.66 (deferred 2026-11-14)
