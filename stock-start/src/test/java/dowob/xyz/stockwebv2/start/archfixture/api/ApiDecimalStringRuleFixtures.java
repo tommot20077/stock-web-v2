@@ -2,8 +2,12 @@ package dowob.xyz.stockwebv2.start.archfixture.api;
 
 import dowob.xyz.stockwebv2.infrastructure.web.json.DecimalString;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * {@code ApiDecimalStringRulesTest}（D-09）自我驗證用的 fixture 持有類別。
@@ -56,6 +60,76 @@ public final class ApiDecimalStringRuleFixtures {
      * @param tags   標籤
      */
     public record CompliantResponse(@DecimalString BigDecimal amount, int count, List<String> tags) {
+    }
+
+    /**
+     * 違規（規則 2）:{@code List<BigDecimal>} —— {@link DecimalString} 不能標在 type-use 位置，元素會以 JSON number 輸出。
+     *
+     * @param amounts 參數化型別中的金額
+     */
+    public record ListAmountDto(List<BigDecimal> amounts) {
+    }
+
+    /**
+     * 違規（規則 2）:{@code Map<String, BigDecimal>}。
+     *
+     * @param amountsByCurrency 參數化型別中的金額
+     */
+    public record MapAmountDto(Map<String, BigDecimal> amountsByCurrency) {
+    }
+
+    /**
+     * 違規（規則 2）:{@code Optional<BigDecimal>}。
+     *
+     * @param amount 參數化型別中的金額
+     */
+    public record OptionalAmountDto(Optional<BigDecimal> amount) {
+    }
+
+    /**
+     * 違規（規則 2）:{@code BigDecimal[]} —— raw type 不是 {@code BigDecimal}，規則 1 看不到。
+     *
+     * @param amounts 陣列中的金額
+     */
+    public record ArrayAmountDto(BigDecimal[] amounts) {
+    }
+
+    /**
+     * 違規（規則 3）:沒有 {@code BigDecimal} 欄位，但 public getter 回傳未標註的 {@code BigDecimal}，Jackson 會把它序列化成
+     * JSON number；只看欄位的規則 1 抓不到。
+     */
+    public static final class GetterResponse {
+
+        /** 以最小單位保存的金額。 */
+        private final long cents = 12_345L;
+
+        /**
+         * 回傳金額（未標註，刻意違規）。
+         *
+         * @return 金額
+         */
+        public BigDecimal getTotal() {
+            return BigDecimal.valueOf(cents, 2);
+        }
+    }
+
+    /**
+     * 合規（規則 3）:同 {@link GetterResponse}，但 getter 標 {@link JsonIgnore}，不會被序列化，不需 {@link DecimalString}。
+     */
+    public static final class IgnoredGetterResponse {
+
+        /** 以最小單位保存的金額。 */
+        private final long cents = 12_345L;
+
+        /**
+         * 回傳金額（{@code @JsonIgnore}，不進 JSON）。
+         *
+         * @return 金額
+         */
+        @JsonIgnore
+        public BigDecimal getTotal() {
+            return BigDecimal.valueOf(cents, 2);
+        }
     }
 
     /**
