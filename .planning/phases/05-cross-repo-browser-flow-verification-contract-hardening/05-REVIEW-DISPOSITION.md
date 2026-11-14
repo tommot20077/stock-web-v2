@@ -9,7 +9,7 @@ findings:
     title: "`CreateBacktestRunRequest.initialCapital` 沒有上限 / 位數限制,極端指數字串會讓回測引擎 `setScale` 卡死(已登入使用者即可 DoS)"
   - id: BE-WR-01
     severity: warning
-    disposition: skipped
+    disposition: open
     title: "D-09 守門(`ApiDecimalStringRulesTest`)只掃 `*Dto` / `*Request` 類別的 raw-type `BigDecimal` 欄位,有多種寫法會繞過"
   - id: BE-WR-02
     severity: warning
@@ -53,11 +53,11 @@ findings:
     title: "V20 的負向 IT 只斷言 `DataIntegrityViolationException`,沒有確認是哪個約束"
   - id: FE-WR-01
     severity: warning
-    disposition: skipped
+    disposition: open
     title: "The non-`ApiClientError` fallback is still labelled `NETWORK_ERROR` and now hides contract or mapper failures, including after a successful write"
   - id: FE-WR-02
     severity: warning
-    disposition: skipped
+    disposition: open
     title: "SC5 \"not masked by mock\" sentinels cannot fire for Overview (and Cash), so D-20 is not actually verified there"
   - id: FE-WR-03
     severity: warning
@@ -87,7 +87,7 @@ findings:
     severity: info
     disposition: deferred
     title: "The \"never goes through JS number\" formatting depends on Intl.NumberFormat v3 with no fallback"
-open: 3
+open: 6
 total: 21
 ---
 
@@ -96,7 +96,7 @@ total: 21
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
 | BE-CR-01 | critical | open | 05-REVIEW.md;UAT Test 7(2026-11-14):本 phase gap-closure 修正 |
-| BE-WR-01 | warning | skipped | 05-REVIEW.md;Yuan 於 UAT Test 7(2026-11-14)裁定不需要處理 |
+| BE-WR-01 | warning | open | 05-REVIEW.md;UAT Test 7(2026-11-14):本 phase gap-closure 修正 |
 | BE-WR-02 | warning | skipped | 05-REVIEW.md;Yuan 於 UAT Test 7(2026-11-14)裁定不需要處理 |
 | BE-WR-03 | warning | deferred | 05-REVIEW.md;UAT Test 7(2026-11-14):與 Jacoco 下限 follow-up(UAT Test 4 #8)一併處理 |
 | BE-IN-01 | info | deferred | 05-REVIEW.md;UAT Test 7(2026-11-14):info 級,延後至後續整理 |
@@ -107,8 +107,8 @@ total: 21
 | BE-IN-06 | info | deferred | 05-REVIEW.md;UAT Test 7(2026-11-14):info 級,延後至後續整理 |
 | BE-IN-07 | info | deferred | 05-REVIEW.md;UAT Test 7(2026-11-14):info 級,延後至後續整理 |
 | BE-IN-08 | info | deferred | 05-REVIEW.md;UAT Test 7(2026-11-14):info 級,延後至後續整理 |
-| FE-WR-01 | warning | skipped | 05-REVIEW.md;Yuan 於 UAT Test 7(2026-11-14)裁定不需要處理 |
-| FE-WR-02 | warning | skipped | 05-REVIEW.md;Yuan 於 UAT Test 7(2026-11-14)裁定不需要處理 |
+| FE-WR-01 | warning | open | 05-REVIEW.md;UAT Test 7(2026-11-14):本 phase gap-closure 修正 |
+| FE-WR-02 | warning | open | 05-REVIEW.md;UAT Test 7(2026-11-14):本 phase gap-closure 修正 |
 | FE-WR-03 | warning | open | 05-REVIEW.md;UAT Test 7(2026-11-14):本 phase gap-closure 修正 |
 | FE-WR-04 | warning | open | 05-REVIEW.md;UAT Test 7(2026-11-14):本 phase gap-closure 修正 |
 | FE-IN-01 | info | deferred | 05-REVIEW.md;UAT Test 7(2026-11-14):info 級,延後至後續整理 |

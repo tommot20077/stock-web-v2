@@ -3,16 +3,16 @@ status: testing
 phase: 05-cross-repo-browser-flow-verification-contract-hardening
 source: [05-VERIFICATION.md]
 started: 2026-11-12T03:21:32Z
-updated: 2026-11-14T13:30:04Z
+updated: 2026-11-14T13:32:27Z
 ---
 
 ## Current Test
 <!-- OVERWRITE each test - shows where we are -->
 
-number: 8
-name: 確認 judgment-tier prohibitions:05-01『journey 不把手動交易說成委託單』、05-04『不得放寬正式安全設定讓測試變綠』、05-16 ~ 05-23『API 路徑金額不經 JS number 運算』
+number: 10
+name: 決定 T-05-12:.env.example:17 為 STOCK_JWT_ACCESS_TOKEN_TTL=PT30M 且沒有成對的 cookie TTL;dev profile 會讀 .env,照 README 複製後啟動會被 AccessTokenTtlConsistencyGuard 拒絕
 expected: |
-  Yuan 認可下方的非權威判斷(皆 PASS)
+  修改 .env.example 為 PT15M(或補上成對的 STOCK_AUTH_COOKIE_ACCESS_TOKEN_TTL),或接受為已知的文件落差
 awaiting: user response
 
 ## Tests
@@ -45,16 +45,18 @@ note: "Yuan 接受帶著此既有缺陷結案;仍記錄於 deferred-items.md"
 ### 7. 分派 05-REVIEW-DISPOSITION.md 21 個 open finding,至少先處理 BE-CR-01(critical)
 expected: BE-CR-01 給 initialCapital 加 @DecimalMax / @Digits 並補 400 測試,或明確 deferred 並寫明理由;FE-WR-01 / FE-WR-02 / FE-WR-04 決定修或延後
 result: issue
-reported: "Yuan 裁定:BE-CR-01、FE-WR-03、FE-WR-04 本 phase 修正;FE-WR-01、FE-WR-02、BE-WR-01、BE-WR-02 不需要處理(skipped);BE-WR-03 與 13 個 info 延後(deferred)。原話:「FE-WR-01 FE-WR-02 BE-WR-01 BE-WR-02 不需要」,其餘照建議"
+reported: "Yuan 裁定:BE-CR-01、FE-WR-03、FE-WR-04、FE-WR-01、FE-WR-02、BE-WR-01 本 phase 修正;BE-WR-02 不處理(skipped,待確認);BE-WR-03 與 13 個 info 延後(deferred)。原話:「FE-WR-01 FE-WR-02 BE-WR-01 BE-WR-02 不需要」→ 更正「FE-WR-01 FE-WR-02 BE-WR-01 這是本次要修正」"
 severity: blocker
 
 ### 8. 確認 judgment-tier prohibitions:05-01『journey 不把手動交易說成委託單』、05-04『不得放寬正式安全設定讓測試變綠』、05-16 ~ 05-23『API 路徑金額不經 JS number 運算』
 expected: Yuan 認可下方的非權威判斷(皆 PASS)
-result: [pending]
+result: pass
 
 ### 9. 05-01 test-tier prohibition『contract-journey 不得 page.route / route.fulfill』:目前 grep 為 0 次,但沒有自動守門防止回退
 expected: Yuan 接受只靠現況 + code review,或補一條源碼守門(例如在 mockStoreBoundary 類測試掃描 contract-journey.spec.ts)
-result: [pending]
+result: issue
+reported: "補守門(回 issue)"
+severity: major
 
 ### 10. 決定 T-05-12:.env.example:17 為 STOCK_JWT_ACCESS_TOKEN_TTL=PT30M 且沒有成對的 cookie TTL;dev profile 會讀 .env,照 README 複製後啟動會被 AccessTokenTtlConsistencyGuard 拒絕
 expected: 修改 .env.example 為 PT15M(或補上成對的 STOCK_AUTH_COOKIE_ACCESS_TOKEN_TTL),或接受為已知的文件落差
@@ -63,20 +65,28 @@ result: [pending]
 ## Summary
 
 total: 10
-passed: 6
-issues: 1
-pending: 3
+passed: 7
+issues: 2
+pending: 1
 skipped: 0
 blocked: 0
 
 ## Gaps
 
 - gap_id: G-05-7
-  truth: "回測 initialCapital 在前後端都有上限與位數限制(極端值回 400、不進引擎);Backtest / Analytics 的漲跌色全部走 token,紅漲模式正確對調"
+  truth: "回測 initialCapital 前後端都有上限與位數限制(極端值回 400、不進引擎);Backtest / Analytics 漲跌色全走 token;非 ApiClientError 例外不再一律標成 NETWORK_ERROR;SC5 mock 哨兵在 Overview / Cash 能真正觸發;D-09 守門涵蓋 *Response / 參數化型別 / getter 等繞過寫法"
   status: failed
-  reason: "User reported: Test 7 分派 code review finding — BE-CR-01(critical,initialCapital 無 @DecimalMax / @Digits,1e999999999 可讓引擎 setScale 卡死,已登入即可 DoS)、FE-WR-03(前端回測初始資金接受指數記號 / 無上限 / 超過 8 位小數)、FE-WR-04(Backtest.vue:141,372-373、Analytics.vue:835-839 寫死 rgba 漲跌色,紅漲模式不對調)需本 phase 修正"
+  reason: "User reported: Test 7 分派 code review finding,本 phase 修正:BE-CR-01(critical,initialCapital 無 @DecimalMax / @Digits,1e999999999 可讓引擎 setScale 卡死)、FE-WR-03(前端回測初始資金接受指數記號 / 無上限 / 超過 8 位小數)、FE-WR-04(Backtest.vue / Analytics.vue 寫死 rgba 漲跌色)、FE-WR-01(非 ApiClientError fallback 標 NETWORK_ERROR,遮蔽 contract / mapper 失敗)、FE-WR-02(SC5 哨兵在 Overview / Cash 無法觸發)、BE-WR-01(ApiDecimalStringRulesTest 只掃 *Dto / *Request raw-type 欄位)。細節見 05-REVIEW.md"
   severity: blocker
   test: 7
+  artifacts: []
+  missing: []
+- gap_id: G-05-9
+  truth: "有自動源碼守門斷言 contract-journey.spec.ts 不含 page.route / route.fulfill / context.route,防止 J0 被 stub 弱化"
+  status: failed
+  reason: "User reported: 補守門(回 issue)"
+  severity: major
+  test: 9
   artifacts: []
   missing: []
 
