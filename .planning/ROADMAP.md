@@ -237,7 +237,7 @@ Plans:
   4. Browser verification 可確認 auth cookies 為 httpOnly、CSRF token/header 正確、protected requests 帶 credentials、logout 後 `/me` 回 401。
   5. API mode integration failure 會顯示錯誤/重試狀態，不會被 mock data 掩蓋。
 
-**Plans**: 25/25 plans executed(13 GSD waves;D-24 / D-25:PR Wave 1 安全網 = 05-01 ~ 05-12,05-12 為 Yuan 合併 + develop 綠的閘門;PR Wave 2 金額字串化硬切 = 05-13 ~ 05-25,前端依型別閉包分為 05-16 ~ 05-24,05-25 為依宣告順序(前端先、後端緊接)的同時窗合併閘門)。本環境無 Docker,IT / E2E / 真後端 browser E2E 以 CI 為證。
+**Plans**: 25/33 plans executed(05-26 ~ 05-33 為 UAT gap closure,見下方清單;原 25 個:13 GSD waves;D-24 / D-25:PR Wave 1 安全網 = 05-01 ~ 05-12,05-12 為 Yuan 合併 + develop 綠的閘門;PR Wave 2 金額字串化硬切 = 05-13 ~ 05-25,前端依型別閉包分為 05-16 ~ 05-24,05-25 為依宣告順序(前端先、後端緊接)的同時窗合併閘門)。本環境無 Docker,IT / E2E / 真後端 browser E2E 以 CI 為證。
 **UI hint**: yes
 
 Plans:
@@ -267,6 +267,16 @@ Plans:
 - [x] `05-24-PLAN.md` — 回測 Decimal 化、E2E helper 改字串、decimal 邊界守門與文件(wave 12,frontend)
 - [x] `05-25-PLAN.md` — Wave 2 閘門:PR、CI 證據、Yuan 依宣告順序同時窗合併(前端先、後端緊接)+ develop 綠(D-07)(wave 13,checkpoint)
 
+Gap closure(UAT 2026-11-14:G-05-7 / G-05-9 / G-05-10;wave 編號自成一組):
+- [ ] `05-26-PLAN.md` — BE-CR-01:回測 initialCapital `@DecimalMax(1e12)` + `@Digits(13, 6)`、WebMvc 400 且不進引擎、service 縱深檢查、E2E D3b(wave 1,backend,G-05-7)
+- [ ] `05-27-PLAN.md` — BE-WR-01:D-09 守門擴大(Response / View / record、參數化型別、getter)+ fixture 自我驗證;`.env.example` access TTL 對齊 PT15M + 範本守門(wave 1,backend,G-05-7 / G-05-10)
+- [ ] `05-28-PLAN.md` — FE-WR-03:共用 `parsePlainDecimalInput`、回測初始資金上限 1e12 / 6 位小數、mock 同步;FE-WR-04:Backtest / Analytics 漲跌色改 token + 全源碼 rgba 守門(wave 1,frontend,G-05-7)
+- [ ] `05-29-PLAN.md` — FE-WR-01(一):`apiRequestMapped`、4 個寫入 adapter、OrderTicket `tradeErrInvalidResponse` 與 UNKNOWN_ERROR(wave 1,frontend,G-05-7)
+- [ ] `05-30-PLAN.md` — FE-WR-01(二):基準幣與現金 / 股利對話框的非 ApiClientError → UNKNOWN_ERROR(wave 2,frontend,G-05-7)
+- [ ] `05-31-PLAN.md` — FE-WR-01(三):觀察清單系列與 App 啟動錯誤 → UNKNOWN_ERROR + 網路錯誤碼唯一產生點源碼守門(wave 3,frontend,G-05-7)
+- [ ] `05-32-PLAN.md` — FE-WR-02:SC5 哨兵納入 Overview KPI 與現金 mock 備註、強化 assertReal;G-05-9:contract-journey 不得 stub 的 `?raw` 守門(wave 1,frontend,G-05-7 / G-05-9)
+- [ ] `05-33-PLAN.md` — gap closure 閘門:PR、CI 證據(含本機不可證的 E2E / Browser E2E)、Yuan 合併 + develop 綠(wave 4,checkpoint)
+
 **Cross-cutting constraints:**
 - npm test(mock 與 api 兩種 mode)、npm run build、layout.spec 全綠
 
@@ -283,7 +293,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 4.1 -> 4.2 -> 5
 | 4. Manual Trade Creation, Idempotency & Post-Trade Refetch | 13/13 | Completed | 2026-09-04 |
 | 04.1 Backend Data Gap Backfill (INSERTED) | 32/32 | Completed | 2026-10-31 |
 | 04.2 Dividends, Share Adjustments & Watchlist (INSERTED) | 26/26 | Complete    | 2026-11-04 |
-| 5. Cross-Repo Browser Flow Verification & Contract Hardening | 25/25 | In Progress | - |
+| 5. Cross-Repo Browser Flow Verification & Contract Hardening | 25/33 | In Progress | - |
 
 ## Backlog
 
