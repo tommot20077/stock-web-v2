@@ -1,19 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 05-cross-repo-browser-flow-verification-contract-hardening
 source: [05-VERIFICATION.md]
 started: 2026-11-12T03:21:32Z
-updated: 2026-11-14T13:32:27Z
+updated: 2026-11-14T13:34:53.851Z
 ---
 
 ## Current Test
-<!-- OVERWRITE each test - shows where we are -->
 
-number: 10
-name: 決定 T-05-12:.env.example:17 為 STOCK_JWT_ACCESS_TOKEN_TTL=PT30M 且沒有成對的 cookie TTL;dev profile 會讀 .env,照 README 複製後啟動會被 AccessTokenTtlConsistencyGuard 拒絕
-expected: |
-  修改 .env.example 為 PT15M(或補上成對的 STOCK_AUTH_COOKIE_ACCESS_TOKEN_TTL),或接受為已知的文件落差
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -60,14 +55,16 @@ severity: major
 
 ### 10. 決定 T-05-12:.env.example:17 為 STOCK_JWT_ACCESS_TOKEN_TTL=PT30M 且沒有成對的 cookie TTL;dev profile 會讀 .env,照 README 複製後啟動會被 AccessTokenTtlConsistencyGuard 拒絕
 expected: 修改 .env.example 為 PT15M(或補上成對的 STOCK_AUTH_COOKIE_ACCESS_TOKEN_TTL),或接受為已知的文件落差
-result: [pending]
+result: issue
+reported: "修正"
+severity: major
 
 ## Summary
 
 total: 10
 passed: 7
-issues: 2
-pending: 1
+issues: 3
+pending: 0
 skipped: 0
 blocked: 0
 
@@ -87,6 +84,15 @@ blocked: 0
   reason: "User reported: 補守門(回 issue)"
   severity: major
   test: 9
+  artifacts: []
+  missing: []
+
+- gap_id: G-05-10
+  truth: "照 README 複製 .env.example 為 .env 後,dev profile 可直接啟動(JWT access TTL 與 cookie access TTL 一致,不被 AccessTokenTtlConsistencyGuard 拒絕)"
+  status: failed
+  reason: "User reported: 修正(.env.example:17 STOCK_JWT_ACCESS_TOKEN_TTL=PT30M 改為 PT15M,對齊 application.yaml 兩個預設值)"
+  severity: major
+  test: 10
   artifacts: []
   missing: []
 
