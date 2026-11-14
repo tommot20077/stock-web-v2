@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.ResultActions;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -140,6 +141,78 @@ class ValidationBoundaryE2E extends AbstractStockE2E {
                 .andExpect(status().isOk())
                 .andExpect(apiSuccess())
                 .andExpect(jsonPath("$.data.status", equalTo("succeeded")));
+        }
+    }
+
+    @Nested
+    @DisplayName("D3b initialCapital 上界與位數(BE-CR-01)")
+    class InitialCapitalUpperBoundAndScale {
+
+        @Test
+        @DisplayName("initialCapital 為指數字串 \"1e999999999\" → 400 且回報 initialCapital 欄位(不得進入引擎)")
+        void backtestRunWithExponentialInitialCapitalIsRejected() throws Exception {
+            var session = auth.register("d3b-exp@example.com", "d3bexp", "Password1");
+
+            createBacktestRun(session.accessToken(), "1e999999999")
+                .andExpect(status().isBadRequest())
+                .andExpect(apiError("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.fields.initialCapital").exists());
+        }
+
+        @Test
+        @DisplayName("initialCapital 為 7 位小數 → 400 且回報 initialCapital 欄位")
+        void backtestRunWithSevenDecimalPlacesIsRejected() throws Exception {
+            var session = auth.register("d3b-scale@example.com", "d3bscale", "Password1");
+
+            createBacktestRun(session.accessToken(), "123456789012.1234567")
+                .andExpect(status().isBadRequest())
+                .andExpect(apiError("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.fields.initialCapital").exists());
+        }
+
+        @Test
+        @DisplayName("initialCapital 超過上限一個最小刻度(1e12 + 0.000001)→ 400 且回報 initialCapital 欄位")
+        void backtestRunJustAboveUpperBoundIsRejected() throws Exception {
+            var session = auth.register("d3b-over@example.com", "d3bover", "Password1");
+
+            createBacktestRun(session.accessToken(), "1000000000000.000001")
+                .andExpect(status().isBadRequest())
+                .andExpect(apiError("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.fields.initialCapital").exists());
+        }
+
+        @Test
+        @DisplayName("initialCapital 恰為上限 1e12 → 成功完成")
+        void backtestRunAtUpperBoundSucceeds() throws Exception {
+            var session = auth.register("d3b-max@example.com", "d3bmax", "Password1");
+
+            createBacktestRun(session.accessToken(), "1000000000000")
+                .andExpect(status().isOk())
+                .andExpect(apiSuccess())
+                .andExpect(jsonPath("$.data.status", equalTo("succeeded")));
+        }
+
+        @Test
+        @DisplayName("initialCapital 為最小刻度 0.000001 → 成功完成(drawdown 不除以 0)")
+        void backtestRunAtMinimalScaleSucceeds() throws Exception {
+            var session = auth.register("d3b-min@example.com", "d3bmin", "Password1");
+
+            createBacktestRun(session.accessToken(), "0.000001")
+                .andExpect(status().isOk())
+                .andExpect(apiSuccess())
+                .andExpect(jsonPath("$.data.status", equalTo("succeeded")));
+        }
+
+        /**
+         * 沿用 D3 的請求本體,只把 {@code initialCapital} 換成 JSON 字串(D-07 金額走字串的正式路徑)。
+         */
+        private ResultActions createBacktestRun(String accessToken, String initialCapital) throws Exception {
+            return mockMvc.perform(post("/api/v1/backtests/runs")
+                .contentType(MediaType.APPLICATION_JSON)
+                .with(bearerToken(accessToken))
+                .content("""
+                    {"strategyId":"ma_cross","strategyCode":null,"symbol":"NVDA","period":"1Y","initialCapital":"%s","currency":"USD","benchmark":"buy_hold","dataMode":"cached"}
+                    """.formatted(initialCapital)));
         }
     }
 

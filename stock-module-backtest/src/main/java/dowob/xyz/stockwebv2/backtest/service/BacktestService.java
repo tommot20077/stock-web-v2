@@ -35,6 +35,27 @@ public class BacktestService {
     private static final String CACHED = "cached";
     private static final int MAX_PAGE = 10_000;
 
+    /**
+     * 初始資金上限 1e12。與 {@code CreateBacktestRunRequest.initialCapital} 的
+     * {@code @DecimalMax("1000000000000")} 同源(Yuan 2026-11-14 裁決,BE-CR-01);
+     * 引擎 60 個月最多約 1.31 倍,V3 {@code initial_capital NUMERIC(24,6)} 仍有餘裕。
+     * 這裡是縱深防禦:非 HTTP 呼叫端繞過 Bean Validation 時,指數表示的巨大值也不得進入引擎的 {@code setScale}。
+     */
+    private static final BigDecimal MAX_INITIAL_CAPITAL = new BigDecimal("1000000000000");
+
+    /**
+     * 初始資金最多 6 位有效小數。與 {@code @Digits(integer = 13, fraction = 6)} 同源,對齊 V3
+     * {@code NUMERIC(24,6)} 與引擎的 {@code setScale(6)};超過 6 位的極小值會被捨入成 0,
+     * 造成 drawdown 除以 0。此處以去尾零後的 scale 判斷(尾零不算)。
+     */
+    private static final int MAX_INITIAL_CAPITAL_SCALE = 6;
+
+    /**
+     * 界外初始資金的靜態訊息;不回射輸入值(安全審查 L-1)。
+     */
+    private static final String INITIAL_CAPITAL_OUT_OF_RANGE_MESSAGE =
+        "initialCapital must be at most 1000000000000 with at most 6 decimal places";
+
     private final BacktestRepository repository;
     private final BacktestEngine engine;
     private final BacktestMapper mapper;
@@ -189,9 +210,25 @@ public class BacktestService {
         return symbol.trim();
     }
 
+    /**
+     * 檢查初始資金:必須大於 0、不超過 {@link #MAX_INITIAL_CAPITAL}、去尾零後最多
+     * {@link #MAX_INITIAL_CAPITAL_SCALE} 位小數(BE-CR-01 縱深防禦)。
+     *
+     * <p>比較順序刻意先做 {@code compareTo}:對 {@code 1e999999999} 這類指數表示是 O(1),
+     * 擋下巨大值後才可能進到去尾零;{@code stripTrailingZeros} 也只在原始 scale 已超過上限時才呼叫。
+     * 不得先呼叫 {@code setScale} / {@code toPlainString}(會把指數展開成十億位數字)。</p>
+     *
+     * @param initialCapital 請求的初始資金
+     * @throws BusinessException {@code BACKTEST_INVALID_INITIAL_CAPITAL},當值為 null、不大於 0、超過上限或小數位過多
+     */
     private void validateCapital(BigDecimal initialCapital) {
         if (initialCapital == null || initialCapital.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(ErrorCode.BACKTEST_INVALID_INITIAL_CAPITAL, ErrorCode.BACKTEST_INVALID_INITIAL_CAPITAL.defaultMessage());
+        }
+        if (initialCapital.compareTo(MAX_INITIAL_CAPITAL) > 0
+            || (initialCapital.scale() > MAX_INITIAL_CAPITAL_SCALE
+                && initialCapital.stripTrailingZeros().scale() > MAX_INITIAL_CAPITAL_SCALE)) {
+            throw new BusinessException(ErrorCode.BACKTEST_INVALID_INITIAL_CAPITAL, INITIAL_CAPITAL_OUT_OF_RANGE_MESSAGE);
         }
     }
 
