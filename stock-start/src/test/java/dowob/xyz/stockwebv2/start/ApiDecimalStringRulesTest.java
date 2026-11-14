@@ -1,6 +1,11 @@
 package dowob.xyz.stockwebv2.start;
 
 import dowob.xyz.stockwebv2.infrastructure.web.json.DecimalString;
+import dowob.xyz.stockwebv2.start.archfixture.api.ApiDecimalStringRuleFixtures.CompliantResponse;
+import dowob.xyz.stockwebv2.start.archfixture.api.ApiDecimalStringRuleFixtures.PricingHelper;
+import dowob.xyz.stockwebv2.start.archfixture.api.ApiDecimalStringRuleFixtures.UnannotatedAmountResponse;
+import dowob.xyz.stockwebv2.start.archfixture.api.ApiDecimalStringRuleFixtures.UnannotatedAmountView;
+import dowob.xyz.stockwebv2.start.archfixture.api.ApiDecimalStringRuleFixtures.UnannotatedPoint;
 import dowob.xyz.stockwebv2.trading.api.CreateTradeRequest;
 import dowob.xyz.stockwebv2.trading.api.HoldingDto;
 import dowob.xyz.stockwebv2.trading.api.PortfolioActivityDto;
@@ -11,6 +16,7 @@ import org.junit.jupiter.api.Test;
 
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
@@ -27,10 +33,12 @@ import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.JsonNodeType;
 
 /**
- * API DTO / Request 的 {@link BigDecimal} 欄位字串化守門（Phase 5 D-05 / D-06 / D-09）。
+ * API 傳輸型別的 {@link BigDecimal} 字串化守門（Phase 5 D-05 / D-06 / D-09，BE-WR-01）。
  *
- * <p><strong>規則</strong>：位於 {@code dowob.xyz.stockwebv2..api..} 且 simple name 以 {@code Dto} 或
- * {@code Request} 結尾的類別（含巢狀 record）中，raw type 為 {@code BigDecimal} 的欄位必須標
+ * <p><strong>API 傳輸型別</strong>：位於 {@code dowob.xyz.stockwebv2..api..}，且 simple name 以 {@code Dto} /
+ * {@code Request} / {@code Response} / {@code View} 結尾，或本身是 record（含巢狀型別）。</p>
+ *
+ * <p><strong>規則 1</strong>：API 傳輸型別中 raw type 為 {@code BigDecimal} 的欄位必須標
  * {@link DecimalString}。判斷依據是 Java 型別（D-06）：沒有「這個欄位是比例所以可以是 number」的例外清單；
  * {@code Integer} / {@code int} / {@code long} / {@code double} 欄位不受影響，維持 JSON number。</p>
  *
@@ -59,28 +67,78 @@ import tools.jackson.databind.node.JsonNodeType;
 class ApiDecimalStringRulesTest {
 
     /**
-     * 「API 傳輸型別」:{@code ..api..} 套件內、simple name 以 {@code Dto} 或 {@code Request} 結尾的類別。
+     * 「API 傳輸型別」（BE-WR-01 / D-09）:位於 {@code dowob.xyz.stockwebv2..api..}，且 simple name 以
+     * {@code Dto} / {@code Request} / {@code Response} / {@code View} 結尾，<strong>或</strong>本身是 record。
+     *
+     * <p><strong>為什麼納入 record</strong>：controller 回傳的巢狀 record（如 {@code CsrfController.CsrfResponse}）
+     * 不一定照字尾命名，只看字尾會讓沒有字尾的 payload record 繞過守門。</p>
+     *
+     * <p><strong>為什麼不是「{@code ..api..} 內全部類別」</strong>：{@code marketdata/api} 內有
+     * {@code MarketDataFacadeImpl} / {@code MarketLatestService} / {@code KlineQueryService} 等 service，它們只有
+     * {@code BigDecimal} 區域變數或注入的依賴，不是 payload；把它們納入只會製造假陽性。</p>
      */
     private static final DescribedPredicate<JavaClass> API_TRANSFER_TYPES = new DescribedPredicate<>(
-        "reside in package 'dowob.xyz.stockwebv2..api..' and have simple name ending with 'Dto' or 'Request'"
+        "reside in package 'dowob.xyz.stockwebv2..api..' and (have simple name ending with "
+            + "'Dto' / 'Request' / 'Response' / 'View' or are records)"
     ) {
         @Override
         public boolean test(JavaClass javaClass) {
             String simpleName = javaClass.getSimpleName();
             return JavaClass.Predicates.resideInAPackage("dowob.xyz.stockwebv2..api..").test(javaClass)
-                && (simpleName.endsWith("Dto") || simpleName.endsWith("Request"));
+                && (simpleName.endsWith("Dto")
+                    || simpleName.endsWith("Request")
+                    || simpleName.endsWith("Response")
+                    || simpleName.endsWith("View")
+                    || javaClass.isRecord());
         }
     };
 
     /**
-     * D-09:API DTO / Request 的 {@code BigDecimal} 欄位必須標 {@link DecimalString}。
+     * 規則 1（D-09）:API 傳輸型別中 raw type 為 {@code BigDecimal} 的欄位必須標 {@link DecimalString}。
      */
     @ArchTest
-    static final ArchRule apiDtoBigDecimalFieldsAreDecimalStrings = fields()
+    static final ArchRule apiTransferBigDecimalFieldsAreDecimalStrings = fields()
         .that().haveRawType(BigDecimal.class)
         .and().areDeclaredInClassesThat(API_TRANSFER_TYPES)
         .should().beAnnotatedWith(DecimalString.class)
         .allowEmptyShould(false);
+
+    @Test
+    @DisplayName("守門自我驗證：*Response 未標註的 BigDecimal 欄位會被抓到")
+    void selfCheckUnannotatedResponseFieldIsViolation() {
+        assertThat(violates(apiTransferBigDecimalFieldsAreDecimalStrings, UnannotatedAmountResponse.class)).isTrue();
+    }
+
+    @Test
+    @DisplayName("守門自我驗證：*View 未標註的 BigDecimal 欄位會被抓到")
+    void selfCheckUnannotatedViewFieldIsViolation() {
+        assertThat(violates(apiTransferBigDecimalFieldsAreDecimalStrings, UnannotatedAmountView.class)).isTrue();
+    }
+
+    @Test
+    @DisplayName("守門自我驗證：沒有字尾的 record 未標註的 BigDecimal 欄位會被抓到")
+    void selfCheckUnannotatedSuffixlessRecordFieldIsViolation() {
+        assertThat(violates(apiTransferBigDecimalFieldsAreDecimalStrings, UnannotatedPoint.class)).isTrue();
+    }
+
+    @Test
+    @DisplayName("守門自我驗證：合規 Response 無違規；非 record 且無字尾的類別（service）不在範圍內")
+    void selfCheckCompliantResponseAndOutOfScopeServiceHaveNoViolation() {
+        assertThat(violates(apiTransferBigDecimalFieldsAreDecimalStrings, CompliantResponse.class)).isFalse();
+        assertThat(violates(apiTransferBigDecimalFieldsAreDecimalStrings, CompliantResponse.class, PricingHelper.class))
+            .isFalse();
+    }
+
+    /**
+     * 以與正式 {@code @ArchTest} 相同的規則物件評估指定的 fixture 類別。
+     *
+     * @param rule    要評估的規則（與正式守門同一個物件）
+     * @param classes 要匯入的 fixture 類別
+     * @return 有違規時為 {@code true}
+     */
+    private static boolean violates(ArchRule rule, Class<?>... classes) {
+        return rule.evaluate(new ClassFileImporter().importClasses(classes)).hasViolation();
+    }
 
     /** 不帶任何全域設定的 mapper：證明字串化跟著 DTO 的 annotation 走（D-05 / D-06）。 */
     private final JsonMapper mapper = JsonMapper.builder().build();
