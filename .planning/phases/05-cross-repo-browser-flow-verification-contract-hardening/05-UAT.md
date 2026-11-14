@@ -99,10 +99,10 @@ blocked: 0
     - path: "stock-web-v2-front-end/vue-app/e2e/tests/api-failure-states.spec.ts, e2e/support/mockSentinels.ts, src/mockSentinels.test.ts"
       issue: "Overview / Cash 哨兵與 assertReal 太弱,哨兵不含 KPI 與 cash 備註"
   missing:
-    - "後端 initialCapital 加 @DecimalMax(\"1000000000000\") 與 @Digits(integer = 13, fraction = 6)(fraction 依 Yuan 決定),補 validator 單元測試與 400 + engine 未被呼叫的 WebMvc / E2E 案例"
+    - "後端 initialCapital 加 @DecimalMax(\"1000000000000\") 與 @Digits(integer = 13, fraction = 6)(Yuan 2026-11-14 決定 fraction = 6;前端回測表單同為 6 位小數,Backtest.test.ts 既有 8 位小數案例改為 6 位),補 validator 單元測試與 400 + engine 未被呼叫的 WebMvc / E2E 案例"
     - "前端共用 plain-decimal 驗證 helper(文法 + 位數 + 上限,須在 toFixed / toChartNumber / toWire 之前),Backtest 使用;mock createRun 同步上限;Backtest.test.ts 補 1e5 / 1e400 / 1e999999999 / 超上限 / 位數過多案例"
     - "Backtest / Analytics 漲跌色改 token(fill-opacity 或 color-mix);contrastTokens.test.ts 新增掃描完整 .vue 原始碼的 rgba 漲跌字面值守門(含自我驗證,處理 Notifications.vue .alert)"
-    - "apiClient.ts 新增 mapped 請求變體,mapper 失敗丟 ApiClientError{status, code: INVALID_API_RESPONSE, requestId};4 個寫入 adapter 改用;其餘非 ApiClientError 分支改 UNKNOWN_ERROR;OrderTicket 新增『可能已記錄』文案(依 Yuan 決定);補對應測試與 NETWORK_ERROR 只出現在 apiClient.ts 的源碼守門"
+    - "apiClient.ts 新增 mapped 請求變體,mapper 失敗丟 ApiClientError{status, code: INVALID_API_RESPONSE, requestId};4 個寫入 adapter 改用;其餘非 ApiClientError 分支改 UNKNOWN_ERROR;OrderTicket 新增 tradeErrInvalidResponse 文案「伺服器已回應但內容無法解讀,這筆交易可能已記錄,請先到交易頁確認。」附 traceId,保留 idempotency key 允許重試(Yuan 2026-11-14 決定);App.vue messageFromStartupError 一併修正(Yuan 決定納入);補對應測試與 NETWORK_ERROR 只出現在 apiClient.ts 的源碼守門"
     - "MOCK_SENTINELS 新增 KPI 與 cash 備註類別並用於 Overview / Cash;mockSentinels.test.ts 驗證哨兵仍存在於 mock 輸出;強化 assertReal(KPI holdingCount = 1、cash 列數 = 1)"
     - "D-09 守門改以 controller 回傳型別為根(或至少擴大到 ..api.. 的 Dto|Request|Response|View 且排除 marketdata/api 的 service),加參數化型別與 BigDecimal 回傳方法規則及 fixture 自我驗證"
   debug_session: ".planning/debug/g-05-7-review-findings.md"
