@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 05-cross-repo-browser-flow-verification-contract-hardening
 source: [05-VERIFICATION.md]
 started: 2026-11-12T03:21:32Z
@@ -76,16 +76,57 @@ blocked: 0
   reason: "User reported: Test 7 分派 code review finding,本 phase 修正:BE-CR-01(critical,initialCapital 無 @DecimalMax / @Digits,1e999999999 可讓引擎 setScale 卡死)、FE-WR-03(前端回測初始資金接受指數記號 / 無上限 / 超過 8 位小數)、FE-WR-04(Backtest.vue / Analytics.vue 寫死 rgba 漲跌色)、FE-WR-01(非 ApiClientError fallback 標 NETWORK_ERROR,遮蔽 contract / mapper 失敗)、FE-WR-02(SC5 哨兵在 Overview / Cash 無法觸發)、BE-WR-01(ApiDecimalStringRulesTest 只掃 *Dto / *Request raw-type 欄位)。細節見 05-REVIEW.md"
   severity: blocker
   test: 7
-  artifacts: []
-  missing: []
+  root_cause: "6 項 finding 在現行 develop 全部仍存在(無部分修正),共通形態是約束 / 守門的涵蓋範圍小於缺陷類別:BE-CR-01 + FE-WR-03 同一欄位缺輸入上限 / 位數(後端 1e999999999 讓 setScale 卡死,>6 位小數經 money() 變 0 後 drawdownCurve 除以 0 → 500;前端 toChartNumber 在送出前呼叫 toFixed,輸入 1e999999999 會讓分頁本身卡死);FE-WR-04 守門只掃選擇器白名單內的 <style> 規則,看不到 template 屬性 / script 回傳字串 / .harvest-btn;FE-WR-02 哨兵只取自 data.ts 與 mock store,不含 Overview KPI 字面值與 cash 種子備註;BE-WR-01 只比對 Dto|Request 名稱後綴與 raw 欄位型別;FE-WR-01 寫入 adapter 在 apiRequest 外執行嚴格 mapper,mapper 丟 TypeError 後被 catch 分支改標 NETWORK_ERROR(D-26 後只有 apiClient.transportFetch 會產生 NETWORK_ERROR)"
+  artifacts:
+    - path: "stock-web-v2/stock-module-backtest/src/main/java/dowob/xyz/stockwebv2/backtest/api/CreateBacktestRunRequest.java"
+      issue: "initialCapital 只有 @DecimalMin,缺 @DecimalMax / @Digits"
+    - path: "stock-web-v2/stock-module-backtest/src/main/java/dowob/xyz/stockwebv2/backtest/service/BacktestService.java"
+      issue: "validateCapital 只檢查 > 0;engine 在持久化前執行;只 catch IllegalArgumentException(ArithmeticException → 500)"
+    - path: "stock-web-v2/stock-module-backtest/src/main/java/dowob/xyz/stockwebv2/backtest/engine/DeterministicBacktestEngine.java"
+      issue: "setScale / toPlainString 熱點(:51,:76-77,:184-189)與 peak = 0 除法(:98-106)"
+    - path: "stock-web-v2/stock-start/src/test/java/dowob/xyz/stockwebv2/start/ApiDecimalStringRulesTest.java"
+      issue: "predicate 只看 Dto|Request 後綴 + raw 欄位型別;無 method / 參數化型別規則與自我驗證"
+    - path: "stock-web-v2-front-end/vue-app/src/pages/Backtest.vue"
+      issue: "capital 無文法 / 上限 / 位數檢查,toChartNumber 先於驗證(:319-328);寫死 rgba 回撤填色(:141)與 heatColor(:368-374)"
+    - path: "stock-web-v2-front-end/vue-app/src/pages/Analytics.vue"
+      issue: ".harvest-btn 寫死 rgba(239,68,68,…)(:834-839)"
+    - path: "stock-web-v2-front-end/vue-app/src/contrastTokens.test.ts"
+      issue: "D-02c 守門只涵蓋白名單選擇器的 <style> 規則"
+    - path: "stock-web-v2-front-end/vue-app/src/services/tradingApi.ts / cashApi.ts / holdingEventApi.ts"
+      issue: "mapper 在 apiRequest 外執行,失敗不是 ApiClientError"
+    - path: "stock-web-v2-front-end/vue-app/src/components/OrderTicket.vue, CashEntryDialog.vue, HoldingEventDialog.vue, WatchlistPicker.vue; src/pages/Watchlist.vue, Settings.vue, Overview.vue, Markets.vue, Chart.vue; src/baseCurrencyErrorKey.ts; src/App.vue(review 未列)"
+      issue: "非 ApiClientError 分支一律標 NETWORK_ERROR"
+    - path: "stock-web-v2-front-end/vue-app/e2e/tests/api-failure-states.spec.ts, e2e/support/mockSentinels.ts, src/mockSentinels.test.ts"
+      issue: "Overview / Cash 哨兵與 assertReal 太弱,哨兵不含 KPI 與 cash 備註"
+  missing:
+    - "後端 initialCapital 加 @DecimalMax(\"1000000000000\") 與 @Digits(integer = 13, fraction = 6)(fraction 依 Yuan 決定),補 validator 單元測試與 400 + engine 未被呼叫的 WebMvc / E2E 案例"
+    - "前端共用 plain-decimal 驗證 helper(文法 + 位數 + 上限,須在 toFixed / toChartNumber / toWire 之前),Backtest 使用;mock createRun 同步上限;Backtest.test.ts 補 1e5 / 1e400 / 1e999999999 / 超上限 / 位數過多案例"
+    - "Backtest / Analytics 漲跌色改 token(fill-opacity 或 color-mix);contrastTokens.test.ts 新增掃描完整 .vue 原始碼的 rgba 漲跌字面值守門(含自我驗證,處理 Notifications.vue .alert)"
+    - "apiClient.ts 新增 mapped 請求變體,mapper 失敗丟 ApiClientError{status, code: INVALID_API_RESPONSE, requestId};4 個寫入 adapter 改用;其餘非 ApiClientError 分支改 UNKNOWN_ERROR;OrderTicket 新增『可能已記錄』文案(依 Yuan 決定);補對應測試與 NETWORK_ERROR 只出現在 apiClient.ts 的源碼守門"
+    - "MOCK_SENTINELS 新增 KPI 與 cash 備註類別並用於 Overview / Cash;mockSentinels.test.ts 驗證哨兵仍存在於 mock 輸出;強化 assertReal(KPI holdingCount = 1、cash 列數 = 1)"
+    - "D-09 守門改以 controller 回傳型別為根(或至少擴大到 ..api.. 的 Dto|Request|Response|View 且排除 marketdata/api 的 service),加參數化型別與 BigDecimal 回傳方法規則及 fixture 自我驗證"
+  debug_session: ".planning/debug/g-05-7-review-findings.md"
 - gap_id: G-05-9
   truth: "有自動源碼守門斷言 contract-journey.spec.ts 不含 page.route / route.fulfill / context.route,防止 J0 被 stub 弱化"
   status: failed
   reason: "User reported: 補守門(回 issue)"
   severity: major
   test: 9
-  artifacts: []
-  missing: []
+  root_cause: "05-01 的禁止事項只靠執行當下一次性的 grep(05-01-PLAN.md L114)驗證,沒有沉澱成常駐測試;且前端所有閘門都看不到 vue-app/e2e/(lint = eslint src、tsconfig include 只有 src/**、vitest exclude e2e/**)。另外 grep 樣式過窄(漏 context.route / routeFromHAR / routeWebSocket / 非 route 命名的 callback),也不看 spec import 的 helper:共用的 e2e/support/fixtures.ts 覆寫 page fixture 即可 stub J0 而 spec grep 仍為 0(scratch 實測)"
+  artifacts:
+    - path: "stock-web-v2-front-end/vue-app/e2e/tests/contract-journey.spec.ts"
+      issue: "要保護的檔案,目前只有 L14 註解記載規則"
+    - path: "stock-web-v2-front-end/vue-app/e2e/support/fixtures.ts"
+      issue: "J0 唯一 import 的 helper(10 個 spec 共用),fixture 覆寫可繞過只掃 spec 的守門"
+    - path: "stock-web-v2-front-end/vue-app/e2e/support/portfolioStubs.ts"
+      issue: "現成的 stub 函式庫,若被 J0 import 會 stub 全部 /api/v1"
+    - path: "stock-web-v2-front-end/vue-app/vite.config.ts, tsconfig.json, package.json"
+      issue: "閘門範圍不含 e2e/"
+  missing:
+    - "新增 vue-app/src/contractJourneyBoundary.test.ts:以 ?raw / import.meta.glob 讀 spec 與 e2e/support/*.ts(不可用 node:fs,未裝 @types/node),原始碼掃描(不剝註解)禁止 .route / .unroute / .routeFromHAR / .routeWebSocket / .fulfill / .abort / .fallback / .continue / .addInitScript 呼叫"
+    - "涵蓋 import 的 helper:import 白名單({../support/fixtures, @playwright/test})及 / 或遞迴追蹤相對 import 並套用同一規則"
+    - "掃描範圍非空、現行樹 0 違規、偵測規則自我驗證(合成字串)三類測試"
+  debug_session: ".planning/debug/g-05-9-contract-journey-guard.md"
 
 - gap_id: G-05-10
   truth: "照 README 複製 .env.example 為 .env 後,dev profile 可直接啟動(JWT access TTL 與 cookie access TTL 一致,不被 AccessTokenTtlConsistencyGuard 拒絕)"
@@ -93,8 +134,18 @@ blocked: 0
   reason: "User reported: 修正(.env.example:17 STOCK_JWT_ACCESS_TOKEN_TTL=PT30M 改為 PT15M,對齊 application.yaml 兩個預設值)"
   severity: major
   test: 10
-  artifacts: []
-  missing: []
+  root_cause: ".env.example:17 仍為 STOCK_JWT_ACCESS_TOKEN_TTL=PT30M(2026-05-16 86fd897 加入時 yaml 預設也是 PT30M),且無成對的 STOCK_AUTH_COOKIE_ACCESS_TOKEN_TTL。05-05(eb0bc29)把四個 yaml 的 JWT 預設改為 PT15M 並加上無 profile 豁免的 AccessTokenTtlConsistencyGuard,但漏改 repo 根的 .env.example(05-05-PLAN.md L80 位置清單與 L115 grep 都只看 stock-start/src)。dev 為預設 profile 且 application-dev.yaml 以 optional:file:.env 匯入,複製範例後 JWT = PT30M、cookie = PT15M,guard 拋 IllegalStateException 拒絕啟動(Binder 實測重現)"
+  artifacts:
+    - path: "stock-web-v2/.env.example"
+      issue: "第 17 行 PT30M,無成對 cookie TTL;唯一漂移的檔案"
+    - path: "stock-web-v2/stock-start/src/main/resources/application-dev.yaml"
+      issue: "第 3 行匯入 .env(注入路徑,本身正確)"
+    - path: "stock-web-v2/stock-module-user/src/main/java/dowob/xyz/stockwebv2/user/service/AccessTokenTtlConsistencyGuard.java"
+      issue: "第 38 行 Duration 相等檢查(行為正確,D-22)"
+  missing:
+    - ".env.example:17 改為 STOCK_JWT_ACCESS_TOKEN_TTL=PT15M,旁加註解(或註解掉的 STOCK_AUTH_COOKIE_ACCESS_TOKEN_TTL=PT15M)說明兩者必須成對設定(D-22)"
+    - "(選做)stock-start 靜態單元測試讀 repo 根 .env.example,斷言有效的 JWT / cookie access TTL 相等(比照 InfraProfileDefaultsTest 的 Files.readString)"
+  debug_session: ".planning/debug/g-05-10-env-example-ttl.md"
 
 ## Deferred Follow-Ups
 
