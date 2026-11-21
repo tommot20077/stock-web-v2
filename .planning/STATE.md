@@ -3,11 +3,11 @@ gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 05
 current_phase_name: Cross-Repo Browser Flow Verification & Contract Hardening
-status: Phase 05 gap closure — 05-26 ~ 05-32 完成;05-33 PR 組已開(stock-web-v2#57 / stock-web-v2-front-end#24),收集 CI 證據中
-stopped_at: "05-33 Task 1 完成(PR 已開、互相連結);Task 2 收集 CI 證據;Task 3 待 Yuan 合併"
-last_updated: "2026-11-21T08:05:00.000Z"
+status: Phase 05 gap closure 完成 — 05-26 ~ 05-33 全部執行並合併(stock-web-v2#57 / stock-web-v2-front-end#24),兩 repo develop CI 綠;待 phase 驗證
+stopped_at: "05-33 完成(PR 合併、develop 綠:前端 44885150492、後端 44886864147);進行 quick 261121-dgr(CI Maven 快取 / 429)"
+last_updated: "2026-11-21T09:50:00.000Z"
 last_activity: 2026-11-21
-last_activity_desc: 05-33 開 gap closure PR 組;依 Yuan 指示中文文案逗號統一全形
+last_activity_desc: 05-33 合併閘門完成(33/33),兩 repo develop 綠
 state_head: 9c04164199d108e1824d05b688e8e466d9be7570
 progress:
   total_phases: 7
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-11-04)
 ## Current Position
 
 Phase: 05 (Cross-Repo Browser Flow Verification & Contract Hardening) — EXECUTING
-Plan: 33 of 33(05-26 ~ 05-32 完成;05-33 進行中)
-Next: 05-33 Task 2(CI 證據入 05-COVERAGE-AUDIT.md)→ Task 3 Yuan 合併兩 PR → develop 綠 → `/gsd-verify-work 5`。
-Last activity: 2026-11-21 — 05-33 開 PR stock-web-v2#57 / stock-web-v2-front-end#24;Yuan 決定:initialCapital 尾零超過 6 位維持 HTTP 400、中文文案逗號全面改全形(前端 628aac5)
+Plan: 33 of 33(全部完成)
+Next: Phase 05 驗證(code review gate → regression gate → gsd-verifier);之後 `/gsd-verify-work 5` 關閉 G-05-7 / G-05-9 / G-05-10。並行:quick 261121-dgr 修 CI Maven 快取。
+Last activity: 2026-11-21 — 05-33 完成:PR stock-web-v2-front-end#24(0783da9)、stock-web-v2#57(d4843ef)合併,develop CI 綠(前端 44885150492、後端 44886864147 attempt 2)
 
 > 待 Yuan 決定(不阻擋):05-19 OrderTicket 預估總額是否含手續費(現為數量 × 價格);05-20 股利對話框是否需稅前總額提示。
 

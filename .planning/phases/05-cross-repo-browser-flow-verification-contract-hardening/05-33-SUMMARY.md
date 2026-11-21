@@ -22,7 +22,7 @@ requires:
 provides:
   - "gap closure PR 組:tommot20077/stock-web-v2#57、tommot20077/stock-web-v2-front-end#24(內文互相連結、逐字載明合併須知),皆已合併"
   - "05-COVERAGE-AUDIT.md §Gap closure:8 個 finding / gap 對應測試、plan、commit、CI run;本機不可證項目(ValidationBoundaryE2E D3b、api-failure-states overview / cash、J0)皆有 CI 證據"
-  - "兩 repo develop 在 gap closure 合併後 CI 綠(前端 44885150492、後端見 §Gap closure 合併後 develop 表)"
+  - "兩 repo develop 在 gap closure 合併後 CI 綠(前端 44885150492、後端 44886864147 attempt 2)"
   - "中文 i18n 文案逗號全面統一為全形(Yuan 指示,前端 a23f0fc、628aac5)"
 affects: [phase-05-verification]
 
@@ -71,8 +71,8 @@ coverage:
     requirement: VER-02
     verification:
       - kind: other
-        ref: "FE develop push run 44885150492(success);BE develop push run 44886864147(執行中,待確認)"
-        status: unknown
+        ref: "FE develop push run 44885150492(success);BE develop push run 44886864147 attempt 2(success,attempt 1 因 Maven Central 429 失敗)"
+        status: pass
 ---
 
 # Phase 05 Plan 33: Gap closure 合併閘門 Summary
@@ -98,4 +98,4 @@ G-05-7 / G-05-9 / G-05-10 的 gap closure(05-26 ~ 05-32)經本機全套閘門、
 - 中文文案其餘半形標點(`;` `:` `?` `()`)是否統一 — 待 Yuan 決定。
 - 重跑 `/gsd-verify-work 5` 關閉 G-05-7 / G-05-9 / G-05-10。
 
-## Self-Check: PENDING(後端 develop CI 44886864147 結果確認後更新)
+## Self-Check: PASSED
