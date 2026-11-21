@@ -41,7 +41,7 @@ key-files:
     - stock-start/src/test/java/dowob/xyz/stockwebv2/start/e2e/ValidationBoundaryE2E.java
 
 key-decisions:
-  - "Hibernate Validator 9.0.1 的 @Digits 對 BigDecimal 用原始 scale(不去尾零),HTTP 層 \"100.00000000\" 回 400;保留此較嚴格行為(避免對超長尾零字串做 O(n²) 去零),前端 big.js 送出前已去尾零故正式路徑不受影響"
+  - "Hibernate Validator 9.0.1 的 @Digits 對 BigDecimal 用原始 scale(不去尾零),HTTP 層 \"100.00000000\" 回 400;保留此較嚴格行為(避免對超長尾零字串做 O(n²) 去零),前端 big.js 送出前已去尾零故正式路徑不受影響;Yuan 2026-11-21 確認維持 HTTP 層擋下"
   - "service 層以去尾零後 scale 判斷(尾零不算),比 HTTP 層寬鬆,屬縱深防禦;engine.run 的 catch 不放寬"
 
 patterns-established:
