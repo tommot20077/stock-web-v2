@@ -182,7 +182,18 @@ D-25 閘門通過:兩 repo develop CI 綠,Wave 2(05-13 起)可開始。§VER-01 
 - **首輪後端 CI 紅(已修)**:PR 開啟時的 head `281b2b4`(push run 42970726018)Integration Tests 288 中 5 個失敗,全在 `ShareAdjustmentApiIT.assertHolding:463`(`equalTo(int * 1.0)` 對上字串 `"400.00000000"`);05-15 的清查未涵蓋 helper 內的 double 比對。`e2e7fa0` 改用 `decimalString` 後全綠。其餘 283 個 IT(含 `TradingApiIT` 三個逐字 scale 斷言)首輪即綠。
 - **FE 的 Browser E2E 對的是後端 `281b2b4`**:`281b2b4 → e2e7fa0` 只改 `ShareAdjustmentApiIT.java`(測試檔),後端伺服器程式碼相同;`e2e7fa0` 的跨 repo 證據另由 BE-W2-PR Browser E2E 130364643334 提供。
 - **合併須知第 1 點偏離**:本次執行中兩 repo 分支在兩條鏈完成前即逐 plan 推送,期間後端分支 push run(例如 42964232157、42967181710、42968289712)為紅,屬「新後端 × 未完成前端」的預期組合;合併前提以上表同 head 的 PR run 為準。
-- **Codex review bot**:後端 PR 審查因故未完成,無 finding。
+- **Codex review bot**:兩個 PR 皆因 Codex 用量上限未完成審查,無 finding。
+
+### Wave 2 合併後 develop(D-07)
+
+2026-11-12 Yuan 指示合併(對話中回覆「合併」),依 `<merge_order>` 以 merge commit 先前端、緊接後端,中間無其他合併或推送。
+
+| repo | PR | merged_at(UTC) | develop merge commit | develop push CI run | job 結論 |
+|------|----|----------------|----------------------|---------------------|----------|
+| 前端 | tommot20077/stock-web-v2-front-end#23 | 2026-11-12T02:26:35Z(先) | `06ab920` | [43141443593](https://github.com/tommot20077/stock-web-v2-front-end/actions/runs/43141443593) | frontend 130929125940 / Browser E2E (real backend) 130930105547 皆 success |
+| 後端 | tommot20077/stock-web-v2#56 | 約 02:26:55Z(緊接;develop push run 建立於 02:26:55) | `87d5bdf` | [43141473501](https://github.com/tommot20077/stock-web-v2/actions/runs/43141473501) | success |
+
+**預期過渡紅燈未出現**:前端 develop run 的 browser-e2e 於 02:29:18 才 checkout 後端 develop,此時後端 PR 已合併(`87d5bdf`),測到的是新後端,因此直接綠,無需重跑。兩 repo develop 最新 push run 皆 success —— Wave 2 硬切同步完成。
 
 ---
 
@@ -202,3 +213,53 @@ D-25 閘門通過:兩 repo develop CI 綠,Wave 2(05-13 起)可開始。§VER-01 
 - [ ] **D-03 純文件變更無自動守門**(`architecture.md`、`application-demo.yaml` 檔頭、JwkKeyConverter 註解):僅有 05-05 的 acceptance grep,無 CI 斷言。
 - [ ] **前端 lint 40 個既有 warning**(`no-explicit-any` ratchet):FE-PR job 129266720313 `✖ 40 problems (0 errors, 40 warnings)`,Wave 1 未新增也未減少。
 - [ ] **`.planning/codebase/CONCERNS.md:153` 仍寫「`run-e2e.sh` 預設只跑 `@smoke`」**(05-03-SUMMARY 備註):codebase map 快照過期,留待下次 map-codebase。
+
+---
+
+## Gap closure(G-05-7 / G-05-9 / G-05-10)
+
+05-33 Task 2(2026-11-21 收集)。Gap closure = 05-26 ~ 05-32(後端 05-26、05-27;前端 05-28 ~ 05-32),關閉 05-UAT 的 G-05-7(review finding BE-CR-01、BE-WR-01、FE-WR-01 ~ 04)、G-05-9、G-05-10。證據來自 GitHub Actions job log 與 artifact(四個 artifact 皆經 MCP 下載,sha256 與 API 回報的 `digest` 一致,解壓到 `stock-start/target/ci-evidence-gap/<artifact>/`)。
+
+| 項目 | 後端 `tommot20077/stock-web-v2` | 前端 `tommot20077/stock-web-v2-front-end` |
+|------|------|------|
+| PR | https://github.com/tommot20077/stock-web-v2/pull/57 | https://github.com/tommot20077/stock-web-v2-front-end/pull/24 |
+| 取證 head SHA | `0cff973`(`0cff97343592889b4af1ca817e82e69fcadcec31`) | `628aac5`(`628aac59bf54766632085070f4be87c2f3ba7250`) |
+| PR run id(BE-GC-PR / FE-GC-PR) | **44882921395**(event `pull_request`)— https://github.com/tommot20077/stock-web-v2/actions/runs/44882921395 | **44882835531**(event `pull_request`)— https://github.com/tommot20077/stock-web-v2-front-end/actions/runs/44882835531 |
+| 結論 | ALL GREEN:Lint 136784130270、Unit Tests 136784129769、Integration Tests 136784129119(attempt 2,見註記)、E2E Tests 136785417880、Browser E2E Tests 136786109105 | ALL GREEN:`frontend` 136781664492、`Browser E2E (real backend)` 136782039764 |
+| CI checkout 的 merge commit | `7a7a426`(Merge `0cff973` into develop `87d5bdf`) | `d9f98d1`(Merge `628aac5` into develop `06ab920`) |
+| 同 head 的 push run | 44882917526:Lint 136781904336 / Unit 136781904185 / Integration 136782323708 / E2E 136783478993 success;Browser E2E 136784117652 依設計 skipped(只在 PR 跑) | (feature push 不觸發) |
+| artifact | `unit-test-reports` 14698692976、`integration-test-reports` 14698803805、`e2e-test-reports` 14699271442、`browser-e2e-artifacts` 14699560751(皆 `workflow_run.id = 44882921395`、`head_sha = 0cff973`) | `browser-e2e-artifacts` 14698623421(`workflow_run.id = 44882835531`、`head_sha = 628aac5`) |
+| Browser E2E 解析到的對方 ref | job 136786109105 log:`前端使用對應分支:claude/epic-curie-lj8alo`;checkout 後 `git log -1` = `628aac59bf54766632085070f4be87c2f3ba7250` | job 136782039764 log:`後端使用對應分支:claude/epic-curie-lj8alo`;checkout 後 `git log -1` = `0cff97343592889b4af1ca817e82e69fcadcec31` |
+| Browser E2E 結果 | `149 passed (1.7m)`;報告 stats total 149 / expected 149 / unexpected 0 / flaky 0 / skipped 0 | `149 passed (1.9m)`;報告 stats total 149 / expected 149 / unexpected 0 / flaky 0 / skipped 0 |
+| 單元 / vitest 總數 | `unit-test-reports` 103 個 surefire XML:1050 tests / 0 failures / 0 errors / 0 skipped;`e2e-test-reports` 21 個 XML:96 / 0 / 0 / 0 | `frontend` job:`Test Files 70 passed (70)`、`Tests 1599 passed (1599)`;lint `✖ 38 problems (0 errors, 38 warnings)`;`vue-tsc --noEmit && vite build` `✓ built` |
+
+兩邊 Browser E2E 對到的都是對方的取證 head(後端 job 拿到前端 `628aac5`、前端 job 拿到後端 `0cff973`),跨 repo 組合與合併前提一致。
+
+### 逐 finding / gap
+
+| finding / gap | 測試(CI 報告 tests / 結果) | plan / commit | CI run + job |
+|---------------|------------------------------|---------------|--------------|
+| **BE-CR-01**(initialCapital 無上限 / 位數,`1e999999999` 讓 `setScale` 卡死) | `CreateBacktestRunRequestValidationTest` 13 / 0F 0E(`initialCapitalOutOfRange_isRejected` ×6、`initialCapitalWithinRange_isAccepted` ×6);`BacktestControllerWebMvcTest` 4 / 0F 0E(`exponentialInitialCapitalIsRejectedBeforeService`、`outOfRangeInitialCapitalIsRejectedBeforeService` ×2、`validInitialCapitalReachesService`);`BacktestServiceTest` 29 / 0F 0E(含 `outOfRangeCapitalIsRejectedBeforeEngine` ×3、`boundaryCapitalWithinRangeIsAccepted` ×2);`DeterministicBacktestEngineTest` 18 / 0F 0E(含 `boundaryInitialCapitalRunsWithoutArithmeticFailure` ×2);`ValidationBoundaryE2E` 「D3b initialCapital 上界與位數(BE-CR-01)」5 / 5 ok | 05-26:`817083b`、`066f744`(後端) | BE-GC-PR Unit 136784129769 → `unit-test-reports`(`stock-module-backtest/target/surefire-reports/`);E2E 136785417880 → `e2e-test-reports/TEST-dowob.xyz.stockwebv2.start.e2e.ValidationBoundaryE2E.xml` |
+| **BE-WR-01**(D-09 守門只掃 `*Dto` / `*Request` raw 欄位) | `ApiDecimalStringRulesTest` 16 / 0F 0E(含 `apiTransferTypesDoNotHideBigDecimalInParameterizedOrArrayTypes`、`selfCheckUnannotatedResponseFieldIsViolation`、`selfCheckUnannotatedViewFieldIsViolation`、`selfCheckUnannotatedSuffixlessRecordFieldIsViolation`、`selfCheckParameterizedAndArrayBigDecimalAreViolations`、`selfCheckUnannotatedBigDecimalGetterIsViolation`、`selfCheckFieldRuleAloneMissesParameterizedTypesAndGetters`) | 05-27:`049e504`、`130d304`(後端) | BE-GC-PR Unit 136784129769 → `unit-test-reports/stock-start/target/surefire-reports/TEST-dowob.xyz.stockwebv2.start.ApiDecimalStringRulesTest.xml` |
+| **FE-WR-01**(非 `ApiClientError` fallback 標 `NETWORK_ERROR`) | vitest(全 ✓):`apiClient.test.ts` 40、`OrderTicket.test.ts` 110、`CashEntryDialog.test.ts` 62、`HoldingEventDialog.test.ts` 95、`i18n.test.ts` 45、`WatchlistPicker.test.ts` 31、`Watchlist.test.ts` 59、`Markets.test.ts` 14、`Chart.test.ts` 7、`startupErrorMessage.test.ts` 4、常駐守門 `networkErrorBoundary.test.ts` 4 | 05-29:`3fa32c3`、`434fc51`、`cc5029c`、`615a868`;05-30:`ace3223`、`253fe16`;05-31:`0d13ece`、`1454916`(前端) | FE-GC-PR `frontend` 136781664492(log 逐檔 ✓ + `Tests 1599 passed (1599)`) |
+| **FE-WR-02**(SC5 哨兵在 Overview / Cash 無法觸發) | vitest `mockSentinels.test.ts` 6 ✓;Playwright `api-failure-states.spec.ts` 「S5 overview × abort / envelope5xx / nonEnvelope502」與「S5 cash × abort / envelope5xx / nonEnvelope502」6 組皆 expected(標題:「錯誤 / 重試可見、無 mock 哨兵、放行後顯示後端真值」),整檔 18 / 18 expected | 05-32:`c091f01`(前端) | FE-GC-PR `frontend` 136781664492;BE-GC-PR Browser E2E 136786109105 與 FE-GC-PR Browser E2E 136782039764 的 `browser-e2e-artifacts/playwright-report` |
+| **FE-WR-03**(回測初始資金接受指數記號 / 無上限 / 超位數) | vitest `decimal.test.ts` 41 ✓(`parsePlainDecimalInput`)、`Backtest.test.ts` 19 ✓、`task7.test.ts` 5 ✓;Playwright `backtest.spec.ts` 「D4 initialCapital 0 或負值 → 欄位驗證錯誤顯示」兩邊皆 expected(整檔 4 / 4) | 05-28:`f010d79`、`488e470`、`47e008d`(前端) | FE-GC-PR `frontend` 136781664492;兩邊 Browser E2E 136786109105 / 136782039764 |
+| **FE-WR-04**(Backtest / Analytics 寫死漲跌 rgba) | vitest `contrastTokens.test.ts` 100 ✓(含「漲跌色寫死字面全源碼守門(FE-WR-04 / D-28)」) | 05-28:`a82fe74`(前端) | FE-GC-PR `frontend` 136781664492 |
+| **G-05-9**(J0 不得 stub 的常駐守門) | vitest `contractJourneyBoundary.test.ts` 5 ✓;J0 本身見下表 | 05-32:`203e524`(前端) | FE-GC-PR `frontend` 136781664492 |
+| **G-05-10**(`.env.example` access TTL 與 cookie TTL 不一致) | `EnvExampleAccessTokenTtlTest` 4 / 0F 0E(`envExampleAccessTokenTtlsArePaired`、`selfCheckJwtOnlyOverrideIsDetected`、`selfCheckCommentedLineIsNotASetting`、`selfCheckBothOverriddenEquallyMatch`) | 05-27:`55b38c4`(後端) | BE-GC-PR Unit 136784129769 → `unit-test-reports/stock-start/target/surefire-reports/TEST-dowob.xyz.stockwebv2.start.config.EnvExampleAccessTokenTtlTest.xml` |
+
+### 本機不可證、以 CI 為準
+
+| 項目 | 結果 | CI 參照 |
+|------|------|---------|
+| `ValidationBoundaryE2E` D3b(05-26,BE-CR-01 的 HTTP 信封證據) | 5 / 5 ok:`backtestRunJustAboveUpperBoundIsRejected`、`backtestRunWithSevenDecimalPlacesIsRejected`、`backtestRunWithExponentialInitialCapitalIsRejected`、`backtestRunAtUpperBoundSucceeds`、`backtestRunAtMinimalScaleSucceeds`;整個 class 25 tests / 0F 0E 0S | BE-GC-PR E2E 136785417880,`e2e-test-reports` 14699271442 |
+| `api-failure-states` S5 overview × 3(05-32 哨兵 + 強化後的 `assertReal`) | 兩邊皆 3 / 3 expected | BE-GC-PR Browser E2E 136786109105(artifact 14699560751);FE-GC-PR Browser E2E 136782039764(artifact 14698623421) |
+| `api-failure-states` S5 cash × 3(同上) | 兩邊皆 3 / 3 expected | 同上 |
+| J0 `contract-journey.spec.ts`「J0 登入 → /me → 讀持倉 → 記錄手動交易 → 三頁重讀 → 登出(契約全程)」 | 兩邊皆 expected | 同上 |
+
+### 註記
+
+- **後端 Integration Tests 首次 attempt 紅(與本次變更無關,已重跑)**:PR run 44882921395 attempt 1 的 Integration job 136782358997 在任何測試執行前就 `BUILD FAILURE`,log:`The following artifacts could not be resolved: org.jacoco:jacoco-maven-plugin:pom:0.8.13 (absent): Could not transfer artifact org.jacoco:jacoco-maven-plugin:pom:0.8.13 from/to central (https://repo.maven.apache.org/maven2): status code: 429, reason phrase: Too Many Requests (429)`。同 head 的 E2E / Browser E2E 因此 skipped。Yuan 重跑後 attempt 2 的 Integration 136784129119、E2E 136785417880、Browser E2E 136786109105 皆 success。attempt 2 的 Lint 136784130270 / Unit 136784129769 是沿用 attempt 1 的結果(起訖時間與 attempt 1 的 136781917501 / 136781917368 相同),`unit-test-reports` 由該次上傳。同 head 的 push run 44882917526 的 Integration 136782323708 在 attempt 1 就是綠的。
+- **前端 commit 已含在取證 head**:`a23f0fc`、`628aac5`(05-33,Yuan 要求把中文 i18n 文案的逗號全部改成全形,不改行為)都在取證 head `628aac5` 內,上列前端 CI 與後端 Browser E2E 都是在這兩個 commit 之後跑的。後端在 plan 工作之後另有 `e8478f1`(記錄 Yuan 決定:initialCapital 尾零超過 6 位小數仍回 HTTP 400)與 `0cff973`(STATE.md),兩者都只改文件,也都含在取證 head 內。
+- **前端 CI 只跑一種 data mode**:`frontend` job 只執行一次 `npm test`(未設 `VITE_DATA_MODE`,即 mock mode)。`VITE_DATA_MODE=api npm test` 不在 CI 裡,api mode 的 vitest 只有 05-33 Task 1 的本機閘門證據。
+- **前端 lint warning 由 40 降為 38**:FE-GC-PR `frontend` job `✖ 38 problems (0 errors, 38 warnings)`(Wave 1 為 40)。

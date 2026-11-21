@@ -6,6 +6,8 @@ import dowob.xyz.stockwebv2.backtest.domain.BacktestResult;
 import dowob.xyz.stockwebv2.backtest.domain.BacktestStrategyId;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -167,6 +169,22 @@ class DeterministicBacktestEngineTest {
             .hasMessage("symbol is required");
     }
 
+    /**
+     * BE-CR-01:{@code CreateBacktestRunRequest} 允許的上下界極值(最小刻度 0.000001、上限 1e12)
+     * 以最長期間跑完不得拋例外 —— 下界在 {@code setScale(6)} 後仍 &gt; 0,drawdown 不會除以 0。
+     */
+    @ParameterizedTest(name = "initialCapital = {0} 以 FIVE_YEARS 正常完成")
+    @ValueSource(strings = {"0.000001", "1000000000000"})
+    void boundaryInitialCapitalRunsWithoutArithmeticFailure(String capital) {
+        BacktestEngineInput input = inputWithCapital(new BigDecimal(capital), BacktestPeriod.FIVE_YEARS);
+
+        assertThatCode(() -> engine.run(input)).doesNotThrowAnyException();
+        BacktestResult result = engine.run(input);
+        assertThat(result.equityCurve()).isNotEmpty();
+        assertThat(result.drawdownCurve()).isNotEmpty();
+        assertThat(result.monthlyReturns()).hasSize(60);
+    }
+
     private BacktestEngineInput input(BacktestPeriod period) {
         return input(BacktestStrategyId.CUSTOM, period, "function strategy({ bars }) { return null; }");
     }
@@ -183,11 +201,15 @@ class DeterministicBacktestEngineTest {
     }
 
     private BacktestEngineInput inputWithCapital(BigDecimal initialCapital) {
+        return inputWithCapital(initialCapital, BacktestPeriod.ONE_YEAR);
+    }
+
+    private BacktestEngineInput inputWithCapital(BigDecimal initialCapital, BacktestPeriod period) {
         return new BacktestEngineInput(
             42L,
             BacktestStrategyId.CUSTOM,
             "AAPL",
-            BacktestPeriod.ONE_YEAR,
+            period,
             initialCapital,
             "function strategy({ bars }) { return null; }"
         );

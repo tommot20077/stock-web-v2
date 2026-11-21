@@ -22,6 +22,8 @@ import dowob.xyz.stockwebv2.infrastructure.asset.AssetProfile;
 import dowob.xyz.stockwebv2.infrastructure.asset.AssetSummary;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -34,6 +36,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -127,6 +130,52 @@ class BacktestServiceTest {
         assertThatThrownBy(() -> service.createRun(1L, request("ma_cross", "AAPL", "3Y", null, null)))
             .isInstanceOfSatisfying(BusinessException.class, exception ->
                 assertThat(exception.errorCode()).isEqualTo(ErrorCode.BACKTEST_INVALID_INITIAL_CAPITAL));
+    }
+
+    /**
+     * BE-CR-01 縱深防禦：非 HTTP 呼叫端（繞過 Bean Validation）也不得把界外值送進引擎。
+     * engine 以「被呼叫就計數」的 lambda 注入，證明在 {@code engine.run} 之前就被擋下；
+     * 訊息必須是靜態字串、不回射輸入（安全審查 L-1）。
+     */
+    @ParameterizedTest(name = "initialCapital = {0} → BACKTEST_INVALID_INITIAL_CAPITAL")
+    @ValueSource(strings = {"1e999999999", "1000000000000.000001", "0.0000001"})
+    void outOfRangeCapitalIsRejectedBeforeEngine(String capital) {
+        assetFacade.activeSymbols.add("AAPL");
+        AtomicInteger engineCalls = new AtomicInteger();
+        BacktestService guardedService = new BacktestService(
+            repository,
+            input -> {
+                engineCalls.incrementAndGet();
+                throw new AssertionError("engine must not be called for out-of-range initialCapital");
+            },
+            new BacktestMapper(),
+            new StrategyValidator(),
+            assetFacade
+        );
+        BigDecimal initialCapital = new BigDecimal(capital);
+
+        assertThatThrownBy(() -> guardedService.createRun(1L, request("ma_cross", "AAPL", "3Y", initialCapital, null)))
+            .isInstanceOfSatisfying(BusinessException.class, exception -> {
+                assertThat(exception.errorCode()).isEqualTo(ErrorCode.BACKTEST_INVALID_INITIAL_CAPITAL);
+                assertThat(exception)
+                    .hasMessage("initialCapital must be at most 1000000000000 with at most 6 decimal places");
+                assertThat(exception.getMessage())
+                    .doesNotContain(capital)
+                    .doesNotContain(initialCapital.toString());
+            });
+        assertThat(engineCalls).hasValue(0);
+        assertThat(repository.savedResults).isEmpty();
+    }
+
+    @ParameterizedTest(name = "initialCapital = {0} → 成功")
+    @ValueSource(strings = {"100.00000000", "1000000000000"})
+    void boundaryCapitalWithinRangeIsAccepted(String capital) {
+        assetFacade.activeSymbols.add("AAPL");
+
+        BacktestRunDto run = service.createRun(1L, request("ma_cross", "AAPL", "3Y", new BigDecimal(capital), null));
+
+        assertThat(run.status()).isEqualTo("succeeded");
+        assertThat(repository.savedResults).hasSize(1);
     }
 
     @Test
