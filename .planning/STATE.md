@@ -216,6 +216,7 @@ Recent decisions affecting current work:
 |---|-------------|------|--------|-----------|
 | 261106-fbs | 小型修補合併批次:前端對比度 / 文案 / Markets 溢出、Top movers 基準幣、後端穩健性(04.1 WR-02/03、04.2 WR-02/04)、全面文件掃描 | 2026-11-06 | 70e7eb5 | [261106-fbs-small-fixes-batch-a-markets-640px-b-top-](./quick/261106-fbs-small-fixes-batch-a-markets-640px-b-top-/) |
 | 261107-1j4 | 小型修補批次 B:對比度 token(--accent-text / --success / --fg-mute)、日期下限與文案、移除訂單類型 / TIF、HoldingDto.market;04.2 審查收尾(WR-01/03/08/09/10、IN-01~09);2026-11-07 待辦裁決紀錄 | 2026-11-07 | eb2650a | [261107-1j4-small-fixes-batch-b-04-2-review-closeout](./quick/261107-1j4-small-fixes-batch-b-04-2-review-closeout/) |
+| 261121-dgr | CI Maven 快取 / Maven Central 429 修正:後端新增 deps 暖快取 job、其他 Maven job 唯讀還原、`.mvn/maven.config` resolver 重試 10 次;前端 Browser E2E 改 actions/cache + restore-keys(後端 76bb690、前端 988e489;CI 實跑待驗) | 2026-11-21 | 76bb690 | [261121-dgr-ci-maven-cache-429](./quick/261121-dgr-ci-maven-cache-429/) |
 
 ## Deferred Items
 
