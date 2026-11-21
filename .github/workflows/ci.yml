@@ -16,9 +16,84 @@ permissions:
   checks: write
 
 jobs:
+  # Maven 依賴快取的唯一寫入者。
+  # setup-java 的 cache: maven 讓所有 job 共用同一把 key、誰先跑完誰存;Lint 只跑 spotless,
+  # 會存下殘缺的快取，之後精確命中的 job 每次都要冷下載而撞 Maven Central 429;而且 job 失敗也照存。
+  # 這裡先用 lookup-only 查精確 key,命中就整個 job 秒過;未命中時先用 restore-keys 還原最近一份舊快取，
+  # 只補抓差額，預熱全部成功後才 save。下游 job 一律唯讀還原，key 由本 job 的 output 傳入，保證逐字相同。
+  # 預熱用 verify -DskipTests -Djacoco.skip=true 再加 stock-common test:skipTests 不會解析 surefire / failsafe
+  # 的 test provider,所以另跑一個小模組的測試補上;jacoco.skip 仍會載入 jacoco plugin 與 agent,只是不執行。
+  # .mvn/maven.config 把 resolver 對 429/503 的重試由預設 3 次調為 10 次(Maven 3.9.14 內建 resolver 1.9.27,
+  # 有 Retry-After 依其值，否則 5 秒 × 次數線性退避)。
+  deps:
+    name: Resolve Maven Dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      m2-key: ${{ steps.m2-probe.outputs.cache-primary-key }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Look up Maven cache
+        id: m2-probe
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.m2/wrapper
+          key: m2-${{ runner.os }}-${{ hashFiles('**/pom.xml', '.mvn/wrapper/maven-wrapper.properties') }}
+          lookup-only: true
+
+      - name: Set up Java 21
+        if: steps.m2-probe.outputs.cache-hit != 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Restore previous Maven cache
+        if: steps.m2-probe.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.m2/wrapper
+          key: ${{ steps.m2-probe.outputs.cache-primary-key }}
+          restore-keys: m2-${{ runner.os }}-
+
+      - name: Download Maven distribution (retry on rate limit)
+        if: steps.m2-probe.outputs.cache-hit != 'true'
+        run: |
+          for i in 1 2 3 4; do
+            ./mvnw -v > /dev/null && exit 0
+            echo "Maven 本體下載失敗(第 $i 次),$((i * 15)) 秒後重試"
+            sleep $((i * 15))
+          done
+          exit 1
+
+      - name: Resolve build and plugin dependencies
+        if: steps.m2-probe.outputs.cache-hit != 'true'
+        run: ./mvnw -B verify -DskipTests -Djacoco.skip=true --no-transfer-progress
+
+      - name: Resolve test provider
+        if: steps.m2-probe.outputs.cache-hit != 'true'
+        run: ./mvnw -B -pl stock-common test -Djacoco.skip=true --no-transfer-progress
+
+      - name: Save Maven cache
+        if: steps.m2-probe.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.m2/wrapper
+          key: ${{ steps.m2-probe.outputs.cache-primary-key }}
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    needs: deps
     timeout-minutes: 10
 
     steps:
@@ -30,20 +105,20 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-          cache: maven
 
-      # mvnw 是 only-script 模式，每次執行都會從 Maven Central 下載 Maven 本體;
-      # setup-java 的 cache: maven 只快取 ~/.m2/repository,不含 ~/.m2/wrapper。
-      # Maven Central 限流(HTTP 429)時 mvnw 會直接失敗，所以快取本體，未命中時先帶重試下載。
-      - name: Cache Maven wrapper distribution
-        id: mvnw-cache
-        uses: actions/cache@v4
+      # Maven 本體與依賴都在 deps 存的快取裡，未命中(例如 deps 的 save 失敗)時才帶重試下載。
+      - name: Restore Maven cache
+        id: m2-cache
+        uses: actions/cache/restore@v4
         with:
-          path: ~/.m2/wrapper
-          key: maven-wrapper-${{ hashFiles('.mvn/wrapper/maven-wrapper.properties') }}
+          path: |
+            ~/.m2/repository
+            ~/.m2/wrapper
+          key: ${{ needs.deps.outputs.m2-key }}
+          restore-keys: m2-${{ runner.os }}-
 
       - name: Download Maven distribution (retry on rate limit)
-        if: steps.mvnw-cache.outputs.cache-hit != 'true'
+        if: steps.m2-cache.outputs.cache-hit != 'true'
         run: |
           for i in 1 2 3 4; do
             ./mvnw -v > /dev/null && exit 0
@@ -60,6 +135,7 @@ jobs:
   unit:
     name: Unit Tests
     runs-on: ubuntu-latest
+    needs: deps
     timeout-minutes: 15
 
     steps:
@@ -71,17 +147,19 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-          cache: maven
 
-      - name: Cache Maven wrapper distribution
-        id: mvnw-cache
-        uses: actions/cache@v4
+      - name: Restore Maven cache
+        id: m2-cache
+        uses: actions/cache/restore@v4
         with:
-          path: ~/.m2/wrapper
-          key: maven-wrapper-${{ hashFiles('.mvn/wrapper/maven-wrapper.properties') }}
+          path: |
+            ~/.m2/repository
+            ~/.m2/wrapper
+          key: ${{ needs.deps.outputs.m2-key }}
+          restore-keys: m2-${{ runner.os }}-
 
       - name: Download Maven distribution (retry on rate limit)
-        if: steps.mvnw-cache.outputs.cache-hit != 'true'
+        if: steps.m2-cache.outputs.cache-hit != 'true'
         run: |
           for i in 1 2 3 4; do
             ./mvnw -v > /dev/null && exit 0
@@ -115,7 +193,7 @@ jobs:
     name: Integration Tests
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    needs: unit
+    needs: [deps, unit]
 
     steps:
       - name: Checkout
@@ -126,17 +204,19 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-          cache: maven
 
-      - name: Cache Maven wrapper distribution
-        id: mvnw-cache
-        uses: actions/cache@v4
+      - name: Restore Maven cache
+        id: m2-cache
+        uses: actions/cache/restore@v4
         with:
-          path: ~/.m2/wrapper
-          key: maven-wrapper-${{ hashFiles('.mvn/wrapper/maven-wrapper.properties') }}
+          path: |
+            ~/.m2/repository
+            ~/.m2/wrapper
+          key: ${{ needs.deps.outputs.m2-key }}
+          restore-keys: m2-${{ runner.os }}-
 
       - name: Download Maven distribution (retry on rate limit)
-        if: steps.mvnw-cache.outputs.cache-hit != 'true'
+        if: steps.m2-cache.outputs.cache-hit != 'true'
         run: |
           for i in 1 2 3 4; do
             ./mvnw -v > /dev/null && exit 0
@@ -172,7 +252,7 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    needs: integration
+    needs: [deps, integration]
 
     steps:
       - name: Checkout
@@ -183,17 +263,19 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-          cache: maven
 
-      - name: Cache Maven wrapper distribution
-        id: mvnw-cache
-        uses: actions/cache@v4
+      - name: Restore Maven cache
+        id: m2-cache
+        uses: actions/cache/restore@v4
         with:
-          path: ~/.m2/wrapper
-          key: maven-wrapper-${{ hashFiles('.mvn/wrapper/maven-wrapper.properties') }}
+          path: |
+            ~/.m2/repository
+            ~/.m2/wrapper
+          key: ${{ needs.deps.outputs.m2-key }}
+          restore-keys: m2-${{ runner.os }}-
 
       - name: Download Maven distribution (retry on rate limit)
-        if: steps.mvnw-cache.outputs.cache-hit != 'true'
+        if: steps.m2-cache.outputs.cache-hit != 'true'
         run: |
           for i in 1 2 3 4; do
             ./mvnw -v > /dev/null && exit 0
@@ -227,7 +309,7 @@ jobs:
     name: Browser E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: e2e
+    needs: [deps, e2e]
     # 跨 repo browser E2E 成本高(compose infra + 建置後端 + Playwright，約 8–10 分鐘)。
     # 僅在對 develop/main 的 PR 或 develop push 上跑,避免每個 feature 分支 push 都觸發。
     if: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/develop' }}
@@ -266,17 +348,19 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-          cache: maven
 
-      - name: Cache Maven wrapper distribution
-        id: mvnw-cache
-        uses: actions/cache@v4
+      - name: Restore Maven cache
+        id: m2-cache
+        uses: actions/cache/restore@v4
         with:
-          path: ~/.m2/wrapper
-          key: maven-wrapper-${{ hashFiles('backend/.mvn/wrapper/maven-wrapper.properties') }}
+          path: |
+            ~/.m2/repository
+            ~/.m2/wrapper
+          key: ${{ needs.deps.outputs.m2-key }}
+          restore-keys: m2-${{ runner.os }}-
 
       - name: Download Maven distribution (retry on rate limit)
-        if: steps.mvnw-cache.outputs.cache-hit != 'true'
+        if: steps.m2-cache.outputs.cache-hit != 'true'
         working-directory: backend
         run: |
           for i in 1 2 3 4; do

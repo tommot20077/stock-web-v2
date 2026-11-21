@@ -263,3 +263,13 @@ D-25 閘門通過:兩 repo develop CI 綠,Wave 2(05-13 起)可開始。§VER-01 
 - **前端 commit 已含在取證 head**:`a23f0fc`、`628aac5`(05-33,Yuan 要求把中文 i18n 文案的逗號全部改成全形,不改行為)都在取證 head `628aac5` 內,上列前端 CI 與後端 Browser E2E 都是在這兩個 commit 之後跑的。後端在 plan 工作之後另有 `e8478f1`(記錄 Yuan 決定:initialCapital 尾零超過 6 位小數仍回 HTTP 400)與 `0cff973`(STATE.md),兩者都只改文件,也都含在取證 head 內。
 - **前端 CI 只跑一種 data mode**:`frontend` job 只執行一次 `npm test`(未設 `VITE_DATA_MODE`,即 mock mode)。`VITE_DATA_MODE=api npm test` 不在 CI 裡,api mode 的 vitest 只有 05-33 Task 1 的本機閘門證據。
 - **前端 lint warning 由 40 降為 38**:FE-GC-PR `frontend` job `✖ 38 problems (0 errors, 38 warnings)`(Wave 1 為 40)。
+
+### Gap closure 合併後 develop
+
+| repo | 合併 | develop push run | 結論 |
+|------|------|------------------|------|
+| 前端 `tommot20077/stock-web-v2-front-end` | PR #24 → merge commit `0783da9`(2026-11-21,前端先) | **44885150492** | success |
+| 後端 `tommot20077/stock-web-v2` | PR #57 → merge commit `d4843ef`(2026-11-21,後端後) | **44886864147**(attempt 2) | success |
+
+- 後端 develop run attempt 1:Unit Tests 在「Download Maven distribution (retry on rate limit)」步驟因 Maven Central HTTP 429 失敗(Maven 本體未下載,測試未執行),Integration / E2E / Browser E2E 因此 skipped;Yuan 重跑後 attempt 2 全綠。根因(`cache: maven` 只存約 14 MB、develop 上 wrapper 快取未命中)由 quick task `261121-dgr` 處理。
+- 兩 repo 的 `claude/epic-curie-lj8alo` 已 fast-forward 至 develop。
